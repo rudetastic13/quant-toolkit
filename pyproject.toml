@@ -1,0 +1,65 @@
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "financial-pricing-instruments"
+version = "0.1.0"
+description = "A data science project for financial pricing instruments."
+authors = [{name = "Your Name", email = "your.email@example.com"}]
+license = "MIT"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=1.25",
+    "pandas>=2.2",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ruff>=0.12",
+    "mypy>=1.9",
+    "black>=24.0",
+    "hypothesis>=6.0",
+    "coverage>=7.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = ["--strict-markers", "--maxfail=1", "--cov=src"]
+markers = [
+    "unit: mark for unit test",
+    "hypothesis: mark for hypothesis test",
+    "datemath: mark test for date math",
+    "market_data: mark test for market data",
+    "instruments: mark test for instruments",
+    "risk: market test for risk analytics",
+    "slow: slow tests"
+]
+
+[tool.coverage.run]
+branch = true
+omit = ["tests/*", "setup.py"]
+
+[tool.coverage.report]
+show_missing = true
+fail_under = 80
+exclude_also = [
+    "raise NotImplementedError"
+]
+
+[tool.ruff]
+# linting config (used when ruff is installed as a dev dependency)
+include = ["src/**/*.py"]
+exclude = ["build", "dist", ".venv", ".eggs"]
+line-length = 120
+indent-width = 4
+target-version = "py311"
+select = ["E", "F", "W", "C90"]
+ignore = []
+fix = true
