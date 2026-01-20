@@ -4,19 +4,37 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "financial-pricing-instruments"
+name = "rates-pricing"
 version = "0.1.0"
-description = "A data science project for financial pricing instruments."
-authors = [{name = "Your Name", email = "your.email@example.com"}]
+description = "A data science project for financial pricing instruments, rate products."
+authors = [{name = "Carlos Garay", email = "cagaray13@gmail.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy>=1.25",
-    "pandas>=2.2",
-    "scipy>=1.11",
-    "matplotlib>=3.8",
+    "numpy",
+    "pandas",
+    "scipy",
+    "matplotlib",
 ]
+
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Topic :: Scientific/Engineering :: Information Analysis",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Operating System :: OS Independent",
+]
+keywords = ["finance", "pricing", "rates", "quant", "data-science"]
+
+[project.urls]
+"Homepage" = "https://github.com/rudetastic13/rates-pricing"
+"Repository" = "https://github.com/rudetastic13/rates-pricing"
+"Bug Tracker" = "https://github.com/rudetastic13/rates-pricing/issues"
+"Changelog" = "https://github.com/rudetastic13/rates-pricing/CHANGELOG.md"
+
 
 [project.optional-dependencies]
 dev = [
@@ -29,28 +47,62 @@ dev = [
     "coverage>=7.0",
 ]
 
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+license-files = ["LICENSE"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include=[
+    "core",
+    "core.*"
+]
 [tool.pytest.ini_options]
-testpaths = ["tests"]
-addopts = ["--strict-markers", "--maxfail=1", "--cov=src"]
+pythonpath=["src"]
+testpaths=[
+    "src/core/tests",
+]
+addopts = [
+    "--cov=core", # measure coverage for core package; add other packages as needed
+    "--cov-report=term-missing", # show missing lines in terminal
+    "--cov-report=xml:./pytest-reports/coverage.xml", # generate XML report
+    "--cov-report=html:./pytest-reports/coverage.html", # generate XML report
+    "junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
+]
 markers = [
+    # types
     "unit: mark for unit test",
     "hypothesis: mark for hypothesis test",
     "datemath: mark test for date math",
     "market_data: mark test for market data",
     "instruments: mark test for instruments",
     "risk: market test for risk analytics",
-    "slow: slow tests"
+    "performance: performance tests",
+
+    # Groups
+    "calculators: tests for pricing calculators",
+    "calibration: tests for model calibration",
+
+    # others
+    "slow: slow tests",
 ]
 
 [tool.coverage.run]
 branch = true
-omit = ["tests/*", "setup.py"]
+omit = [
+    "*/tests/*",
+    "\\tests\\*",
+    "*/data/*",
+    "*\\data\\*",
+    "setup.py"]
 
 [tool.coverage.report]
 show_missing = true
 fail_under = 80
 exclude_also = [
-    "raise NotImplementedError"
+    "raise NotImplementedError",
+    "@overload",
 ]
 
 [tool.ruff]
@@ -60,6 +112,25 @@ exclude = ["build", "dist", ".venv", ".eggs"]
 line-length = 120
 indent-width = 4
 target-version = "py311"
-select = ["E", "F", "W", "C90"]
+# enable pyflakes 'F' and subset of pycodestyle 'E' by default
+select = ["E4", "E7", "E9", "F"]
 ignore = []
-fix = true
+
+# allow anything to be fixed when running ruff --fix
+fixable=["ALL"]
+unfixable=[]
+
+
+# allow unsued varaibles when underscore-prefixed
+dummy-variable-rgx="^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+
+[tool.ruff.format]
+quote-style="double"
+indent-style="space"
+skip-magic-trailing-comma=false
+line-ending="auto"
+docstring-code-format=false
+docstring-code-line-length="dynamic"
+

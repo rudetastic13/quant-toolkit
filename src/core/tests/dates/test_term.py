@@ -4,7 +4,7 @@ import unittest
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal
-from dates import Term, TermType
+from core.dates import Term, TermType
 
 
 @pytest.mark.unittest

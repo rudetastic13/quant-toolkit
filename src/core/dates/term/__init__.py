@@ -4,7 +4,7 @@ from __future__ import annotations
 from functools import wraps
 import numpy as np
 from numpy.lib.mixins import NDArrayOperatorsMixin
-from dates.enums.term_type import TermType
+from core.dates.enums.term_type import TermType
 from typing import Callable, Any
 
 # region, numpy term

@@ -1,7 +1,7 @@
 import numpy as np
 
-from dates import Date, NP_EPOCH_ORDINAL
-from dates.enums import Frequency, Direction, Roll
+from core.dates import Date, NP_EPOCH_ORDINAL
+from core.dates.enums import Frequency, Direction, Roll
 
 DAY_MASK = np.array([1, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30], dtype=np.uint16)
 
