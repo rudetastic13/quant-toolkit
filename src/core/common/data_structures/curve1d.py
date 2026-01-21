@@ -2,7 +2,6 @@
 from enum import IntEnum, auto
 import numpy as np
 from numpy.typing import NDArray
-from pandas.io.formats.format import return_docstring
 
 IntArray = NDArray[np.integer]
 FloatArray = NDArray[np.floating]
@@ -12,7 +11,8 @@ class InterpolationType(IntEnum):
     Linear = auto()
     Flat = auto()
 
-class ExtrapolationType:
+class ExtrapolationType(IntEnum):
+    """Enumeration of extrapolation types for Curve1D"""
     NotAllowed = auto()
     Flat = auto()
 

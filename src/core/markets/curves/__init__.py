@@ -1,0 +1,1 @@
+from ._curve_impl import ZeroCurve
