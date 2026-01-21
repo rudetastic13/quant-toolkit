@@ -15,7 +15,6 @@ def _register_np_term_math(term_type: TermType) -> Callable:
     def _decorator(func: Callable) -> Callable:
         _NP_FUNC_MAP[term_type] = func
         return func
-
     return _decorator
 
 

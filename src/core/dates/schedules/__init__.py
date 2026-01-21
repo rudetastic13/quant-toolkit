@@ -1,0 +1,1 @@
+from vectorized import generate_schedule as vec_generate_schedule

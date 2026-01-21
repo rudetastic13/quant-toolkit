@@ -1,5 +1,24 @@
 from enum import IntEnum
 
+_INT_MAPPING = {
+    "Once": (-1, -1),
+    "Monthly": (1, 1),
+    "BiMonthly": (1, 2),
+    "Quarterly": (1, 3),
+    "SemiAnnually": (1, 6),
+    "Annually": (1, 12),
+    "TwoYearly": (1, 24),
+    "ThreeYearly": (1, 36),
+    "FiveYearly": (1, 60),
+    "SevenYearly": (1, 84),
+    "TenYearly": (1, 120),
+    "FifteenYearly": (1, 180),
+    "TwentyYearly": (1, 240),
+    "ThirtyYearly": (1, 360),
+    "Daily": (2, 1),
+    "Weekly": (2, 7),
+    "BiWeekly": (2, 14),
+}
 
 class Frequency(IntEnum):
     Once = 0
@@ -21,22 +40,4 @@ class Frequency(IntEnum):
     ThirtyYearly = 10800
 
     def int_based_mapping(self) -> tuple[int, int]:
-        return {
-            Frequency.Once: (-1, -1),
-            Frequency.Monthly: (1, 1),
-            Frequency.BiMonthly: (1, 2),
-            Frequency.Quarterly: (1, 3),
-            Frequency.SemiAnnually: (1, 6),
-            Frequency.Annually: (1, 12),
-            Frequency.TwoYearly: (1, 24),
-            Frequency.ThreeYearly: (1, 36),
-            Frequency.FiveYearly: (1, 60),
-            Frequency.SevenYearly: (1, 84),
-            Frequency.TenYearly: (1, 120),
-            Frequency.FifteenYearly: (1, 180),
-            Frequency.TwentyYearly: (1, 240),
-            Frequency.ThirtyYearly: (1, 360),
-            Frequency.Daily: (2, 1),
-            Frequency.Weekly: (2, 7),
-            Frequency.BiWeekly: (2, 14),
-        }
+        return _INT_MAPPING[self.name]

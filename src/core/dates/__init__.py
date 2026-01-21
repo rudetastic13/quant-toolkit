@@ -1,4 +1,4 @@
-from core.dates.date import Date, NP_EPOCH_ORDINAL
+from core.dates.date import Date
 from core.dates.term import Term
 from core.dates.enums import BDC, Roll, TermType, Direction
 
@@ -9,5 +9,4 @@ __all__ = [
     "Roll",
     "TermType",
     "Direction",
-    "NP_EPOCH_ORDINAL",
 ]
