@@ -3,7 +3,7 @@ import datetime
 import pandas as pd
 import numpy as np
 from common.testing import UnitTest
-from finance.dates import Date
+from finance.dates.date import Date
 
 class TestDate(UnitTest):
     COVERAGE = ["finance.dates.date"]

@@ -1,4 +1,5 @@
 """Generic registry for stroring and retrieving objects"""
+import inspect
 from collections.abc import Callable
 from typing import (
     TypeVar,
@@ -41,6 +42,46 @@ class Registry(Generic[T]):
 
     def all(self) -> dict[Hashable, T]:
         return self._registry.copy()
+
+class RegistryError(Exception):
+
+    def __init__(self, key: Hashable, obj_type: str, original_exception: Exception):
+        super().__init__(f"Failed to {obj_type} registered with key '{key}': {str(original_exception)}")
+        self.key = key
+        self.obj_type = obj_type
+        self.original_exception = original_exception
+
+
+def get_and_execute(
+    registry: Registry[Callable[..., R]], # maybe typing should be Registry[T]
+    key: T,
+    *args,
+    **kwargs
+) -> Any:
+    obj = registry.get(key)
+    if obj is None:
+        raise KeyError(f"Key '{key}' not found in registry '{registry.name}'")
+    try:
+        if callable(obj):
+            return obj(*args, **kwargs)
+        else:
+            return obj
+    except Exception as e:
+        obj_dtype = "instantiate" if inspect.isclass(obj) else "execute"
+        raise RegistryError(key, obj_dtype, e) from e
+
+def create_factory(
+    registry: Registry[Callable[..., R]],
+    *default_args,
+    **default_kwargs,
+) -> R:
+    def _factory(key: T, *args, **kwargs) -> Any:
+        all_args = (*default_args, *args)
+        all_kwargs = {**default_kwargs, **kwargs}
+        return get_and_execute(registry, key, *all_args, **all_kwargs)
+    _factory.__name__ = f"{registry.name.lower().replace(' ', '_')}_factory"
+    _factory__doc__ = f"Factory function under registry '{registry.name}'"
+    return _factory
 
 def register_with(
     registry: Registry[T],

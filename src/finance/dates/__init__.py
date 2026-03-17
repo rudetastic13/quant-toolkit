@@ -1,6 +1,6 @@
 from finance.dates.date import Date
-from finance.dates.term import Term
-from finance.dates.enums import BDC, Roll, TermType, Direction
+from finance.dates.term import Term, TermType
+from finance.dates.enums import BDC, Roll, Direction, Frequency
 
 __all__ = [
     "Date",
@@ -9,4 +9,5 @@ __all__ = [
     "Roll",
     "TermType",
     "Direction",
+    "Frequency",
 ]
