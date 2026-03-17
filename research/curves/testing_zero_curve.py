@@ -2,13 +2,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.core.dates.date import Date
-from src.core.markets.curves.types import (
+from src.finance.dates.date import Date
+from src.finance.markets.curves.types import (
     ValueType,
     CurveInterpolator,
     CurveExtrapolator,
 )
-from src.core.markets.curves._curve_impl.zero_curve import ZeroCurve
+from src.finance.markets.curves._curve_impl.zero_curve import ZeroCurve
 
 
 def _make_example_inputs(curve_date: Date):

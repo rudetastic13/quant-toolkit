@@ -1,10 +1,9 @@
-
 [build-system]
 requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rates-pricing"
+name = "quant-toolkit"
 version = "0.1.0"
 description = "A data science project for financial pricing instruments, rate products."
 authors = [{name = "Carlos Garay", email = "cagaray13@gmail.com"}]
@@ -16,13 +15,14 @@ dependencies = [
     "pandas",
     "scipy",
     "matplotlib",
+    "pytest",
+    "pyest-cov",
 ]
 
 classifiers = [
   "Development Status :: 3 - Alpha",
   "Intended Audience :: Developers",
   "Topic :: Scientific/Engineering :: Information Analysis",
-  "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",
   "Operating System :: OS Independent",
@@ -45,30 +45,35 @@ dev = [
     "black>=24.0",
     "hypothesis>=6.0",
     "coverage>=7.0",
+    "pytest-ruff",
 ]
 
 
 [tool.setuptools]
 package-dir = {"" = "src"}
-license-files = ["LICENSE"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 include=[
-    "core",
-    "core.*"
+    "finance",
+    "finance.*",
+    "common",
+    "common.*",
+    "quant_toolkit",
+    "quant_toolkit.*",
 ]
 [tool.pytest.ini_options]
 pythonpath=["src"]
 testpaths=[
-    "src/core/tests",
+    "src/tests",
 ]
 addopts = [
-    "--cov=core", # measure coverage for core package; add other packages as needed
+    "--cov=finance", # measure coverage for finance package
+    "--cov=common", # measure coverage for common package
     "--cov-report=term-missing", # show missing lines in terminal
     "--cov-report=xml:./pytest-reports/coverage.xml", # generate XML report
     "--cov-report=html:./pytest-reports/coverage.html", # generate XML report
-    "junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
+    "--junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
 ]
 markers = [
     # types
@@ -79,6 +84,8 @@ markers = [
     "instruments: mark test for instruments",
     "risk: market test for risk analytics",
     "performance: performance tests",
+    "integration: mark for integration tests",
+    "regression: mark for regression tests",
 
     # Groups
     "calculators: tests for pricing calculators",
@@ -116,7 +123,7 @@ target-version = "py311"
 select = ["E4", "E7", "E9", "F"]
 ignore = []
 
-# allow anything to be fixed when running ruff --fix
+# allow anything to be fixed when ruff --fix
 fixable=["ALL"]
 unfixable=[]
 
@@ -133,4 +140,3 @@ skip-magic-trailing-comma=false
 line-ending="auto"
 docstring-code-format=false
 docstring-code-line-length="dynamic"
-
