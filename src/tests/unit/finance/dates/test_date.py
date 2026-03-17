@@ -189,6 +189,17 @@ class TestDate(UnitTest):
         self.assertTrue(Date(2025, 2, 13) >= Date(2025, 2, 13))
         self.assertFalse(Date(2025, 2, 13) >= Date(2025, 2, 14))
 
+        with self.assertRaises(TypeError):
+            _ = Date(2025, 2, 13) < "2025-02-14"
+
+    def test_repr(self):
         result = repr(Date(2025, 2, 13))
         expected = "Date(2025, 2, 13)"
         self.assertEqual(result, expected)
+
+    def test_hash(self):
+        date1 = Date(2025, 2, 13)
+        date2 = Date(2025, 2, 13)
+        date3 = Date(2025, 2, 14)
+        self.assertEqual(hash(date1), hash(date2))
+        self.assertNotEqual(hash(date1), hash(date3))

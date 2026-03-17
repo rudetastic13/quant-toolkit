@@ -7,21 +7,10 @@ from finance.dates.schedules.helpers import (
     _DAYS_IN_MONTH_YEAR,
     _MONTH_TO_DAYS_OFFSET, ymd_from_days
 )
+from common.array_buffer import ArrayBuffer
 
-class _AllocatedArray:
-    def __init__(self):
-        self.array = np.empty(5_000_000, dtype=np.int32)
-        self.current_idx = 0
 
-    def get_slice(self, size: int) -> np.ndarray:
-        arr = self.array[self.current_idx:self.current_idx + size]
-        self.current_idx += size
-        return arr
-
-    def reset(self):
-        self.current_idx = 0
-
-_Allocated_Cache = _AllocatedArray()
+_Allocated_Cache = ArrayBuffer(size=5_000_000, dtype=np.int32)
 
 def generate_schedule(
     start_date: Date,
@@ -37,10 +26,11 @@ def generate_schedule(
     end_int = end_date.to_ordinal()
     first_int = first_regular_date.to_ordinal() if first_regular_date else start_int
     last_int = last_regular_date.to_ordinal() if last_regular_date else end_int
+    assert start_int <= first_int <= last_int <= end_int, "Date ordering is incorrect"
     freq_type, freq_value = frequency.int_based_mapping()
 
     if freq_type == -1:
-        return np.array([start_date.to_numpy(), end_date.to_numpy()], dtype="datetime64[D]")
+        return np.array([start_int, end_int], dtype="datetime64[D]")
 
     # get date bounds
     if direction == Direction.Forward:
@@ -72,8 +62,12 @@ def generate_schedule(
         # derive month-based index
         np.add(arr, m - 1, out=arr)
         np.add(arr, y * 12, out=arr)
+
+        # derive years from month epoc
         years = _Allocated_Cache.get_slice(arr_size)
         np.floor_divide(arr, 12, out=years)
+
+        # derive months from month epoch
         months = _Allocated_Cache.get_slice(arr_size)
         np.mod(arr, 12, out=months)
         np.add(months, 1, out=months)
@@ -126,32 +120,3 @@ def generate_schedule(
 
     # done
     return res.astype("datetime64[D]")
-
-
-    arr_size = guess_array_size(anchor, last_int, freq_type, freq_value)
-
-    out = _Allocated_Cache.get_slice(arr_size)
-
-    if freq_type == 2:
-        np.multiply(np.arange(start=-2, stop=arr_size, dtype=np.int32), step, out=out)
-        np.add(out, anchor, out=out)
-    elif freq_type == 1:
-        y, m, d = Date.from_ordinal(anchor).to_ymd()
-        roll_int = roll_convention.value
-        if roll_int == 0:
-            if d == _DAYS_IN_MONTH_YEAR[y, m]:
-                roll_int = -1
-            else:
-                roll_int = d
-        month_idx_seq = np.arange(start=-2, stop=arr_size, dtype=np.int32)
-        np.multiply(month_idx_seq, step, out=month_idx_seq)
-        np.add(month_idx_seq, m - 1, out=month_idx_seq)
-        np.add(month_idx_seq, y * 12, out=month_idx_seq)
-
-        # get years
-        years = out
-        np.floor_divide(month_idx_seq, 12, out=years)
-        # get months
-        months = month_idx_seq
-        np.mod(month_idx_seq, 12
-)
