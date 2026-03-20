@@ -1,3 +1,5 @@
+"""Define the registry and factories for the term math operations"""
+
 from typing import TypeVar, Callable
 import numpy as np
 import numpy.typing as npt
@@ -22,10 +24,12 @@ _date_based_registry: Registry[Callable[[Date, int], Date]] = Registry("Simple D
 
 @register_with(_date_based_registry, TermType.Days)
 def _add_days(dt: Date, value: int | IntScalar) -> Date:
+    """Simple adding of days to a date"""
     return Date.from_ordinal(dt.to_ordinal() + value)
 
 @register_with(_date_based_registry, TermType.Weeks)
 def _add_weeks(dt: Date, value: int | IntScalar) -> Date:
+    """Adding weeks to a date"""
     return _add_days(dt, value * 7)
 
 @register_with(_date_based_registry, TermType.Months)
@@ -61,16 +65,17 @@ _numpy_registry: Registry[Callable[[IntNpt, DateNpT], Date]] = Registry("Numpy D
 
 @register_with(_numpy_registry, TermType.Days)
 def _add_np_days(dt: DateNpT, value: IntNpt) -> DateNpT:
-    return dt + value.astype("timedelta[D]")
+    return dt + value.astype("timedelta64[D]")
 
 @register_with(_numpy_registry, TermType.Weeks)
 def _add_np_weeks(dt: DateNpT, value: IntNpt) -> DateNpT:
-    return _add_weeks(dt, value * 7)
+
+    return _add_np_days(dt, value * 7)
 
 @register_with(_numpy_registry, TermType.Months)
 def _add_np_months(dt: DateNpT, value: IntNpt) -> DateNpT:
     start = dt.astype("datetime64[M]")
-    target = start + value.astype("timedelta[M]")
+    target = start + value.astype("timedelta64[M]")
     days = (dt - start) + 1
     days_in_target = (target + np.timedelta64(1, "M")).astype("datetime64[D]") - target
     days_clamped = np.minimum(days, days_in_target)

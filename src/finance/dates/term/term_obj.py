@@ -50,6 +50,13 @@ def _validate_term_input(func: Callable) -> Any:
 class Term(Generic[IntT], NDArrayOperatorsMixin):
 
     def __init__(self, term_length: IntT, term_type: TermType):
+        term_length_dtype = getattr(term_length, "dtype", type(term_length))
+        is_int = term_length_dtype is int or np.issubdtype(term_length_dtype, np.integer)
+
+        if not is_int:
+            raise TypeError(f"Input term_length must be int like, got {term_length_dtype}")
+        if not type(term_type) is TermType:
+            raise TypeError(f"Input term_type must be of type TermType, got {type(term_type)}")
         self.term_info = (term_length, term_type)
 
     @property
@@ -59,6 +66,18 @@ class Term(Generic[IntT], NDArrayOperatorsMixin):
     @property
     def term_type(self):
         return self.term_info[1]
+
+    @property
+    def shape(self):
+        if type(self.term_length) is int:
+            return ()
+        return self.term_length.shape
+
+    @property
+    def size(self):
+        if type(self.term_length) is int:
+            return 1
+        return self.term_length.size
 
     @overload
     def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateT, "Term[int]"], **kwargs) -> DateScalar:
@@ -90,7 +109,7 @@ class Term(Generic[IntT], NDArrayOperatorsMixin):
     def from_str(cls, value: str) -> Term:
         if match:= re.match(r"(-?\d+)\s*([a-zA-Z]+)", value):
             term_length = int(match.group(1))
-            term_type = TermType(match.group(2))
+            term_type = TermType(match.group(2)[0].upper())
             return cls(term_length, term_type)
 
         raise SyntaxError(f"Could not parse Term {value}")
