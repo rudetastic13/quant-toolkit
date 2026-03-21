@@ -1,39 +1,33 @@
 """Define the registry and factories for the term math operations"""
 
-from typing import TypeVar, Callable
+from typing import Callable, cast
 import numpy as np
-import numpy.typing as npt
 from common.registry import Registry, register_with, create_factory
 from finance.dates import Date
 from .term_type import TermType
 from finance.dates.schedules.helpers import _DAYS_IN_MONTH_YEAR
+from finance.dates.types import (
+    IntScalar,
+    IntNpType,
+    DateNpType
+)
 
-
-# define types
-IntScalar = np.int64
-IntArray = npt.NDArray[np.int64]
-DateScalar = np.datetime64
-DateArray = npt.NDArray[np.datetime64]
-DateNpT = TypeVar("DateNpT", bound=DateScalar | DateArray)
-IntNpt = TypeVar("IntNpt", bound=IntScalar | IntArray)
-DateT = TypeVar("DateT", bound=DateScalar | DateArray | Date)
-IntT = TypeVar("IntT", bound=IntScalar | IntArray | int)
 
 # region, simple date registry
 _date_based_registry: Registry[Callable[[Date, int], Date]] = Registry("Simple Date Based Registry")
 
 @register_with(_date_based_registry, TermType.Days)
-def _add_days(dt: Date, value: int | IntScalar) -> Date:
+def _add_days(dt: Date, value: IntScalar) -> Date:
     """Simple adding of days to a date"""
     return Date.from_ordinal(dt.to_ordinal() + value)
 
 @register_with(_date_based_registry, TermType.Weeks)
-def _add_weeks(dt: Date, value: int | IntScalar) -> Date:
+def _add_weeks(dt: Date, value: IntScalar) -> Date:
     """Adding weeks to a date"""
     return _add_days(dt, value * 7)
 
 @register_with(_date_based_registry, TermType.Months)
-def _add_months(dt: Date, value: int | IntScalar) -> Date:
+def _add_months(dt: Date, value: IntScalar) -> Date:
     month = dt.month - 1 + value
     year = dt.year + month // 12
     month = month % 12 + 1
@@ -43,11 +37,11 @@ def _add_months(dt: Date, value: int | IntScalar) -> Date:
     return Date(year, month, day)
 
 @register_with(_date_based_registry, TermType.Quarters)
-def _add_quarters(dt: Date, value: int | IntScalar) -> Date:
+def _add_quarters(dt: Date, value: IntScalar) -> Date:
     return _add_months(dt, value * 3)
 
 @register_with(_date_based_registry, TermType.Years)
-def _add_years(dt: Date, value: int | IntScalar) -> Date:
+def _add_years(dt: Date, value: IntScalar) -> Date:
     year = dt.year + value
     try:
         return Date(year, dt.month, dt.day)
@@ -55,25 +49,24 @@ def _add_years(dt: Date, value: int | IntScalar) -> Date:
         return Date(year, dt.month, 28)
 
 @register_with(_date_based_registry, TermType.BusinessDays)
-def _add_business_days(dt: Date, value: int | IntScalar) -> Date:
+def _add_business_days(*_args, **_kwargs) -> Date:
     raise ArithmeticError("Business day addition requires calendar, invalid in term operations!")
 
 # endregion
 
 # region, numpy-based term math
-_numpy_registry: Registry[Callable[[IntNpt, DateNpT], Date]] = Registry("Numpy Date Based Registry")
+_numpy_registry: Registry[Callable[[DateNpType, IntNpType], DateNpType]] = Registry("Numpy Date Based Registry")
 
 @register_with(_numpy_registry, TermType.Days)
-def _add_np_days(dt: DateNpT, value: IntNpt) -> DateNpT:
+def _add_np_days(dt: DateNpType, value: IntNpType) -> DateNpType:
     return dt + value.astype("timedelta64[D]")
 
 @register_with(_numpy_registry, TermType.Weeks)
-def _add_np_weeks(dt: DateNpT, value: IntNpt) -> DateNpT:
-
+def _add_np_weeks(dt: DateNpType, value: IntNpType) -> DateNpType:
     return _add_np_days(dt, value * 7)
 
 @register_with(_numpy_registry, TermType.Months)
-def _add_np_months(dt: DateNpT, value: IntNpt) -> DateNpT:
+def _add_np_months(dt: DateNpType, value: IntNpType) -> DateNpType:
     start = dt.astype("datetime64[M]")
     target = start + value.astype("timedelta64[M]")
     days = (dt - start) + 1
@@ -82,16 +75,17 @@ def _add_np_months(dt: DateNpT, value: IntNpt) -> DateNpT:
     return target.astype("datetime64[D]") + days_clamped - 1
 
 @register_with(_numpy_registry, TermType.Quarters)
-def _add_np_quarters(dt: DateNpT, value: IntNpt) -> DateNpT:
+def _add_np_quarters(dt: DateNpType, value: IntNpType) -> DateNpType:
     return _add_np_months(dt, value * 3)
 
 @register_with(_numpy_registry, TermType.Years)
-def _add_np_years(dt: DateNpT, value: IntNpt) -> DateNpT:
+def _add_np_years(dt: DateNpType, value: IntNpType) -> DateNpType:
     return _add_np_months(dt, value * 12)
 
 @register_with(_numpy_registry, TermType.BusinessDays)
 def _add_np_business_days(*_args, **_kwargs) -> None:
-    return _add_business_days(*_args, **_kwargs)
+    raise ArithmeticError("Business day addition requires calendar, invalid in term operations!")
+
 
 # endregion
 

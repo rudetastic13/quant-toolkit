@@ -6,15 +6,15 @@ import numpy as np
 from numpy.lib.mixins import NDArrayOperatorsMixin
 from finance.dates.date import Date
 from finance.dates.enums.frequencies import Frequency
-from .term_math_registry import (
-    date_term_math,
-    np_term_math,
-    IntT,
-    DateT,
+from finance.dates.types import (
+    IntType,
+    IntNpType,
+    IntScalar,
     DateScalar,
-    DateNpT,
-    IntNpt
+    DateNpType,
+    DateType
 )
+from .term_math_registry import date_term_math, np_term_math
 from .term_type import TermType
 
 # constant mapping of frequencies to term
@@ -47,9 +47,17 @@ def _validate_term_input(func: Callable) -> Any:
     return wrapper
 # endregion
 
-class Term(Generic[IntT], NDArrayOperatorsMixin):
+class Term(Generic[IntType], NDArrayOperatorsMixin):
 
-    def __init__(self, term_length: IntT, term_type: TermType):
+    @overload
+    def __init__(self, term_length: int, term_type: TermType):
+        ...
+
+    @overload
+    def __init__(self, term_length: IntNpType, term_type: TermType):
+        ...
+
+    def __init__(self, term_length: IntType, term_type: TermType):
         term_length_dtype = getattr(term_length, "dtype", type(term_length))
         is_int = term_length_dtype is int or np.issubdtype(term_length_dtype, np.integer)
 
@@ -80,14 +88,18 @@ class Term(Generic[IntT], NDArrayOperatorsMixin):
         return self.term_length.size
 
     @overload
-    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateT, "Term[int]"], **kwargs) -> DateScalar:
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[Date, "Term[int]"], **kwargs) -> Date:
         ...
 
     @overload
-    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateNpT, "Term[IntNpt]"], **kwargs) -> DateNpT:
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateScalar, "Term[IntScalar]"], **kwargs) -> DateScalar:
         ...
 
-    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs, **kwargs) -> DateT:
+    @overload
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateNpType, "Term[IntNpType]"], **kwargs) -> DateNpType:
+        ...
+
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs, **kwargs) -> DateType:
         dates, _ = inputs
         if type(dates) is Date:
             if ufunc == np.subtract:
