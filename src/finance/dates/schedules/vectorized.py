@@ -22,10 +22,10 @@ def generate_schedule(
     direction: Direction = Direction.Forward,
 ) -> np.ndarray:
     """Use numpy to generate a naive schedule array based on frequency and roll convention"""
-    start_int = start_date.to_ordinal()
-    end_int = end_date.to_ordinal()
-    first_int = first_regular_date.to_ordinal() if first_regular_date else start_int
-    last_int = last_regular_date.to_ordinal() if last_regular_date else end_int
+    start_int = start_date.toordinal()
+    end_int = end_date.toordinal()
+    first_int = first_regular_date.toordinal() if first_regular_date else start_int
+    last_int = last_regular_date.toordinal() if last_regular_date else end_int
     assert start_int <= first_int <= last_int <= end_int, "Date ordering is incorrect"
     freq_type, freq_value = frequency.int_based_mapping()
 

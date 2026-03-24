@@ -19,7 +19,7 @@ _date_based_registry: Registry[Callable[[Date, int], Date]] = Registry("Simple D
 @register_with(_date_based_registry, TermType.Days)
 def _add_days(dt: Date, value: IntScalar) -> Date:
     """Simple adding of days to a date"""
-    return Date.from_ordinal(dt.to_ordinal() + value)
+    return Date.fromordinal(dt.toordinal() + value)
 
 @register_with(_date_based_registry, TermType.Weeks)
 def _add_weeks(dt: Date, value: IntScalar) -> Date:

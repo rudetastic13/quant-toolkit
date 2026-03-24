@@ -1,6 +1,7 @@
 """Date composition class"""
 from __future__ import annotations
 import datetime
+from dataclasses import dataclass
 from dateutil.parser import parse
 import numpy as np
 import pandas as pd
@@ -10,34 +11,36 @@ _NP_EPOCH_ORDINAL = datetime.date(1970, 1, 1).toordinal
 
 _MONTHS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 _MONTHS_THIRTY_ONE = {1, 3, 5, 7, 8, 10, 12}
+_CIVIL_TO_ISO_WEEKDAY = [6, 0, 1, 2, 3, 4, 5] # [0,6] [Sun, Sat], we shift [0, 6] [Mon, Sun]
 
+@dataclass(slots=True)
 class Date:
     """Date class, we apply composition to generate outputs as desired"""
+    year: int
+    month: int
+    day: int
 
-    def __init__(self, year, month, day):
-        if month not in _MONTHS:
-            raise ValueError(f"Invalid month {month!r}")
-        if month == 2:
-            if (year % 4 == 0 and year % 100 != 0) or (year % 400) == 0:
+
+    def __post_init__(self):
+        if self.month not in _MONTHS:
+            raise ValueError(f"Invalid month {self.month!r}")
+        if self.month == 2:
+            if (self.year % 4 == 0 and self.year % 100 != 0) or (self.year % 400) == 0:
                 boundary = 29
             else:
                 boundary = 28
-        elif month in _MONTHS_THIRTY_ONE:
+        elif self.month in _MONTHS_THIRTY_ONE:
             boundary = 31
         else:
             boundary = 30
-        if not (1 <= day <= boundary):
-            raise ValueError(f"Invalid day {day!r}")
-        if not (1 <= year <= 9_999):
-            raise ValueError(f"Invalid year {year!r}")
-        self._ordinal_month_days = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334]
-        self.year = year
-        self.month = month
-        self.day = day
+        if not (1 <= self.day <= boundary):
+            raise ValueError(f"Invalid day {self.day!r}")
+        if not (1 <= self.year <= 9_999):
+            raise ValueError(f"Invalid year {self.year!r}")
 
     #region, to-converters
-    def to_ymd(self):
-        return (self.year, self.month, self.day)
+    def to_ymd(self) -> tuple[int, int, int]:
+        return self.year, self.month, self.day
 
     def to_str(self) -> str:
         """Convert date tuple to iso-format date in YYYY-MM-DD format"""
@@ -65,7 +68,7 @@ class Date:
         """Convert date to datetime.datetime"""
         return datetime.datetime(*self.to_ymd())
 
-    def to_ordinal(self) -> int:
+    def toordinal(self) -> int:
         """Epoch is 1970-01-01, numpy style"""
         y, m, d = self.to_ymd()
         yy = y - (1 if m <= 2 else 0)
@@ -75,6 +78,7 @@ class Date:
         doy = (153 * mp + 2) // 5 + d - 1
         doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
         return era * 146_097 + doe - _MARCH_EPOCH
+
     # endregion
 
     # region, from-converters
@@ -113,7 +117,7 @@ class Date:
         return cls(dt.year, dt.month, dt.day)
 
     @classmethod
-    def from_ordinal(cls, days: int) -> Date:
+    def fromordinal(cls, days: int) -> Date:
         """Epoch from 1970-01-01, so day 0 is 1970-01-01"""
         z = days + _MARCH_EPOCH
         era = z // 146_097
@@ -127,10 +131,25 @@ class Date:
         y = y + (m <= 2)
         return cls(y, m, d)
 
+    # endregion
+
+    # region, common interface methods
     @classmethod
     def today(cls):
         dt = datetime.date.today()
         return cls(dt.year, dt.month, dt.day)
+
+    def weekday(self) -> int:
+        """Return the weekday, where [0,6] is [Sun,Sat]"""
+        # ordinal 0 is 1970-01-01 which is a Thursday (weekday 3)
+        z = self.toordinal()
+        return (z + 4) % 7 if z >= -4 else (z + 5) % 7 + 6
+
+    def isoweekday(self) -> int:
+        return _CIVIL_TO_ISO_WEEKDAY[self.weekday()]
+
+    def isoformat(self) -> str:
+        return self.to_str()
     # endregion
 
     # region, mutation
@@ -180,4 +199,6 @@ class Date:
         y, m, d = self.to_ymd()
         return f"Date({y:d}, {m:d}, {d:d})"
 
+    def __str__(self) -> str:
+        return self.to_str()
     # endregion

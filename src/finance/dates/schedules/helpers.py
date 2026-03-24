@@ -25,11 +25,11 @@ _DAYS_IN_MONTH_YEAR, _IS_LEAP_YEAR, _MONTH_TO_DAYS_OFFSET = _setup_lookup_arrays
 _MARCH_EPOCH = 719_468
 
 def ymd_from_days(days: int) -> tuple[int, int, int]:
-    return Date.from_ordinal(days).to_ymd()
+    return Date.fromordinal(days).to_ymd()
 
 def days_from_ymd(y: int, m: int, d: int) -> int:
     # adjust month/year for march-based calculation
-    return Date(y, m, d).to_ordinal()
+    return Date(y, m, d).toordinal()
 
 def days_to_month_index(days: int) -> tuple[int, int]:
     y, m, d = ymd_from_days(days)

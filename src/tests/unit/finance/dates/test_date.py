@@ -39,6 +39,27 @@ class TestDate(UnitTest):
                 with self.assertRaises(ValueError):
                     _ = Date(*case)
 
+    def test_weekday(self):
+        cases = [
+            (0, Date(2026, 3, 22)), # Sunday
+            (1, Date(2026, 3, 23)), # Monday
+            (2, Date(2026, 3, 24)), # Tuesday
+            (3, Date(2026, 3, 25)), # Wednesday
+            (4, Date(2026, 3, 26)), # Thursday
+            (5, Date(2026, 3, 27)), # Friday
+            (6, Date(2026, 3, 28)), # Saturday
+            (4, Date(1970, 1, 1)), # Thursday
+            (3, Date(1969, 12, 31)), # Wednesday
+            (2, Date(1969, 12, 30)), # Tuesday
+            (1, Date(1969, 12, 29)), # Monday
+            (0, Date(1969, 12, 28)), # Sunday
+        ]
+        for case in cases:
+            weekday = case[0]
+            dt = case[1]
+            with self.subTest(case=f"Testing date weekday for {dt}"):
+                self.assertEqual(dt.weekday(), weekday)
+
     def test_to_ymd(self):
         """Testing to ymd"""
         for case in self.cases:
@@ -88,7 +109,7 @@ class TestDate(UnitTest):
             with self.subTest(msg=f"Testing Date to_pandas with year, month, day {case}"):
                 my_date = Date(*case)
                 dt = datetime.date(*case)
-                self.assertEqual(my_date.to_ordinal(), dt.toordinal() - EPOCH)
+                self.assertEqual(my_date.toordinal(), dt.toordinal() - EPOCH)
 
     def test_to_date(self):
         for case in self.cases:
@@ -145,10 +166,10 @@ class TestDate(UnitTest):
     def test_from_ordinal(self):
         EPOCH = datetime.date(1970, 1, 1).toordinal()
         for case in self.cases:
-            with self.subTest(msg=f"Testing Date from_ordinal with year, month, day {case}"):
+            with self.subTest(msg=f"Testing Date fromordinal with year, month, day {case}"):
                 dt = datetime.date(*case)
                 ordinal = dt.toordinal() - EPOCH
-                date = Date.from_ordinal(ordinal)
+                date = Date.fromordinal(ordinal)
                 self.assertEqual(date.to_ymd(), case)
 
     def test_from_date(self):
@@ -195,6 +216,11 @@ class TestDate(UnitTest):
     def test_repr(self):
         result = repr(Date(2025, 2, 13))
         expected = "Date(2025, 2, 13)"
+        self.assertEqual(result, expected)
+
+    def test_str(self):
+        result = str(Date(2025, 2, 13))
+        expected = "2025-02-13"
         self.assertEqual(result, expected)
 
     def test_hash(self):
