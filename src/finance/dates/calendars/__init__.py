@@ -1,6 +1,7 @@
 """Module for calendar definitions and singleton calendar instances"""
-from finance.dates.calendars.calendar import GenericCalendar, StaticCalendar
+from typing import TypeVar, Generic
 from common.singleton import Singleton
+from finance.dates.calendars.calendar import Calendar, StaticCalendar
 
 # define the no holidays calendar instance
 NoHolidaysCalendar = StaticCalendar(
@@ -11,30 +12,31 @@ NoHolidaysCalendar = StaticCalendar(
 
 class Calendars(Singleton):
     """The calendars singleton registry"""
-    _calendars: dict[str, GenericCalendar] = {}
-    _initialized: bool = False
+    _calendars: dict[str, Calendar] = {}
 
     def __init__(self):
-        if not Calendars._initialized:
-            Calendars._calendars["no_holidays"] = NoHolidaysCalendar
-            Calendars._initialized = True
-
+        Calendars._calendars["no_holidays"] = NoHolidaysCalendar
 
     @classmethod
-    def register(cls, name: str, cal: GenericCalendar) -> None:
+    def register(cls, cal: Calendar) -> None:
         """Register a calendar with a name"""
-        cls._calendars[name.lower()] = cal
+        cls._calendars[cal.name.lower()] = cal
 
     @classmethod
-    def get(cls, name: str) -> GenericCalendar:
+    def get(cls, name: str) -> Calendar:
         """Get a calendar by name"""
         if "+" in name:
             parts = [p.strip().lower() for p in name.split("+")]
-            combined = cls._calendars[parts[0]]
-            for part in parts[1:]:
-                combined = combined + cls._calendars[part]
-            name = " + ".join(parts)
-            cls.register(name, combined)
+            parts.sort()
+            joined_name = "+".join(parts)
+            if joined_name in cls._calendars:
+                return cls._calendars[joined_name]
+            else:
+                combined = cls._calendars[parts[0]]
+                for part in parts[1:]:
+                    combined = combined + cls._calendars[part]
+                cls.register(combined)
+                name = joined_name
         return cls._calendars[name]
 
     @classmethod
@@ -45,9 +47,9 @@ class Calendars(Singleton):
     def clear(cls) -> None:
         """Clear all registered calendars - for testing purposes only"""
         cls._calendars.clear()
-        cls._initialized = False
+        del cls._instances[cls]
 
 __all__ = [
-    "GenericCalendar",
+    "Calendar",
     "Calendars",
 ]

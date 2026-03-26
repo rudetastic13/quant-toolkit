@@ -1,27 +1,12 @@
 from typing import overload
 import numpy as np
-from finance.dates import Date
+from finance.dates import Date, get_days_in_month_year, get_is_leap_year, get_month_to_days_offset
 
-def _setup_lookup_arrays() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-    y = np.arange(0, 10_000, dtype=np.uint16)
-
-    # get leap years
-    is_leap = ((y % 4 == 0) & (y % 100 != 0)) | (y % 400 == 0)
-    is_leap = is_leap.astype(np.bool_)
-
-    # days for given year/month, use fast lookup table
-    days_in_year = np.empty((10_000, 13), dtype=np.uint8)
-    days_in_year[:, 0:] = np.array([0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31], dtype=np.uint8)
-    days_in_year[is_leap, 2] = 29  # adjust February
-
-    # months to days
-    dts_d_n = np.arange("0000-01", "10000-01", dtype="datetime64[M]").astype("datetime64[D]").astype(np.int32)
-
-    # done
-    return days_in_year, is_leap, dts_d_n
 
 # static arrays
-_DAYS_IN_MONTH_YEAR, _IS_LEAP_YEAR, _MONTH_TO_DAYS_OFFSET = _setup_lookup_arrays()
+_DAYS_IN_MONTH_YEAR = get_days_in_month_year()
+_MONTH_TO_DAYS_OFFSET = get_month_to_days_offset()
+_IS_LEAP_YEAR = get_is_leap_year()
 _MARCH_EPOCH = 719_468
 
 def ymd_from_days(days: int) -> tuple[int, int, int]:

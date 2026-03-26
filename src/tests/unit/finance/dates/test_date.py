@@ -60,6 +60,27 @@ class TestDate(UnitTest):
             with self.subTest(case=f"Testing date weekday for {dt}"):
                 self.assertEqual(dt.weekday(), weekday)
 
+    def test_isoweekday(self):
+        cases = [
+            (6, Date(2026, 3, 22)), # Sunday
+            (0, Date(2026, 3, 23)), # Monday
+            (1, Date(2026, 3, 24)), # Tuesday
+            (2, Date(2026, 3, 25)), # Wednesday
+            (3, Date(2026, 3, 26)), # Thursday
+            (4, Date(2026, 3, 27)), # Friday
+            (5, Date(2026, 3, 28)), # Saturday
+            (3, Date(1970, 1, 1)), # Thursday
+            (2, Date(1969, 12, 31)), # Wednesday
+            (1, Date(1969, 12, 30)), # Tuesday
+            (0, Date(1969, 12, 29)), # Monday
+            (6, Date(1969, 12, 28)), # Sunday
+        ]
+        for case in cases:
+            isoweekday = case[0]
+            dt = case[1]
+            with self.subTest(case=f"Testing date isoweekday for {dt}"):
+                self.assertEqual(dt.isoweekday(), isoweekday)
+
     def test_to_ymd(self):
         """Testing to ymd"""
         for case in self.cases:
@@ -118,6 +139,9 @@ class TestDate(UnitTest):
                 dt = date.to_date()
                 expected_dt = datetime.date(*case)
                 self.assertEqual(dt, expected_dt)
+
+    def test_isoformat(self):
+        self.assertEqual(Date(2025, 1, 1).isoformat(), "2025-01-01")
 
     def test_to_datetime(self):
         for case in self.cases:
@@ -210,8 +234,11 @@ class TestDate(UnitTest):
         self.assertTrue(Date(2025, 2, 13) >= Date(2025, 2, 13))
         self.assertFalse(Date(2025, 2, 13) >= Date(2025, 2, 14))
 
-        with self.assertRaises(TypeError):
-            _ = Date(2025, 2, 13) < "2025-02-14"
+        from operator import lt, gt, eq
+        for case in [lt, gt, eq]:
+            with self.subTest(msg=f"Testing Date operators with year, month, day {case}"):
+                with self.assertRaises(TypeError):
+                    _ = case(Date(2025, 2, 13), "2025-02-14")
 
     def test_repr(self):
         result = repr(Date(2025, 2, 13))

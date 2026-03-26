@@ -6,9 +6,9 @@ from dateutil.parser import parse
 import numpy as np
 import pandas as pd
 
+# set up some statics
 _MARCH_EPOCH = 719_468
 _NP_EPOCH_ORDINAL = datetime.date(1970, 1, 1).toordinal
-
 _MONTHS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 _MONTHS_THIRTY_ONE = {1, 3, 5, 7, 8, 10, 12}
 _CIVIL_TO_ISO_WEEKDAY = [6, 0, 1, 2, 3, 4, 5] # [0,6] [Sun, Sat], we shift [0, 6] [Mon, Sun]
@@ -19,7 +19,6 @@ class Date:
     year: int
     month: int
     day: int
-
 
     def __post_init__(self):
         if self.month not in _MONTHS:

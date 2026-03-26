@@ -26,7 +26,8 @@ def generate_schedule(
     end_int = end_date.toordinal()
     first_int = first_regular_date.toordinal() if first_regular_date else start_int
     last_int = last_regular_date.toordinal() if last_regular_date else end_int
-    assert start_int <= first_int <= last_int <= end_int, "Date ordering is incorrect"
+    if not (start_int <= first_int <= last_int <= end_int):
+        raise ValueError("Dates provided are not in correct order")
     freq_type, freq_value = frequency.int_based_mapping()
 
     if freq_type == -1:

@@ -1,11 +1,12 @@
 """Define common calendar implementations"""
 from __future__ import annotations
-from typing import Protocol, Sequence
+from typing import Protocol, Sequence, runtime_checkable
 import numpy as np
 from finance.dates import Date
 from dataclasses import dataclass, field
 
-class GenericCalendar(Protocol):
+@runtime_checkable
+class Calendar(Protocol):
     """Protocol for a calendar, which defines the holidays and business day logic"""
     def is_weekday(self, date: Date) -> bool:
         """Return the weekday of a given date, where 0 is Monday and 6 is Sunday"""
@@ -20,18 +21,12 @@ class GenericCalendar(Protocol):
         ...
 
     @property
-    def business_days(self) -> str:
-        """Return the string representation of business days in the calendar, e.g. "Mon-Sun" """
-        ...
-
-    @property
     def np_calendar(self) -> np.busdaycalendar:
         """Return the numpy busdaycalendar representation of the calendar"""
         ...
 
-
 @dataclass
-class StaticCalendar(GenericCalendar):
+class StaticCalendar(Calendar):
     name: str
     week_mask: Sequence[int | str | bool]
     holidays: set[Date] = field(init=True, default_factory=set)
@@ -83,7 +78,7 @@ class StaticCalendar(GenericCalendar):
             holidays=self._holidays_arr
         )
 
-    def __add__(self, other: GenericCalendar) -> StaticCalendar:
+    def __add__(self, other: StaticCalendar) -> StaticCalendar:
         """Combine two calendars by unioning their holidays and taking the max of their week masks"""
         if not isinstance(other, StaticCalendar):
             raise TypeError(f"Can only combine with another StaticCalendar, got {type(other)}")

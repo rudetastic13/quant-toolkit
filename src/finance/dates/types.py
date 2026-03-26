@@ -11,6 +11,12 @@ IntArray = npt.NDArray[np.integer]
 IntNpType = np.integer | IntArray
 IntType = TypeVar("IntType", "IntScalar", "IntArray")
 
+# bool types
+BoolScalar = bool | np.bool_
+BoolArray = npt.NDArray[np.bool_]
+BoolNpType = np.bool_ | BoolArray
+BoolType = TypeVar("BoolType", "BoolScalar", "BoolArray")
+
 # date types
 DateNp = Annotated[np.datetime64, "datetime64[D]"]
 DateScalar = DateNp | Date

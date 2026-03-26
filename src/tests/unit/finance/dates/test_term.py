@@ -1,16 +1,18 @@
 """Unit tests for Term class."""
 from operator import add, sub
 from typing import Callable
-from common.testing import UnitTest
 import pytest
 import numpy as np
 from numpy.testing import assert_array_equal
 from finance.dates import Term, TermType, Date, Frequency
+from common.testing import UnitTest
+from common.registry import RegistryError
 
 
 @pytest.mark.dates
 class TestTerm(UnitTest):
     """Testing Term"""
+    COVERAGE = ["finance.dates.term"]
 
     def test_term_creation(self):
         """Test creation"""
@@ -34,6 +36,12 @@ class TestTerm(UnitTest):
             with self.subTest(case=f"Testing cases : {case}"):
                 with self.assertRaises(TypeError):
                     _ = Term(*case)
+
+    def test_business_day_term(self):
+        with self.assertRaises(RegistryError):
+            _ = Date(2025, 1, 1) + Term(1, TermType.BusinessDays)
+        with self.assertRaises(RegistryError):
+            _ = np.array(["2025-01-01"], dtype="datetime64[D]") + Term(1, TermType.BusinessDays)
 
     def test_validate_ops_raises(self):
         """Test raises in validate ops"""
@@ -96,6 +104,11 @@ class TestTerm(UnitTest):
         self.assertIsInstance(Term.from_str("1d"), Term)
         with self.assertRaises(SyntaxError):
             _ = Term.from_str("days0")
+
+    def test_boundaries(self):
+        """Boundary conditions for adding months and years near month ends"""
+        self.assertEqual(Date(2025, 4, 30), Date(2025, 3, 31) + Term(1, TermType.Months))
+        self.assertEqual(Date(2025, 2, 28), Date(2024, 2, 29) + Term(1, TermType.Years))
 
 class TestNpOffset(UnitTest):
     """Base test class for offsets"""
