@@ -1,419 +1,331 @@
-"""
-ZeroCurve implementation using log discount factors as the internal representation.
-
-Design decisions:
-- Internally stores log discount factors: -ln(df_t) for numerical stability and natural interpolation
-- Supports construction from discount factors, log discount factors, or zero rates
-- Uses Curve1d under the hood for interpolation/extrapolation
-- Accepts datetime64[D] arrays and converts to integer offsets from curve_date
-- Extensible for future composite/spread curve support
-"""
-from __future__ import annotations
-from typing import Any, Callable
+"""ZeroCurve implementation with support for dual-segment interpolation."""
+import warnings
 import numpy as np
-from numpy.typing import NDArray
-
-from src.finance.dates.date import Date
-from common.containers.curve1d import (
-    Curve1d,
-    InterpolationType,
-    ExtrapolationType,
-    IntArray,
+from finance.dates import Term
+from finance.markets.curves._curve_impl.interpolators import (
+    _dates_to_floats,
+    DateArray,
     FloatArray,
-)
-from src.finance.markets.curves.types import (
-    ValueType,
+    InterpolatedSegment,
     CurveInterpolator,
-    CurveExtrapolator,
 )
 
-# Type aliases
-DateArray = NDArray[np.datetime64]
 
-# Constants
-_DAYS_PER_YEAR = 365  # ACT/365.25 for now; day count convention can be abstracted later
-
-def _log_to_zero(offsets: IntArray, values: FloatArray) -> FloatArray:
+class Curve:
     """
-    Convert log discount factors to zero rates: r_t.
+    A discount-factor curve composed of one or two interpolated segments.
 
     Parameters
     ----------
-    offsets : IntArray
-        Day offsets from curve date (t=0 at curve date)
-    values : FloatArray
-        Log discount factors: -ln(df_t)
-    Returns
-        Zero rates: r_t
-    """
-    result = np.divide(values *_DAYS_PER_YEAR, offsets, where=offsets != 0)
-    result[offsets] = 0.0  # Define r(0) = 0
-    return result
+    node_dates : np.ndarray[datetime64[D]]
+        Pillar dates.  The first entry must be the curve origin (today).
+        Need not be pre-sorted — the constructor sorts them.
+    node_values : np.ndarray[float64]
+        Discount factors corresponding to each pillar date.  The value
+        at the origin date must be exactly 1.0.
+    interpolation : CurveInterpolator
+        Primary interpolation method.
+    interpolation_long : CurveInterpolator | None
+        If provided, the interpolation method used *after* the cutover.
+        If ``None``, a single interpolation is used for the whole curve.
+    interpolation_cutover : Term | np.datetime64 | None
+        The point at which the interpolation switches from ``interpolation``
+        to ``interpolation_long``.  Can be expressed as:
+          - a ``Term`` (relative to the curve's origin date), or
+          - an absolute ``np.datetime64`` (any precision; cast to Day).
+        Ignored when ``interpolation_long`` is ``None``.
+    alpha : float
+        Left boundary parameter passed to both segments unless overridden.
+    beta : float
+        Right boundary parameter passed to both segments unless overridden.
+    alpha_long : float | None
+        Override alpha for the long segment.  Falls back to ``alpha``.
+    beta_long : float | None
+        Override beta for the long segment.  Falls back to ``beta``.
+    t : np.ndarray[datetime64[D]] | None
+        Explicit knot sequence for spline methods (advanced usage).
 
-def _log_to_df(_: Any, values: FloatArray) -> FloatArray:
-    """
-    Convert log discount factors to discount factors: df_t.
+    Public query methods
+    --------------------
+    All accept ``np.ndarray[datetime64[D]]`` and return ``np.ndarray[float64]``.
 
-    Parameters
-    ----------
-    _ : Any
-        Day offsets from curve date (t=0 at curve date)
-    values : FloatArray
-        Log discount factors: -ln(df_t)
-
-    Returns
-    -------
-    FloatArray
-        Discount factors: df_t
-    """
-    return np.exp(-values)
-
-def _log_to_log(_: Any, values: FloatArray) -> FloatArray: return values
-
-def _df_to_log(_: Any, values: FloatArray) -> FloatArray:
-    return -np.log(values)
-
-def _df_to_zero(offsets: IntArray, values: FloatArray) -> FloatArray:
-    log_dfs = _df_to_log(None, values)
-    return _log_to_zero(offsets, log_dfs)
-
-def _df_to_df(_: Any, values: FloatArray) -> FloatArray: return values
-
-def _zero_to_log(offsets: IntArray, values: FloatArray) -> FloatArray:
-    t = offsets.astype(np.float64) / _DAYS_PER_YEAR
-    return values * t
-
-def _zero_to_df(offsets: IntArray, values: FloatArray) -> FloatArray:
-    log_dfs = _zero_to_log(offsets, values)
-    return _log_to_df(None, log_dfs)
-
-def _zero_to_zero(_: Any, values: FloatArray) -> FloatArray: return values
-
-_value_transformer: dict[tuple[ValueType, ValueType], Callable] =  {
-    (ValueType.LogDiscountFactor, ValueType.LogDiscountFactor): _log_to_log,
-    (ValueType.LogDiscountFactor, ValueType.DiscountFactor): _log_to_df,
-    (ValueType.LogDiscountFactor, ValueType.ZeroRate): _log_to_zero,
-    (ValueType.ZeroRate, ValueType.DiscountFactor): _zero_to_df,
-    (ValueType.ZeroRate, ValueType.LogDiscountFactor): _zero_to_log,
-    (ValueType.ZeroRate, ValueType.ZeroRate): _zero_to_zero,
-    (ValueType.DiscountFactor, ValueType.DiscountFactor): _df_to_df,
-    (ValueType.DiscountFactor, ValueType.LogDiscountFactor): _df_to_log,
-    (ValueType.DiscountFactor, ValueType.ZeroRate): _df_to_zero,
-}
-
-def _map_interpolator(interp: CurveInterpolator) -> InterpolationType:
-    """Map high-level curve interpolator to Curve1d interpolation type."""
-    # For log discount factors, linear interpolation in log space
-    # is equivalent to log-linear interpolation in DF space
-    if interp in (CurveInterpolator.Linear, CurveInterpolator.LogLinear):
-        return InterpolationType.Linear
-    elif interp in (CurveInterpolator.FlatForward, CurveInterpolator.FlatZero):
-        return InterpolationType.Flat
-    else:
-        # Default to linear; cubic spline would need additional implementation
-        return InterpolationType.Linear
-
-
-def _map_extrapolator(extrap: CurveExtrapolator) -> ExtrapolationType:
-    """Map high-level curve extrapolator to Curve1d extrapolation type."""
-    if extrap == CurveExtrapolator.NotAllowed:
-        return ExtrapolationType.NotAllowed
-    elif extrap == CurveExtrapolator.FlatForward:
-        # Flat extrapolation in log DF space = flat forward rate
-        return ExtrapolationType.Flat
-    else:
-        return ExtrapolationType.NotAllowed
-
-def _map_transform(interp: CurveInterpolator, value_type: ValueType) -> tuple[ValueType, ValueType]:
-    if interp in {CurveInterpolator.LinearZero, CurveInterpolator.FlatZero}:
-        return value_type, ValueType.ZeroRate
-    elif interp in {CurveInterpolator.LinearLogDF, CurveInterpolator.FlatZero}:
-        return value_type, ValueType.LogDiscountFactor
-
-
-class ZeroCurve:
-    """
-    A zero curve that internally stores log discount factors for interpolation.
-
-    The curve stores -ln(df_t) and provides methods to retrieve:
-    - Discount factors: df(t)
-    - Zero rates: r(t)
-    - Log discount factors: -ln(df(t))
-
-    Parameters
-    ----------
-    curve_date : Date
-        The anchor date for the curve (t=0)
-    offsets : np.ndarray[np.int64]
-        Day offsets from curve_date for each curve point
-    values : np.ndarray[np.float64]
-        Values at each offset (interpretation depends on value_type)
-    value_type : ValueType
-        How to interpret the input values (DiscountFactor, LogDiscountFactor, ZeroRate)
-    interp : CurveInterpolator
-        Interpolation method for the curve
-    extrap : CurveExtrapolator
-        Extrapolation method for the curve
-
-    Notes
-    -----
-    - Internally stores log discount factors: -ln(df_t)
-    - Linear interpolation in log DF space = log-linear interpolation in DF space
-    - This is equivalent to piecewise constant forward rates between nodes
-    - Supports datetime64[D] arrays which are converted to offsets from curve_date
+    discount_factor(dates)  →  DF values
+    rate(dates)             →  continuously compounded zero rates (annualised)
+    forward_rate(starts, ends) → forward rates between date pairs
     """
 
     def __init__(
         self,
-        curve_date: Date,
-        dates: DateArray,
-        values: FloatArray,
-        value_type: ValueType,
-        interp: CurveInterpolator = CurveInterpolator.LinearLogDF,
-        extrap: CurveExtrapolator = CurveExtrapolator.FlatForward,
-    ):
-        if dates.dtype != "np.datetime64[D]":
-            dates = dates.astype("datetime64[D]")
-        self.dates = dates
-        self.values = values
-        self._curve_date = curve_date.to_numpy()
-        self._offsets = np.asarray(offsets, dtype=np.int64)
-        self.value_type = value_type
-        self.interp = interp
-        self.extrap = extrap
+        node_dates: DateArray,
+        node_values: FloatArray,
+        interpolation: CurveInterpolator = CurveInterpolator.LogLinearDF,
+        *,
+        interpolation_long: CurveInterpolator | None = None,
+        interpolation_cutover: Term | np.datetime64 | None = None,
+        alpha: float = 0.0,
+        beta: float = 0.0,
+        alpha_long: float | None = None,
+        beta_long: float | None = None,
+        spline_knot_sequence: DateArray | None = None,
+    ) -> None:
+        if node_dates.ndim != 1 or len(node_dates) < 2:
+            raise ValueError("node_dates must be a 1-D array with at least 2 elements.")
+        if node_values.shape != node_dates.shape:
+            raise ValueError("node_dates and node_values must have the same length.")
+        if np.any(node_dates[:-1] > node_dates[1:]):
+            raise ValueError("node_dates must be pre-sorted in ascending order.")
 
-        # Convert input values to log discount factors
-        values = np.asarray(values, dtype=np.float64)
-        self._log_dfs = _to_log_discount_factors(self._offsets, values, value_type)
+        self._origin: np.datetime64 = node_dates[0]
+        self._origin_ord = self._origin.astype(np.int64)
+        self._node_dates: DateArray = node_dates
+        self._node_dfs: FloatArray = node_values
 
-        # Build the underlying Curve1d with log discount factors
-        self._curve = Curve1d(
-            x=self._offsets,
-            y=self._log_dfs,
-            interp=_map_interpolator(interp),
-            extrap=_map_extrapolator(extrap),
-        )
+        if abs(self._node_dfs[0] - 1.0) > 1e-12:
+            raise ValueError(
+                "The first node (origin / today) must have DF = 1.0."
+            )
 
-    # -------------------------------------------------------------------------
-    # Node conversions
-    # -------------------------------------------------------------------------
-    def _convert_to_nodes(self):
-        node_values = self.values.copy()
-        node_offsets = self.offsets.copy()
-        source_type, target_type = _map_transform(self.interp, self._value_type)
-        func = _value_transformer[(source_type, target_type)]
-        node_values = func(node_values)
-        self._node_values = node_values
-        self._node_value_type = target_type
+        self._x_all: FloatArray = _dates_to_floats(self._node_dates, self._origin_ord)
+        self._interp_type = interpolation
+        self._interp_type_long = interpolation_long
+        self._alpha = alpha
+        self._beta = beta
+        self._alpha_long = alpha_long if alpha_long is not None else alpha
+        self._beta_long = beta_long if beta_long is not None else beta
+        self._spline_knot_sequence = spline_knot_sequence
 
-    # -------------------------------------------------------------------------
-    # Properties
-    # -------------------------------------------------------------------------
+        # Resolve cutover
+        self._cutover_x: float | None = None
+        if interpolation_long is not None:
+            warnings.warn(
+                "Cutover interpolation (interpolation_long) is experimental. "
+                "The two segments are fit independently, so discount factors are "
+                "continuous at the cutover but the forward rate is NOT — a "
+                "derivative discontinuity is expected at the join. "
+                "See the module-level TODO for details.",
+                UserWarning,
+                stacklevel=2,
+            )
+            if interpolation_cutover is None:
+                raise ValueError(
+                    "interpolation_cutover is required when "
+                    "interpolation_long is specified."
+                )
+            if isinstance(interpolation_cutover, Term):
+                cutover_date = self._origin + interpolation_cutover
+            else:
+                cutover_date = interpolation_cutover
+            self._cutover_x = cutover_date.astype(np.int64) - self._origin_ord
 
-    @property
-    def curve_date(self) -> Date:
-        """The anchor date for the curve."""
-        return self._curve_date
+        # Build segments
+        self._segments: list[InterpolatedSegment] = []
+        self._build_segments()
 
-    @property
-    def offsets(self) -> NDArray[np.int64]:
-        """Day offsets from curve_date for each curve point."""
-        return self._offsets.copy()
+        # Cache for flat-forward extrapolation beyond last pillar
+        self._last_x = float(self._x_all[-1])
+        self._last_df = float(self._node_dfs[-1])
+        self._last_fwd = self._compute_terminal_forward()
 
-    @property
-    def log_discount_factors_at_nodes(self) -> NDArray[np.float64]:
-        """Log discount factors at the curve nodes."""
-        return self._log_dfs.copy()  # type: ignore[return-value]
+    # -- segment construction ------------------------------------------------
 
-    # -------------------------------------------------------------------------
-    # Date conversion helpers
-    # -------------------------------------------------------------------------
-
-    def _dates_to_offsets(self, dates: DateArray | NDArray[np.int64]) -> IntArray:
-        """
-        Convert datetime64[D] array or integer offsets to integer offsets from curve_date.
-
-        Parameters
-        ----------
-        dates : DateArray or IntArray
-            Either datetime64[D] values or integer offsets
-
-        Returns
-        -------
-        IntArray
-            Integer offsets from curve_date
-        """
-        dates = np.asarray(dates)
-
-        if np.issubdtype(dates.dtype, np.datetime64):
-            # Convert datetime64[D] to integer offsets
-            # datetime64[D] stores days since 1970-01-01 (same as our ordinal epoch)
-            days_since_epoch = dates.astype('datetime64[D]').astype(np.int64)
-            return (days_since_epoch - self._curve_date_ordinal).astype(np.int64)
+    def _build_segments(self) -> None:
+        if self._cutover_x is None:
+            seg = InterpolatedSegment(
+                interp_type=self._interp_type,
+                x=self._x_all,
+                df=self._node_dfs,
+                alpha=self._alpha,
+                beta=self._beta,
+                origin=self._origin,
+            )
+            self._segments = [seg]
         else:
-            # Assume already integer offsets
-            return dates.astype(np.int64)
+            cutover = self._cutover_x
+            short_mask = self._x_all <= cutover + 1e-10
+            long_mask = self._x_all >= cutover - 1e-10
 
-    # -------------------------------------------------------------------------
-    # Curve value accessors
-    # -------------------------------------------------------------------------
+            x_short = self._x_all[short_mask]
+            df_short = self._node_dfs[short_mask]
 
-    def get_log_discount_factors(
-        self,
-        dates: DateArray | NDArray[np.int64],
-    ) -> FloatArray:
+            x_long = self._x_all[long_mask]
+            df_long = self._node_dfs[long_mask]
+
+            if len(x_short) < 2 or len(x_long) < 2:
+                raise ValueError(
+                    "Cutover point must leave at least 2 nodes in each segment. "
+                    f"Short segment has {len(x_short)} nodes, "
+                    f"long segment has {len(x_long)} nodes."
+                )
+
+            seg_short = InterpolatedSegment(
+                interp_type=self._interp_type,
+                x=x_short,
+                df=df_short,
+                alpha=self._alpha,
+                beta=self._beta,
+                origin=self._origin,
+            )
+            seg_long = InterpolatedSegment(
+                interp_type=self._interp_type_long,  # type: ignore[arg-type]
+                x=x_long,
+                df=df_long,
+                alpha=self._alpha_long,
+                beta=self._beta_long,
+                origin=self._origin,
+            )
+            self._segments = [seg_short, seg_long]
+
+    # -- terminal forward for flat extrapolation ----------------------------
+
+    def _compute_terminal_forward(self) -> float:
         """
-        Get log discount factors: -ln(df(t)) at the given dates.
+        Estimate the instantaneous forward rate at the last pillar.
+        f(T) ≈ -[ln DF(T) - ln DF(T - 1day)] / 1day
+        """
+        eps = 1.0
+        df_T = self._last_df
+        df_T_minus = float(self._interpolate_interior(np.array([self._last_x - eps]))[0])
+        if df_T_minus <= 0 or df_T <= 0:
+            return 0.0
+        return -(np.log(df_T) - np.log(df_T_minus)) / eps
+
+    # -- vectorized interpolation dispatch (internal) -----------------------
+
+    def _interpolate_interior(self, xs: FloatArray) -> FloatArray:
+        """Vectorized DF interpolation within the curve's defined node range."""
+        if len(self._segments) == 1:
+            return self._segments[0].discount_factor(xs)
+
+        cutover = self._cutover_x
+        assert cutover is not None
+        short_mask = xs <= cutover + 1e-10
+        result = np.empty(len(xs), dtype=np.float64)
+        if np.any(short_mask):
+            result[short_mask] = self._segments[0].discount_factor(xs[short_mask])
+        if np.any(~short_mask):
+            result[~short_mask] = self._segments[1].discount_factor(xs[~short_mask])
+        return result
+
+    def _discount_factor_xs(self, xs: FloatArray) -> FloatArray:
+        """Fully vectorized DF from float day offsets (no date-conversion overhead)."""
+        result = np.ones(len(xs), dtype=np.float64)
+        interior_mask = (xs > 1e-10) & (xs <= self._last_x + 1e-10)
+        extrap_mask = xs > self._last_x + 1e-10
+        if np.any(interior_mask):
+            result[interior_mask] = self._interpolate_interior(xs[interior_mask])
+        if np.any(extrap_mask):
+            result[extrap_mask] = self._last_df * np.exp(
+                -self._last_fwd * (xs[extrap_mask] - self._last_x)
+            )
+        return result
+
+    def _rate_xs(self, xs: FloatArray) -> FloatArray:
+        """Fully vectorized zero rates from float day offsets."""
+        result = np.empty(len(xs), dtype=np.float64)
+        origin_mask = xs <= 1e-10
+        nonorigin_mask = ~origin_mask
+        if np.any(origin_mask):
+            df_1d = float(self._discount_factor_xs(np.array([1.0]))[0])
+            result[origin_mask] = -np.log(df_1d) * 365.0
+        if np.any(nonorigin_mask):
+            dfs = self._discount_factor_xs(xs[nonorigin_mask])
+            result[nonorigin_mask] = -np.log(dfs) / (xs[nonorigin_mask] / 365.0)
+        return result
+
+    # -- public API ----------------------------------------------------------
+
+    @property
+    def origin(self) -> np.datetime64:
+        """The curve's valuation / construction date."""
+        return self._origin
+
+    @property
+    def node_dates(self) -> DateArray:
+        return self._node_dates.copy()
+
+    @property
+    def node_dfs(self) -> FloatArray:
+        return self._node_dfs.copy()
+
+    @property
+    def max_date(self) -> np.datetime64:
+        return self._node_dates[-1]
+
+    def discount_factor(self, dates: DateArray) -> FloatArray:
+        """
+        Discount factors for an array of dates.
 
         Parameters
         ----------
-        dates : DateArray or IntArray
-            Either datetime64[D] values or integer offsets from curve_date
+        dates : np.ndarray[datetime64[D]]
 
         Returns
         -------
-        FloatArray
-            Log discount factors at the requested dates
-        """
-        offsets = self._dates_to_offsets(dates)
-        return self._curve.get_value(offsets)
+        np.ndarray[float64]
 
-    def get_discount_factors(
-        self,
-        dates: DateArray | NDArray[np.int64],
-    ) -> FloatArray:
+        Raises
+        ------
+        ValueError
+            If any date is before the curve origin.
         """
-        Get discount factors: df(t) at the given dates.
+        xs = _dates_to_floats(dates, self._origin_ord)
+        if np.any(xs < -1e-10):
+            bad = dates[xs < -1e-10]
+            raise ValueError(
+                f"{len(bad)} date(s) before the curve origin (earliest: {bad[0]}). "
+                "Pre-origin extrapolation is not supported at the Curve level."
+            )
+        return self._discount_factor_xs(xs)
+
+    def rate(self, dates: DateArray) -> FloatArray:
+        """
+        Continuously compounded zero rates to each date.
+        r(t) = -ln(DF(t)) / t   (annualised, Act/365)
 
         Parameters
         ----------
-        dates : DateArray or IntArray
-            Either datetime64[D] values or integer offsets from curve_date
+        dates : np.ndarray[datetime64[D]]
 
         Returns
         -------
-        FloatArray
-            Discount factors at the requested dates
+        np.ndarray[float64]
         """
-        log_dfs = self.get_log_discount_factors(dates)
-        return np.exp(-log_dfs)
+        return self._rate_xs(_dates_to_floats(dates, self._origin_ord))
 
-    def get_zero_rates(
-        self,
-        dates: DateArray | NDArray[np.int64],
-    ) -> FloatArray:
+    def forward_rate(self, starts: DateArray, ends: DateArray) -> FloatArray:
         """
-        Get continuously compounded zero rates: r(t) at the given dates.
-
-        Zero rate is defined as: r(t) = -ln(df(t)) / t
+        Continuously compounded forward rates between paired date arrays.
+        f(t1, t2) = -[ln DF(t2) - ln DF(t1)] / (t2 - t1)   (annualised)
 
         Parameters
         ----------
-        dates : DateArray or IntArray
-            Either datetime64[D] values or integer offsets from curve_date
+        starts : np.ndarray[datetime64[D]]
+        ends   : np.ndarray[datetime64[D]]
 
         Returns
         -------
-        FloatArray
-            Zero rates at the requested dates
-
-        Notes
-        -----
-        Returns 0.0 for t=0 (curve_date) to avoid division by zero.
-        Day count convention is ACT/365.25 for now.
+        np.ndarray[float64]
         """
-        offsets = self._dates_to_offsets(dates)
-        log_dfs = self._curve.get_value(offsets)
-
-        # Convert offsets to year fractions
-        t = offsets.astype(np.float64) / _DAYS_PER_YEAR
-
-        # Avoid division by zero at t=0
-        with np.errstate(divide='ignore', invalid='ignore'):
-            rates = np.where(t != 0, log_dfs / t, 0.0)
-
-        return rates
-
-    def get_forward_rate(
-        self,
-        start_dates: DateArray | NDArray[np.int64],
-        end_dates: DateArray | NDArray[np.int64],
-    ) -> FloatArray:
-        """
-        Get forward rates between start and end dates.
-
-        Forward rate is: f(t1, t2) = (ln(df(t1)) - ln(df(t2))) / (t2 - t1)
-                                   = (log_df(t2) - log_df(t1)) / (t2 - t1)
-
-        Parameters
-        ----------
-        start_dates : DateArray or IntArray
-            Start dates (or offsets) for the forward period
-        end_dates : DateArray or IntArray
-            End dates (or offsets) for the forward period
-
-        Returns
-        -------
-        FloatArray
-            Forward rates for each (start, end) pair
-        """
-        start_offsets = self._dates_to_offsets(start_dates)
-        end_offsets = self._dates_to_offsets(end_dates)
-
-        log_df_start = self._curve.get_value(start_offsets)
-        log_df_end = self._curve.get_value(end_offsets)
-
-        # Year fractions
-        dt = (end_offsets - start_offsets).astype(np.float64) / _DAYS_PER_YEAR
-
-        with np.errstate(divide='ignore', invalid='ignore'):
-            fwd = np.where(dt != 0, (log_df_end - log_df_start) / dt, 0.0)
-
-        return fwd
-
-    # -------------------------------------------------------------------------
-    # Convenience scalar accessors
-    # -------------------------------------------------------------------------
-
-    def discount_factor(self, date: NDArray[np.datetime64]) -> FloatArray:
-        """Get discount factors at the given dates.
-
-        Parameters
-        ----------
-        date : NDArray[np.datetime64]
-            Array of datetime64[D] values
-
-        Returns
-        -------
-        FloatArray
-            Discount factors at the requested dates
-        """
-        return self.get_discount_factors(date)
-
-    def zero_rate(self, date: NDArray[np.datetime64]) -> FloatArray:
-        """Get zero rates at the given dates.
-
-        Parameters
-        ----------
-        date : NDArray[np.datetime64]
-            Array of datetime64[D] values
-
-        Returns
-        -------
-        FloatArray
-            Zero rates at the requested dates
-        """
-        return self.get_zero_rates(date)
-
-    # -------------------------------------------------------------------------
-    # Dunder methods
-    # -------------------------------------------------------------------------
+        if starts.shape != ends.shape:
+            raise ValueError("starts and ends must have the same shape.")
+        xs1 = _dates_to_floats(starts, self._origin_ord)
+        xs2 = _dates_to_floats(ends, self._origin_ord)
+        dt_years = (xs2 - xs1) / 365.0
+        degen = np.abs(dt_years) < 1e-14
+        result = np.empty(len(xs1), dtype=np.float64)
+        if np.any(~degen):
+            df1 = self._discount_factor_xs(xs1[~degen])
+            df2 = self._discount_factor_xs(xs2[~degen])
+            result[~degen] = -(np.log(df2) - np.log(df1)) / dt_years[~degen]
+        if np.any(degen):
+            result[degen] = self._rate_xs(xs1[degen])
+        return result
 
     def __repr__(self) -> str:
+        seg_info = " + ".join(s.interp_type.name for s in self._segments)
         return (
-            f"ZeroCurve("
-            f"curve_date={self._curve_date!r}, "
-            f"n_points={len(self._offsets)}, "
-            f"interp={self._interp.name}, "
-            f"extrap={self._extrap.name})"
+            f"Curve(origin={self._origin}, "
+            f"nodes={len(self._node_dates)}, "
+            f"interpolation=[{seg_info}], "
+            f"max_date={self._node_dates[-1]})"
         )

@@ -1,34 +1,26 @@
-from enum import IntEnum, auto
+from common.containers.enums import SupportedIntEnum
 
-class CurveType(IntEnum):
-    """Enumeration of zero curve constructor"""
-    Discount = auto()
-    Forward = auto()
-    DualCurve = auto()
+class RateInterpolator(SupportedIntEnum):
+    """
+    Enum for rate path interpolation methods.
+    """
+    Linear = 1
+    Flat = 2
 
-class ValueType(IntEnum):
-    """Enumeration of rate value types for financial curves"""
-    ZeroRate = auto()
-    DiscountFactor = auto()
-    LogDiscountFactor = auto()
+class RateExtrapolator(SupportedIntEnum):
+    """
+    Enum for rate path extrapolation methods.
+    """
+    Flat = 1
+    NotAllowed = 2
 
-class RateType(IntEnum):
-    """Enumeration of rate compounding types for financial curves"""
-    Cash = auto()
-    DailyCompounded = auto()
-    DailyAveraged = auto()
-    Swap = auto()
-    IborFallback = auto()
-
-class CurveInterpolator(IntEnum):
-    """Enumeration of interpolation methods for financial curves"""
-    LinearZero = auto()
-    LinearLogDF = auto()
-    FlatLogDF = auto()
-    FlatZero = auto()
-
-class CurveExtrapolator(IntEnum):
-    """Enumeration of extrapolation methods for financial curves"""
-    NotAllowed = auto()
-    FlatForward = auto()
+class CurveInterpolator(SupportedIntEnum):
+    """
+    Enum for curve interpolation methods.
+    """
+    LogLinearDF = 1
+    LogCubicDF = 2
+    RateLinear = -1
+    RateQuadratic = -2
+    RateCubic = -3
 

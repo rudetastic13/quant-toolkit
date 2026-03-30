@@ -1,1 +1,1 @@
-from .zero_curve import ZeroCurve
+from .interpolators import ZeroCurve
