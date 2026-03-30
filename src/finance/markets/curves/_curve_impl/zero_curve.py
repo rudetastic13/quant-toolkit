@@ -11,7 +11,7 @@ from finance.markets.curves._curve_impl.interpolators import (
 )
 
 
-class Curve:
+class ZeroCurve:
     """
     A discount-factor curve composed of one or two interpolated segments.
 
