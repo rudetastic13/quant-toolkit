@@ -33,9 +33,9 @@ def get_month_to_days_offset() -> np.ndarray:
 
 from finance.dates.date import Date
 from finance.dates.term import Term, TermType
-from finance.dates.enums import BDC, Roll, Direction, Frequency
+from finance.dates.enums import BDC, Roll, Direction, Frequency, DayCountMethod
 from finance.dates.calendars import Calendars, Calendar
-
+from finance.dates.day_counts import period_fractions
 _ = Calendars() # instantiate the singleton at import
 
 __all__ = [
@@ -46,6 +46,8 @@ __all__ = [
     "TermType",
     "Direction",
     "Frequency",
+    "DayCountMethod",
     "Calendars",
     "Calendar",
+    "period_fractions",
 ]
