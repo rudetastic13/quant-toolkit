@@ -41,7 +41,7 @@ def _interp1dlinear(
         return np.interp(x, xp=xs, fp=ys, left=np.nan, right=np.nan)
     return np.interp(x, xp=xs, fp=ys, left=ys[0], right=ys[-1])
 
-class Curve1d:
+class Line1d:
 
     def __init__(
         self,
