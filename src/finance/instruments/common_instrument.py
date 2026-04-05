@@ -1,4 +1,7 @@
 from dataclasses import dataclass, field
+
+from common.object import ValidationResult
+from common.object.common_object import CommonObject
 from finance.dates import (
     Date,
     Term,
@@ -11,14 +14,14 @@ from finance.dates import (
 from .enums import AmortizationType, CouponType
 
 @dataclass(kw_only=True)
-class CommonInstrument:
+class CommonInstrument(CommonObject):
 
     # for grid generation
     effective: Date
     maturity: Date
     currency: str
     notional: float
-    frequency: Frequency
+    payment_frequency: Frequency
     day_count_method: DayCountMethod = field(default=DayCountMethod.Unused)
     business_day_convention: BDC = field(default=BDC.NoAdjustment)
     roll_convention: Roll = field(default=Roll.Empty)
@@ -51,5 +54,6 @@ class CommonInstrument:
     schedules: dict = field(default_factory=dict)
 
 
-
+    def _validate_impl(self) -> ValidationResult:
+        pass
 

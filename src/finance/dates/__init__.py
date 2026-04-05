@@ -36,7 +36,13 @@ from finance.dates.term import Term, TermType
 from finance.dates.enums import BDC, Roll, Direction, Frequency, DayCountMethod
 from finance.dates.calendars import Calendars, Calendar
 from finance.dates.day_counts import period_fractions
+from common.object.serializer import register_type
+
 _ = Calendars() # instantiate the singleton at import
+
+# Register Date and Term for CommonObject serialization
+register_type(Date, lambda d: d.to_str(), lambda s: Date.from_str(s))
+register_type(Term, lambda t: f"{t.term_length}{t.term_type.value}", lambda s: Term.from_str(s))
 
 __all__ = [
     "Date",
