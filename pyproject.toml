@@ -65,7 +65,8 @@ include=[
 [tool.pytest.ini_options]
 pythonpath=["src"]
 testpaths=[
-    "src/tests",
+    "src/finance/tests",
+    "src/common/tests",
 ]
 addopts = [
     "--cov=finance", # measure coverage for finance package

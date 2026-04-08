@@ -1,12 +1,5 @@
 from common.containers.enums import SupportedIntEnum
 
-class RateInterpolator(SupportedIntEnum):
-    """
-    Enum for rate path interpolation methods.
-    """
-    Linear = 1
-    Flat = 2
-
 class RateExtrapolator(SupportedIntEnum):
     """
     Enum for rate path extrapolation methods.

@@ -36,6 +36,17 @@ from finance.dates.term import Term, TermType
 from finance.dates.enums import BDC, Roll, Direction, Frequency, DayCountMethod
 from finance.dates.calendars import Calendars, Calendar
 from finance.dates.day_counts import period_fractions
+from finance.dates.utils import (
+    date_based_utils_module,
+    np_date_based_utils_module,
+    is_good_bd,
+    adjust_date,
+    add_business_days,
+    add_term,
+    subtract_term,
+    add_frequency,
+    subtract_frequency,
+)
 from common.object.serializer import register_type
 
 _ = Calendars() # instantiate the singleton at import
@@ -56,4 +67,13 @@ __all__ = [
     "Calendars",
     "Calendar",
     "period_fractions",
+    "date_based_utils_module",
+    "np_date_based_utils_module",
+    "is_good_bd",
+    "adjust_date",
+    "add_business_days",
+    "add_term",
+    "subtract_term",
+    "add_frequency",
+    "subtract_frequency",
 ]

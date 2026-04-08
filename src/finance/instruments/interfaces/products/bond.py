@@ -17,3 +17,4 @@ class Bond(HasScheduleParams, HasStubDates, HasNotional, HasFixedRate, Protocol)
     Principal returned at maturity (bullet).
     """
     ...
+

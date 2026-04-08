@@ -53,7 +53,6 @@ class CommonInstrument(CommonObject):
     # pre-computed schedule info
     schedules: dict = field(default_factory=dict)
 
-
     def _validate_impl(self) -> ValidationResult:
         pass
 
