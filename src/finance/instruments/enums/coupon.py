@@ -2,6 +2,7 @@ from common.containers.enums import SupportedIntEnum
 
 class CouponType(SupportedIntEnum):
     """Enum for different types of coupons."""
+    Unused = -2
     Custom = -1
     Zero = 0
     Fixed = 1
