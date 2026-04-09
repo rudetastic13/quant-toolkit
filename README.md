@@ -1,4 +1,4 @@
-# rates-lib
+# quant-toolkit
 Dabbling in interest rate analytics
 
 # Setup
