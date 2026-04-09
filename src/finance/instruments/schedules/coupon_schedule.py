@@ -1,11 +1,25 @@
+"""Defining a custom coupon schedule"""
 from __future__ import annotations
 from dataclasses import dataclass, field, asdict
 from functools import partial, cached_property
-from typing import Sequence, ClassVar, Self, Callable
+from typing import Sequence, ClassVar, Callable, Protocol, Self
 import numpy as np
+from finance.dates import Date
 from finance.instruments.enums import CouponType, MarginTreatment
 from .base_schedule import BaseEvent, BaseSchedule
 
+
+class InstrumentLike(Protocol):
+    """Protocol for instruments that can be used to define coupon events."""
+    effective_date: Date
+    coupon_type: CouponType
+    coupon_rate: float
+    index_floor: float
+    cap: float
+    floor: float
+    rate_index: str
+    margin_treatment: MarginTreatment
+    schedules: dict[str, BaseSchedule]
 
 @dataclass
 class CouponEvent(BaseEvent):
@@ -111,6 +125,14 @@ class CouponSchedule(BaseSchedule):
         """Create a CouponSchedule from a list of event data dictionaries."""
         events = [CouponEvent.from_dict(event_data) for event_data in data]
         return CouponSchedule(events=events)
+
+    @classmethod
+    def schedule_from_instrument(cls, instrument: InstrumentLike) -> Self:
+        if instrument.schedules and "coupon" in instrument.schedules:
+            return instrument.schedules["coupon"]
+        else:
+            return cls(events=[CouponEvent.from_dict(instrument.__dict__)])
+
 
     def schedule_from_accrual_grid(self, accrual_grid: np.ndarray) -> np.ndarray:
         """Define the schedule of coupon events based on the accrual grid, returns array of event indices for each accrual date."""
