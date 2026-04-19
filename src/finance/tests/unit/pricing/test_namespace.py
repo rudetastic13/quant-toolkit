@@ -1,6 +1,5 @@
 """Tests for CurveNamespace — bind/resolve/rebind and version counter."""
 import numpy as np
-import pytest
 
 from common.testing import UnitTest
 from finance.markets.curves import ZeroCurve

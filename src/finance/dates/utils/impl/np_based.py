@@ -45,7 +45,7 @@ def is_good_bd(dt: DateNpType, calendar: CalendarLike) -> BoolNpType:
 
     Returns
     -------
-    np.bool\_ or np.ndarray[bool]
+    np.bool_ or np.ndarray[bool]
         ``True`` for each element that is a good business day.
 
     Examples

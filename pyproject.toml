@@ -71,10 +71,8 @@ testpaths=[
 addopts = [
     "--cov=finance", # measure coverage for finance package
     "--cov=common", # measure coverage for common package
-    "--cov-report=term-missing", # show missing lines in terminal
-    "--cov-report=xml:./pytest-reports/coverage.xml", # generate XML report
-    "--cov-report=html:./pytest-reports/coverage.html", # generate XML report
-    "--junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
+    "--cov-report=html:./pytest-reports/cov-reports", # generate HTML coverage report
+    #"--junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
 ]
 markers = [
     # types
