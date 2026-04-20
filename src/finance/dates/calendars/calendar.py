@@ -8,6 +8,8 @@ from dataclasses import dataclass, field
 @runtime_checkable
 class Calendar(Protocol):
     """Protocol for a calendar, which defines the holidays and business day logic"""
+    name: str
+
     def is_weekday(self, date: Date) -> bool:
         """Return the weekday of a given date, where 0 is Monday and 6 is Sunday"""
         ...

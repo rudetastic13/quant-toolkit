@@ -8,7 +8,7 @@ CalendarLike = TypeVar("CalendarLike", bound=Calendar | str)
 def calendar(val: CalendarLike) -> Calendar:
     if type(val) is str:
         return Calendars.get(val)
-    elif type(val) is Calendar:
+    elif isinstance(val, Calendar):
         return val
     raise TypeError("Calendar provided is not a string or Calendar")
 

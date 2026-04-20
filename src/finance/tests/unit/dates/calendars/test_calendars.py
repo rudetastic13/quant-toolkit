@@ -1,14 +1,16 @@
 """Test calendars singleton"""
+import pytest
 from common.testing import UnitTest
 from finance.dates.calendars import Calendars
 from finance.dates.calendars.calendar import StaticCalendar
 
+@pytest.mark.datemath
 class TestCalendars(UnitTest):
     COVERAGE = ["finance.dates.calendars"]
 
     def test_calendars_ctor(self):
         """Test building of calendars and show the singleton pattern is respected"""
-        self.assertEqual(Calendars._calendars, {})
+        self.assertNotEqual(Calendars._calendars, {}) # no holidays is loaded
         calendars = Calendars()
         self.assertListEqual(list(Calendars._calendars.keys()), ["no_holidays"])
         self.assertListEqual(list(calendars._calendars.keys()), ["no_holidays"])

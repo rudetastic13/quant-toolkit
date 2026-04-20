@@ -58,12 +58,13 @@ def is_good_bd(dt: DateNpType, calendar: CalendarLike) -> BoolNpType:
     array([ True, False])
     """
     np_calendar = clean_calendar(calendar).np_calendar
-    return np.is_busday(dt, np_calendar.weekmask, np_calendar.holidays)
+    return np.is_busday(dt, busdaycal=np_calendar)
 
 
 @overload
 def adjust_date(dt: np.datetime64, bdc: BdcLike, calendar: CalendarLike) -> np.datetime64:
     ...
+
 
 @overload
 def adjust_date(dt: np.ndarray, bdc: BdcLike, calendar: CalendarLike) -> np.ndarray:
@@ -104,8 +105,7 @@ def adjust_date(dt: DateNpType, bdc: BdcLike, calendar: CalendarLike) -> DateNpT
         dt,
         offsets=0,
         roll=bdc,
-        weekmask=np_calendar.weekmask,
-        holidays=np_calendar.holidays
+        busdaycal=np_calendar,
     )
 
 
@@ -146,8 +146,7 @@ def add_business_days(dt: DateNpType, days: int, bdc: BdcLike, calendar: Calenda
         dt,
         offsets=days,
         roll=bdc,
-        weekmask=np_calendar.weekmask,
-        holidays=np_calendar.holidays
+        busdaycal=np_calendar,
     )
 
 
