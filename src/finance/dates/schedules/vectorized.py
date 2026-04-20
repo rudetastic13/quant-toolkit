@@ -43,7 +43,7 @@ def generate_schedule(
 
     # give a buffer
     arr_size = guess_array_size(start_int, end_int, freq_type, freq_value)
-    arr = _Allocated_Cache.get_slice(arr_size)
+    arr = _Allocated_Cache.get_slice(arr_size + 2)
     arr[:] = np.arange(start=-2, stop=arr_size, dtype=np.int32)
     arr_size = arr.size
     np.multiply(arr, step, out=arr)

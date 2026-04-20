@@ -9,7 +9,7 @@ from common.testing import UnitTest
 from common.registry import RegistryError
 
 
-@pytest.mark.dates
+@pytest.mark.datemath
 class TestTerm(UnitTest):
     """Testing Term"""
     COVERAGE = ["finance.dates.term"]

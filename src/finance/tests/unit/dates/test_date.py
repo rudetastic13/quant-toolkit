@@ -1,10 +1,12 @@
 """Testing the Date constructor"""
 import datetime
+import pytest
 import pandas as pd
 import numpy as np
 from common.testing import UnitTest
 from finance.dates.date import Date
 
+@pytest.mark.datemath
 class TestDate(UnitTest):
     COVERAGE = ["finance.dates.date"]
 
