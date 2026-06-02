@@ -3,7 +3,7 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.markets.curves import ZeroCurve
-from finance.pricing.namespace import CurveNamespace
+from finance.markets.curves import CurveNamespace
 
 
 def _make_curve() -> ZeroCurve:
@@ -14,7 +14,7 @@ def _make_curve() -> ZeroCurve:
 
 
 class TestCurveNamespaceBind(UnitTest):
-    COVERAGE = ["finance.pricing.namespace.curve_namespace"]
+    COVERAGE = ["finance.markets.curves.namespace"]
 
     def test_bind_and_resolve_roundtrip(self):
         ns = CurveNamespace()
@@ -41,7 +41,7 @@ class TestCurveNamespaceBind(UnitTest):
 
 
 class TestCurveNamespaceRebind(UnitTest):
-    COVERAGE = ["finance.pricing.namespace.curve_namespace"]
+    COVERAGE = ["finance.markets.curves.namespace"]
 
     def test_rebind_replaces_curve(self):
         ns = CurveNamespace()
@@ -78,7 +78,7 @@ class TestCurveNamespaceRebind(UnitTest):
 
 
 class TestCurveNamespaceErrors(UnitTest):
-    COVERAGE = ["finance.pricing.namespace.curve_namespace"]
+    COVERAGE = ["finance.markets.curves.namespace"]
 
     def test_resolve_missing_raises(self):
         ns = CurveNamespace()

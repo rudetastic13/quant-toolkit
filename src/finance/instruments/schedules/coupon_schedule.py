@@ -70,13 +70,19 @@ class FixedCouponEvent(CouponEvent):
 
 @dataclass
 class FloatingCouponEvent(CouponEvent):
-    """Defines a fixed coupon payment event."""
+    """Defines a floating coupon payment event.
+
+    Bounds use ``None`` for "no bound" so a genuine 0% level (e.g. a SOFR coupon floored at
+    0%) is distinguishable from "unfloored" — ``0.0`` means a real 0% floor, ``None`` means
+    none.  ``spread`` keeps a ``0.0`` default because 0 spread is a normal additive value
+    with no sentinel ambiguity.
+    """
     coupon_type: ClassVar[CouponType] = CouponType.Floating
     rate_index: str = field(init=True, default="undefined")
     spread: float = field(init=True, default=0)
-    index_floor: float = field(init=True, default=0)
-    cap: float = field(init=True, default=0)
-    floor: float = field(init=True, default=0)
+    index_floor: float | None = field(init=True, default=None)
+    cap: float | None = field(init=True, default=None)
+    floor: float | None = field(init=True, default=None)
 
     @cached_property
     def _calculator(self) -> Callable:
@@ -135,8 +141,13 @@ class CouponSchedule(BaseSchedule):
 
 
     def schedule_from_accrual_grid(self, accrual_grid: np.ndarray) -> np.ndarray:
-        """Define the schedule of coupon events based on the accrual grid, returns array of event indices for each accrual date."""
+        """Map each accrual date to the index of the event governing it.
+
+        An event governs every accrual period whose start is on/after the event's anchor
+        date and before the next event's. ``side="right"`` is required so a period that
+        starts exactly on an event boundary picks up that event (not the prior one).
+        """
         schedule_dates = np.array([event.start_date.to_numpy() for event in self.events], dtype="datetime64[D]")
-        res = np.searchsorted(schedule_dates, accrual_grid, side="left") - 1
-        np.clip(res, 0, accrual_grid.shape[0], out=res)
+        res = np.searchsorted(schedule_dates, accrual_grid, side="right") - 1
+        np.clip(res, 0, len(self.events) - 1, out=res)
         return res

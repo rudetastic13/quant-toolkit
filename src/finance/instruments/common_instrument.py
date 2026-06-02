@@ -54,5 +54,19 @@ class CommonInstrument(CommonObject):
     schedules: dict = field(default_factory=dict)
 
     def _validate_impl(self) -> ValidationResult:
-        pass
+        result = ValidationResult()
+        if self.maturity <= self.effective:
+            result.add_failure(
+                f"maturity ({self.maturity}) must be after effective ({self.effective})"
+            )
+        if self.notional < 0:
+            result.add_warning(
+                "notional is negative; pay/receive direction is set at the product level "
+                "(negative notional = pay), so legs should carry a positive notional"
+            )
+        if self.coupon_type.is_floating and not self.rate_index:
+            result.add_failure(f"floating coupon ({self.coupon_type.name}) requires a rate_index")
+        if self.cap is not None and self.floor is not None and self.cap < self.floor:
+            result.add_failure(f"cap ({self.cap}) is below floor ({self.floor})")
+        return result
 

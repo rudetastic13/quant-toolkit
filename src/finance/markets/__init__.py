@@ -38,8 +38,9 @@ class Market:
     def _get_rates_curves(self, rate_index: str, dates: np.ndarray) -> np.ndarray:
         ccy, rate_index, tenor = rate_index.split()
         my_curve = None
-        for curve in self.curves:
-            if curve.currency == ccy:
+        # ``self.curves`` is a dict keyed by name; match on the curve's currency.
+        for curve in self.curves.values():
+            if getattr(curve, "currency", None) == ccy:
                 my_curve = curve
         if my_curve is None:
             raise IndexError(f"Requested rate_index {rate_index} is not defined in curve set")

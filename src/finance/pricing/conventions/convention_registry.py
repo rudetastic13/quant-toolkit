@@ -1,7 +1,7 @@
 """ConventionRegistry — lookup market conventions by (currency, index_name)."""
 from __future__ import annotations
 
-from common.registry import Registry, register_with
+from common.registry import Registry
 from finance.pricing.conventions.convention_set import ConventionSet
 
 # Internal registry keyed by (currency, index_name) tuples.

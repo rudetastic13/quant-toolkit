@@ -1,0 +1,145 @@
+# bad code lol
+class fixedfloatswap:
+    def __init__(
+        self,
+        curve: Market,
+        notional: float,
+        coupon: float,
+        tradeDate: np.datetime64,
+        settleDate: np.datetime64,
+        maturityDate: np.datetime64,
+        fixedBusinessDayConvention: str = "modifiedfollowing",
+        floatBusinessDayConvention: str = "modifiedfollowing",
+        fixedDayCountMethod: str = "ACT/360",
+        floatDayCountMethod: str = "ACT/360",
+        fixedPaymentFrequency: str = "Annual",
+        floatPaymentFrequency: str = "Annual",
+        adjusted: bool = True,
+        daysBeforeAccrual: int = 0,
+        rateCutoffDays: int = 0,
+        payDelayDays: int = 2,
+        rollConvention: str = "Backwards",
+        principalPayments: str | None = None
+        nextToLastPaymentDate: np.datetime64 | None = None
+        firstPaymentDate: np.datetime64 | None = None
+        forwardPremium: float | None = None,
+        forwardPremiumDate: np.datetime64 | None = None,
+        paymentCal: str = "fed",
+        fixingCal: str = "bond", # this is sifma
+        swap_definition: SwapDefinition | None = None
+        ):
+        self.curve = curve
+        self.notional = notional
+        ...
+        self.fixingCal = fixingCal
+        self.forwardPremium = forwardPremium if forwardPremium is not None else 0.0
+        self.forwardPremiumDate = forwardPremiumDate if forwardPremiumDate is not None else self.curve.curve_date
+        if swap_definition is None:
+            self.swap_definition = self._create_swap_definition(...)
+        else:
+            self.swap_definition = swap_definition
+            self._validate_swap_definition_consistency()
+
+        self._assert_constructor_state()
+
+        self.fixedSide = fixedside(curve=curve, swap_definition=self.swapDefintion)
+        self.floatSide = floatSide(curve=curve, swap_definition=self.swapDefintion)
+        self.couponSchedule: pd.DataFrame | None = None
+        self.KRD : pd.DataFrame | None = None
+        self.niiAccruals: pd.DataFrame | None = None
+
+    def _assert_constructor_state(self):
+        assert self.notional > 0, "Notional must be positive"
+        assert self.coupon >= 0, "Coupon must be non-negative"
+        assert self.settleDate < self.maturityDate, "Settle date must be before maturity date"
+        assert self.forwardPremium >= 0, "Forward premium must be non-negative"
+        assert self.forwardPremiumDate <= self.settleDate, "Forward premium date must be on or before settle date"
+        ...
+        # this goes on for a while lol
+
+    def _create_swap_definition(self, ...):
+        # logic to create swap definition based on input parameters
+        # swap definition holds the date grid logic but uses np.datetime64[ns] because these guys used pandas and
+        #   couldn't figure out how to downcast the dtype
+        return SwapDefinition(...)
+
+    def _validate_swap_definition_consistency(self):
+        # logic to validate that the provided swap definition is consistent with the input parameters
+        ref = self.swapDefinition
+        assert ref.notional == self.notional, "Notional in swap definition must match input notional"
+        ....
+
+    def calcCouponSchedule(self):
+        # logic to calculate the coupon payment schedule based on the swap definition
+        if self.fixedSide.couponSchedule is None:
+             self.fixedSide.calcCouponScheduleDF() # yes, we store another dataframe
+        if self.floatSide.couponSchedule is None:
+             self.floatSide.calcCouponScheduleDF() # yes, we store another dataframe
+        self.couponSchedule = pd.concat([self.fixedSide.couponSchedule, self.floatSide.couponSchedule]).groupby([group cols]).sum().reset_index()
+
+    def PV(self, exclude_fees: bool = False) -> np.float64:
+        base = self.fixedSide.PV() + self.floatSide.PV()
+        if exclude_fees:
+            return base
+        return base + self.forwardPremiumPV()
+
+    def forwardPremiumPV(self) -> np.float64:
+        if self.forwardPremium == 0.0:
+            return 0.0
+        df = self.curve.df(self.forwardPremiumDate)
+        return self.forwardPremium * df
+
+    def returnCashflows(self, date1: np.datetime64, date2: np.datetime64, total=False, frame=True):
+        if total:
+            x1, x2 = self.fixedSide.returnCashflows(date1, date2, total=True, frame=False)
+            y1, y2 = self.floatSide.returnCashflows(date1, date2, total=True, frame=False)
+            return np.sum(x2) + np.sum(y2)
+        else:
+            if frame:
+                x = self.fixedSide.returnCashflows(date1, date2, frame=frame)
+                y = self.floatSide.returnCashflows(date1, date2, frame=frame)
+                return pd.concat([x, y])
+            else:
+            ... some stupid numpy stuff
+
+    def accruedInterest(self, marketDate: np.datetime64):
+        # this is currently a huge bottleneck in our codebase
+        fixedAI = self.fixedSide.accruedInterest(marketDate)
+        floatAI = self.floatSide.accruedInterest(marketDate)
+        return fixedAI + floatAI
+
+    def PV01(self):
+        return self.fixedSide.PV01()
+
+    def parCoupon(self) -> np.float64:
+        return np.abs(self.floatSide.PV() / self.fixedSide.PV01()) / 10_000
+
+    def keyRateDuration(self, recalc=False):
+        if (recalc is False) and (self.KRD is not None):
+            return self.KRD
+        else:
+            startPV = self.PV()
+            if self.curve.shockedCurves is None:
+                self.curve.calcKRDCurves()
+            lenrng = len(self.curve.calibInsts)
+            insts = self.curve.calibInsts
+            krd = []
+            shock = self.curve.curveShock
+            for i in range(2, lenrng):
+            curve1 = self.curve.shockedCurves[i=2][0[
+            curve2 = self.curve.shockedCurves[i-2][1]
+            if matcheck is False:
+                tempfxfl = fixedfloatswap(curve=curve1, notional=self.notional, coupon=self.coupon, tradeDate=self.tradeDate, settleDate=self.settleDate, maturityDate=self.maturityDate, fixedBusinessDayConvention=self.fixedBusinessDayConvention, floatBusinessDayConvention=self.floatBusinessDayConvention, fixedDayCountMethod=self.fixedDayCountMethod, floatDayCountMethod=self.floatDayCountMethod, fixedPaymentFrequency=self.fixedPaymentFrequency, floatPaymentFrequency=self.floatPaymentFrequency, adjusted=self.adjusted, daysBeforeAccrual=self.daysBeforeAccrual, rateCutoffDays=self.rateCutoffDays, payDelayDays=self.payDelayDays, rollConvention=self.rollConvention, principalPayments=self.principalPayments nextToLastPaymentDate=self.nextToLastPaymentDate firstPaymentDate=self.firstPaymentDate forwardPremium=self.forwardPremium forwardPremiumDate=self.forwardPremiumDate paymentCal=self.paymentCal fixingCal=self.fixingCal)
+                tempfxfl2 = fixedfloatswap(curve=curve2, notional=self.notional, coupon=self.coupon, tradeDate=self.tradeDate, settleDate=self.settleDate, maturityDate=self.maturityDate, fixedBusinessDayConvention=self.fixedBusinessDayConvention, floatBusinessDayConvention=self.floatBusinessDayConvention, fixedDayCountMethod=self.fixedDayCountMethod, floatDayCountMethod=self.floatDayCountMethod, fixedPaymentFrequency=self.fixedPaymentFrequency, floatPaymentFrequency=self.floatPaymentFrequency, adjusted=self.adjusted, daysBeforeAccrual=self.daysBeforeAccrual, rateCutoffDays=self.rateCutoffDays, payDelayDays=self.payDelayDays, rollConvention=self.rollConvention, principalPayments=self.principalPayments nextToLastPaymentDate=self.nextToLastPaymentDate firstPaymentDate=self.firstPaymentDate forwardPremium=self.forwardPremium forwardPremiumDate=self.forwardPremiumDate paymentCal=self.paymentCal fixingCal=self.fixingCal)
+            KRD.append([insts[i].end_tenor, (tempfxfl.PV() - startPV) / shock]), (tempfxfl2.PV() - startPV) / shock])
+            if insts[i].maturity_date > self.maturityDate:
+                matcheck = True
+            KRD[0].append(KRD[0][1])
+            KRD[0].append(KRD[0][2])
+            KRD[0].append(-1 * KRD[0][3]+KRD[0][4])/ 2)
+            for i in range(1, len(KRD)):
+                KRD[i].append(KRD[i][1] - KRD[i-1][1])
+                KRD[i].append(KRD[i][2] - KRD[i-1][2])
+                KRD[i].append(-1 * KRD[i][3]+KRD[i][4])/ 2)
+            self.KRD = pd.DataFrame(KRD, columns=["Tenor", "UpPnl", "DownPnl", "Up01", "Down01", "KRD"])
+            return self.KRD

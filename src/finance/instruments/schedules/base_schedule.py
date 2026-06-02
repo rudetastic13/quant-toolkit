@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Any, Self
+from typing import Any
 from finance.dates import Date
 
 @dataclass
@@ -8,9 +8,10 @@ class BaseEvent:
     start_date: Date = field(init=True)
 
     def __lt__(self, other: Any) -> bool:
-        if not isinstance(other, self.__class__):
+        # Events in a schedule are ordered by their anchor date regardless of subtype, so a
+        # heterogeneous schedule (e.g. fixed + compounded events) sorts cleanly.
+        if not isinstance(other, BaseEvent):
             raise ValueError(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
-        other: Self = other
         return self.start_date < other.start_date
 
 @dataclass

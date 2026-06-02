@@ -1,6 +1,12 @@
 # quant-toolkit
 Dabbling in interest rate analytics
 
+## Documentation
+
+- [Pricing Architecture](docs/pricing_architecture.md) — how a trade flows from a data row
+  through an instrument into a compiled `PricingProgram` and is repriced against market data,
+  with diagrams, design decisions, and the patterns used.
+
 # Setup
 
 Source the ~/bin/use_env.sh and the conda environment for using the right conda yml parameters.

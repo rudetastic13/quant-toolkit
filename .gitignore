@@ -6,6 +6,10 @@ __pycache__/
 # C extensions
 *.so
 
+# OTHERS
+.idea/*
+pytest-reports/*.xml
+
 # Distribution / packaging
 .Python
 build/
@@ -207,3 +211,7 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# OS / reports
+.DS_Store
+pytest-reports/
