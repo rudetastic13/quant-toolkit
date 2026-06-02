@@ -1,10 +1,10 @@
 """Tests for PaymentSchedule and build_payment_schedule."""
 import numpy as np
-import pytest
 
 from common.testing import UnitTest
-from finance.dates import Date, Frequency, DayCountMethod, BDC, Roll, Direction, Term, TermType
+from finance.dates import Date, Frequency, DayCountMethod, BDC
 from finance.instruments.schedules import PaymentSchedule, build_payment_schedule
+from finance.instruments.schedules.payment_schedule import adjust_schedule_boundaries
 
 
 class TestBuildPaymentSchedule(UnitTest):
@@ -139,3 +139,56 @@ class TestBuildPaymentScheduleStubDates(UnitTest):
         self.assertEqual(ps.accrual_ends[0], np.datetime64("2025-04-15"))
         # Stub fraction should be different from regular periods
         self.assertNotAlmostEqual(ps.period_fracs[0], ps.period_fracs[1], places=4)
+
+
+class TestAccrualAdjustment(UnitTest):
+    COVERAGE = ["finance.instruments.schedules.payment_schedule"]
+
+    # effective is a Saturday, maturity a Sunday, with an interior Sunday roll date.
+    EFFECTIVE = Date(2025, 3, 15)   # Sat
+    MATURITY = Date(2026, 3, 15)    # Sun
+
+    def _build(self, **overrides):
+        defaults = dict(
+            effective=self.EFFECTIVE,
+            maturity=self.MATURITY,
+            frequency=Frequency.Quarterly,
+            day_count_method=DayCountMethod.Actual360,
+            bdc=BDC.ModifiedFollowing,
+            calendar="no_holidays",
+        )
+        defaults.update(overrides)
+        return build_payment_schedule(**defaults)
+
+    def test_endpoints_adjusted_by_default(self):
+        ps = self._build()  # adjust_endpoints=True default
+        # all accrual boundaries land on good business days
+        self.assertTrue(np.all(np.is_busday(ps.accrual_starts)))
+        self.assertTrue(np.all(np.is_busday(ps.accrual_ends)))
+        # Sat 2025-03-15 -> Mon 2025-03-17
+        self.assertEqual(ps.accrual_starts[0], np.datetime64("2025-03-17"))
+
+    def test_endpoints_flow_when_disabled(self):
+        ps = self._build(adjust_endpoints=False)
+        # explicit endpoints kept raw even though they are weekends
+        self.assertEqual(ps.accrual_starts[0], np.datetime64("2025-03-15"))
+        self.assertEqual(ps.accrual_ends[-1], np.datetime64("2026-03-15"))
+        self.assertFalse(np.is_busday(ps.accrual_starts[0]))
+        # ...but interior generated roll dates are still adjusted (Sun 06-15 -> Mon 06-16)
+        self.assertEqual(ps.accrual_ends[0], np.datetime64("2025-06-16"))
+
+    def test_no_adjustment_bdc_is_noop(self):
+        ps = self._build(bdc=BDC.NoAdjustment)
+        self.assertEqual(ps.accrual_starts[0], np.datetime64("2025-03-15"))
+        self.assertEqual(ps.accrual_ends[0], np.datetime64("2025-06-15"))
+
+    def test_adjust_schedule_boundaries_protects_only_listed(self):
+        raw = np.array(["2025-03-15", "2025-06-15", "2026-03-15"], dtype="datetime64[D]")  # Sat, Sun, Sun
+        protected = {np.datetime64("2025-03-15"), np.datetime64("2026-03-15")}
+        out = adjust_schedule_boundaries(
+            raw, BDC.ModifiedFollowing, "no_holidays", protected=protected, adjust_endpoints=False
+        )
+        # protected endpoints stay raw; the unprotected interior Sunday rolls to Monday
+        self.assertEqual(out[0], np.datetime64("2025-03-15"))
+        self.assertEqual(out[1], np.datetime64("2025-06-16"))
+        self.assertEqual(out[2], np.datetime64("2026-03-15"))

@@ -52,11 +52,14 @@ def calculate_floating(
     out: np.ndarray
         array filled with calculated rates, same as input ``out`` parameter
     """
-    index_rates = market.get_rates(rate_index, reset_dates)
-    np.maximum(index_rates, index_floor, out=out)
+    out[:] = market.get_rates(rate_index, reset_dates)
+    if index_floor is not None:
+        np.maximum(out, index_floor, out=out)
     np.add(out, spread, out=out)
-    np.maximum(out, floor, out=out)
-    np.minimum(out, cap, out=out)
+    if floor is not None:
+        np.maximum(out, floor, out=out)
+    if cap is not None:
+        np.minimum(out, cap, out=out)
     return out
 
 def calculate_geometric_average(
@@ -95,20 +98,20 @@ def calculate_geometric_average(
         index_rates = market.get_rates(rate_index, fixing_dates)
         if index_floor:
             np.maximum(index_rates, index_floor, out=index_rates)
-        if margin_treatment.Inclusive:
+        if margin_treatment == MarginTreatment.Inclusive:
             np.add(index_rates, spread, out=index_rates)
         np.multiply(index_rates, rate_weights, out=index_rates)
         np.add(index_rates, 1, out=index_rates)
         np.cumprod(index_rates, out=index_rates)
         np.divide(index_rates, rate_weights.cumsum(), out=index_rates)
         np.subtract(index_rates, 1, out=index_rates)
-        if margin_treatment.Exclusive:
+        if margin_treatment == MarginTreatment.Exclusive:
             np.add(index_rates, spread, out=index_rates)
         if floor:
             np.maximum(index_rates, floor, out=index_rates)
         if cap:
             np.minimum(index_rates, cap, out=index_rates)
-        out[idx] = index_rates[-1]
+        out[idx] = index_rates[idx]
     return out
 
 
@@ -148,18 +151,18 @@ def calculate_arithmetic_average(
         index_rates = market.get_rates(rate_index, fixing_dates)
         if index_floor:
             np.maximum(index_rates, index_floor, out=index_rates)
-        if margin_treatment.Inclusive:
+        if margin_treatment == MarginTreatment.Inclusive:
             np.add(index_rates, spread, out=index_rates)
         np.multiply(index_rates, rate_weights, out=index_rates)
         np.cumsum(index_rates, out=index_rates)
         np.divide(index_rates, rate_weights.cumsum(), out=index_rates)
-        if margin_treatment.Exclusive:
+        if margin_treatment == MarginTreatment.Exclusive:
             np.add(index_rates, spread, out=index_rates)
         if floor:
             np.maximum(index_rates, floor, out=index_rates)
         if cap:
             np.minimum(index_rates, cap, out=index_rates)
-        out[idx] = index_rates[-1]
+        out[idx] = index_rates[idx]
     return out
 
 def calculate_custom(

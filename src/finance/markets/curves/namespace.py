@@ -1,20 +1,19 @@
-"""Namespace for curve resolution — instruments hold curve names, not curve objects."""
+"""CurveNamespace — name -> ZeroCurve store with a version counter.
+
+Lives with the curves it holds (``finance.markets.curves``), so market-data containers like
+``MarketContext`` depend only on ``finance.markets`` — not on ``finance.pricing``.
+
+Each curve carries an integer version counter that increments on rebind. Instruments cache
+results and compare versions to detect staleness — no observer pattern needed. Multiple
+namespaces can coexist (e.g. one per scenario). This is not a singleton.
+"""
 from __future__ import annotations
 
-from finance.markets.curves import ZeroCurve
+from finance.markets.curves._curve_impl.zero_curve import ZeroCurve
 
 
 class CurveNamespace:
-    """
-    Key-value store mapping string names to ZeroCurve objects.
-
-    Each curve carries an integer version counter that increments on rebind.
-    Instruments cache results and compare versions to detect staleness — no
-    observer pattern needed.
-
-    Multiple namespaces can coexist (e.g. one per scenario). This is not a
-    singleton.
-    """
+    """Key-value store mapping string names to ZeroCurve objects."""
 
     def __init__(self) -> None:
         self._curves: dict[str, ZeroCurve] = {}
@@ -23,9 +22,7 @@ class CurveNamespace:
     def bind(self, name: str, curve: ZeroCurve) -> None:
         """Register a curve under name. Raises if name is already bound."""
         if name in self._curves:
-            raise KeyError(
-                f"'{name}' is already bound. Use rebind() to overwrite."
-            )
+            raise KeyError(f"'{name}' is already bound. Use rebind() to overwrite.")
         self._curves[name] = curve
         self._versions[name] = 0
 
@@ -56,7 +53,8 @@ class CurveNamespace:
         return name in self._curves
 
     def __repr__(self) -> str:
-        entries = ", ".join(
-            f"{name}(v{self._versions[name]})" for name in self._curves
-        )
+        entries = ", ".join(f"{name}(v{self._versions[name]})" for name in self._curves)
         return f"CurveNamespace({{{entries}}})"
+
+
+__all__ = ["CurveNamespace"]
