@@ -45,9 +45,12 @@ def serialize_value(value: Any) -> Any:
         import numpy as np
 
         if isinstance(value, np.ndarray):
+            # Dtype-aware envelope — preserves dtype, shape, and datetime64 unit on round-trip.
             if np.issubdtype(value.dtype, np.datetime64):
-                return [str(v) for v in value]
-            return value.tolist()
+                data: Any = value.astype(str).tolist()
+            else:
+                data = value.tolist()
+            return {"__ndarray__": True, "dtype": str(value.dtype), "shape": list(value.shape), "data": data}
         if isinstance(value, (np.integer, np.bool_)):
             return int(value)
         if isinstance(value, np.floating):
@@ -59,10 +62,34 @@ def serialize_value(value: Any) -> Any:
     return str(value)
 
 
+def _rebuild_ndarray(env: dict[str, Any]) -> Any:
+    """Reconstruct a numpy array from the dtype-aware envelope written by serialize_value."""
+    import numpy as np
+
+    return np.array(env["data"], dtype=env["dtype"]).reshape(env["shape"])
+
+
 def deserialize_value(value: Any, type_hint: type | None) -> Any:
     if value is None:
         return None
+
+    # ── Marker-driven detection (fires regardless of type hint) ──────────────
+    if isinstance(value, dict):
+        # dtype-aware ndarray envelope
+        if value.get("__ndarray__") is True:
+            return _rebuild_ndarray(value)
+        # Polymorphic Serializable — reconstruct whichever concrete class was stored
+        type_key = value.get("__type__")
+        if type_key and type_key in Serializable._type_registry:
+            return Serializable._type_registry[type_key].deserialize(value)
+
+    # When there's no type hint and the value is a container, recurse so that
+    # nested markers (arrays / Serializables) are still found.
     if type_hint is None:
+        if isinstance(value, list):
+            return [deserialize_value(v, None) for v in value]
+        if isinstance(value, dict):
+            return {k: deserialize_value(v, None) for k, v in value.items()}
         return value
 
     origin = get_origin(type_hint)
@@ -102,8 +129,25 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
             return tuple(deserialize_value(v, args[min(i, len(args) - 1)]) for i, v in enumerate(value))
         return tuple(value)
 
+    # Bare (unparameterized) dict / list — recurse marker-driven so that nested
+    # __ndarray__ envelopes and __type__ markers are still resolved.
+    if type_hint is dict and isinstance(value, dict):
+        return {k: deserialize_value(v, None) for k, v in value.items()}
+    if type_hint is list and isinstance(value, list):
+        return [deserialize_value(v, None) for v in value]
+
     # Concrete types
     if isinstance(type_hint, type):
+        # numpy ndarray (hint-driven path; marker-driven path above handles untyped containers)
+        try:
+            import numpy as np
+
+            if issubclass(type_hint, np.ndarray) or origin is np.ndarray:
+                if isinstance(value, dict) and value.get("__ndarray__") is True:
+                    return _rebuild_ndarray(value)
+                return np.array(value)
+        except ImportError:
+            pass
         # Custom deserializers
         for type_cls, fn in _type_deserializers.items():
             if issubclass(type_hint, type_cls):
@@ -117,17 +161,6 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
         # Primitives
         if type_hint in (str, int, float, bool):
             return type_hint(value)
-
-    # numpy ndarray
-    try:
-        import numpy as np
-
-        if (isinstance(type_hint, type) and issubclass(type_hint, np.ndarray)) or origin is np.ndarray:
-            if isinstance(value, list) and value and isinstance(value[0], str):
-                return np.array(value, dtype="datetime64[D]")
-            return np.array(value)
-    except ImportError:
-        pass
 
     return value
 

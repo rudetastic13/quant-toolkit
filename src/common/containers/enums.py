@@ -26,10 +26,10 @@ class CaseInsensitiveEnumMeta(EnumMeta):
     def __call__(cls, value, *args, **kwargs):
         # where value is string, check if match to any member value and find first match
         if isinstance(value, str):
-            for item in cls._member_names_.values():
+            for item in cls._member_map_.values():
                 if isinstance(item.value, str) and item.value.lower() == value.lower():
-                    return super().__call__(item, *args, **kwargs)
-        # fall back to parent claass call
+                    return super().__call__(item.value, *args, **kwargs)
+        # fall back to parent class call
         return super().__call__(value, *args, **kwargs)
 
     def __getitem__(cls, item):
@@ -40,7 +40,7 @@ class CaseInsensitiveEnumMeta(EnumMeta):
         # now check case matching if that fails
         for key in cls._member_map_:
             if key.lower() == item.lower():
-                return super().__getitem__(item)
+                return super().__getitem__(key)
 
         # fallback to parent method
         return super().__getitem__(item)
