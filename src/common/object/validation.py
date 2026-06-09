@@ -102,3 +102,44 @@ class ValidationException(Exception):
         for msg in self.triggering_messages:
             lines.append(f"  - {msg}")
         return "\n".join(lines)
+
+
+class Validatable:
+    """Mixin that provides structured validation via an overridable _validate_impl hook.
+
+    Subclasses override ``_validate_impl`` to return a populated ``ValidationResult``.
+    Call ``validate(raise_on=...)`` to trigger validation and optionally surface problems
+    as a ``ValidationException``.
+    """
+
+    def validate(self, raise_on: set[ValidationType] | None = None) -> ValidationResult:
+        """Run validation and return the result.
+
+        Args:
+            raise_on: Set of ``ValidationType`` values that should cause a
+                ``ValidationException`` to be raised.  Defaults to
+                ``{ValidationFailure}`` when *None*.
+
+        Returns:
+            The ``ValidationResult`` produced by ``_validate_impl``.
+
+        Raises:
+            ValidationException: When any message in the result matches a type in ``raise_on``.
+        """
+        if raise_on is None:
+            raise_on = {ValidationType.ValidationFailure}
+
+        result = self._validate_impl()
+
+        if raise_on and any(m.validation_type in raise_on for m in result.messages):
+            raise ValidationException(result, raise_on)
+
+        return result
+
+    def _validate_impl(self) -> ValidationResult:
+        """Override in subclasses to populate a ``ValidationResult``.
+
+        Always call ``super()._validate_impl()`` first so parent-class rules are
+        composed correctly up the hierarchy.
+        """
+        return ValidationResult()

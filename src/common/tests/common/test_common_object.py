@@ -4,11 +4,13 @@ from dataclasses import dataclass
 
 from common.object import (
     CommonObject,
+    Validatable,
     ValidationException,
     ValidationMessage,
     ValidationResult,
     ValidationType,
 )
+from common.object.serializer import Serializable
 from common.testing import UnitTest
 
 
@@ -136,6 +138,14 @@ class TestValidationException(UnitTest):
 
 class TestCommonObject(UnitTest):
     COVERAGE = ["common.object.common_object"]
+
+    def test_is_validatable_instance(self):
+        obj = CommonObject()
+        self.assertIsInstance(obj, Validatable)
+
+    def test_is_serializable_instance(self):
+        obj = CommonObject()
+        self.assertIsInstance(obj, Serializable)
 
     def test_validate_empty_passes(self):
         obj = CommonObject()
