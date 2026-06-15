@@ -49,6 +49,26 @@ class MarketContext:
     vols: object | None = None
     conventions: ConventionRegistry = default_registry
 
+    # -- scenario / rebind --------------------------------------------------
+    def with_curve(self, name: str, curve: ZeroCurve) -> MarketContext:
+        """A new MarketContext with ``name`` (re)bound to ``curve``.
+
+        All other curves are shared (not copied) and ``self`` is left intact, so a
+        scenario, a sensitivity bump, or a calibration trial is a single rebind over a
+        fresh namespace rather than a rebuild.  ``fixings``, ``vols`` and ``conventions``
+        are shared by reference.
+        """
+        ns = CurveNamespace()
+        snap = self.curves.snapshot()
+        for n, (c, _v) in snap.items():
+            ns.bind(n, curve if n == name else c)
+        if name not in snap:
+            ns.bind(name, curve)
+        return MarketContext(
+            as_of_date=self.as_of_date, curves=ns,
+            fixings=self.fixings, vols=self.vols, conventions=self.conventions,
+        )
+
     # -- discounting --------------------------------------------------------
     def discount(self, name: str) -> ZeroCurve:
         """Resolve the named discount/projection curve."""

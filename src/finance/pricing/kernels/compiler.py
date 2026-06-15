@@ -75,8 +75,28 @@ def _project_dedup(market, name: str, starts, ends, day_count=DayCountMethod.Act
     NOT deduped (they stay attached to their original sub-periods); only the rate lookup is.
     """
     k = starts.shape[0]
-    all_dates = np.concatenate([starts, ends])
-    uniq, inverse = np.unique(all_dates, return_inverse=True)
+    if k == 0:
+        return np.zeros(0, dtype=np.float64)
+    all_dates = np.concatenate([starts, ends])   # already datetime64[D] (cat_dt at compile)
+
+    # Dedup the curve lookup: evaluate DF once per unique date.  The dates are day-resolution
+    # integers over a bounded span (~11k business days across 30y), so a bucket factorization
+    # is O(M + span) with no sort — versus np.unique's argsort over all M (~millions) dates,
+    # which dominated reprice.  Falls back to np.unique if the span is pathologically wide.
+    ints = all_dates.view(np.int64)              # zero-copy reinterpret of datetime64[D]
+    lo = int(ints.min())
+    span = int(ints.max()) - lo + 1
+    if span <= 4 * ints.size:
+        offsets = ints - lo
+        seen = np.zeros(span, dtype=bool)
+        seen[offsets] = True
+        uniq_off = np.flatnonzero(seen)
+        uniq = (uniq_off + lo).view("datetime64[D]")
+        code = np.empty(span, dtype=np.intp)
+        code[uniq_off] = np.arange(uniq_off.size)
+        inverse = code[offsets]
+    else:
+        uniq, inverse = np.unique(all_dates, return_inverse=True)
     df_uniq = market.discount_factor(name, uniq)
     df_all = df_uniq[inverse]
     df_s, df_e = df_all[:k], df_all[k:]

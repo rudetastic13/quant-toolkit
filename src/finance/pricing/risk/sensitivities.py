@@ -17,7 +17,6 @@ import numpy as np
 
 from finance.markets.curves import ZeroCurve, CurveInterpolator
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.pricing.pricers.base import PricingProgram
 
 FloatArray = np.ndarray
@@ -52,20 +51,6 @@ def bumped_curve(curve: ZeroCurve, bp: float, pillar: int | None = None) -> Zero
     return ZeroCurve(curve.node_dates, new_dfs, interpolation=interp)
 
 
-def _market_with_curve(market: MarketContext, name: str, curve: ZeroCurve) -> MarketContext:
-    """A new MarketContext with ``name`` rebound to ``curve`` (others shared, original intact)."""
-    ns = CurveNamespace()
-    snap = market.curves.snapshot()
-    for n, (c, _v) in snap.items():
-        ns.bind(n, curve if n == name else c)
-    if name not in snap:
-        ns.bind(name, curve)
-    return MarketContext(
-        as_of_date=market.as_of_date, curves=ns,
-        fixings=market.fixings, vols=market.vols, conventions=market.conventions,
-    )
-
-
 @dataclass
 class KeyRateLadder:
     """Per-pillar key-rate durations for a set of instruments."""
@@ -93,7 +78,7 @@ class Sensitivities:
     bp: float = 1e-4
 
     def _reprice_with(self, curve_name: str, curve: ZeroCurve) -> FloatArray:
-        return self.program.reprice(_market_with_curve(self.market, curve_name, curve)).instrument_pv
+        return self.program.reprice(self.market.with_curve(curve_name, curve)).instrument_pv
 
     def dv01(self, curve_name: str) -> FloatArray:
         """Parallel DV01 per instrument (PV change for a +1bp parallel zero-rate move)."""

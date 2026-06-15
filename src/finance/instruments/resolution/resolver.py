@@ -17,6 +17,34 @@ def curve_name(currency: str, index_name: str) -> str:
     return f"{currency.upper()}.{index_name.upper()}"
 
 
+# Funding (discount) curve aliases.  A ``funding_id`` is the label a trade carries to say
+# *which* curve it is collateralised/discounted on; ``STDCSA`` ("standard CSA") is the
+# market-standard OIS discount curve, which resolves per-currency to that ccy's OIS index.
+# A simple per-ccy map for now — graduates to a registry / on-curve alias later (the
+# ``FundingIndex`` stub in markets.conventions is the eventual home).
+STDCSA = "STDCSA"
+_FUNDING_ALIASES: dict[str, dict[str, str]] = {
+    STDCSA: {"USD": "SOFR", "EUR": "ESTR"},
+}
+
+
+def funding_curve_name(currency: str, funding_id: str = STDCSA) -> str:
+    """Resolve a funding id to a discount curve name, e.g. ('USD','STDCSA') -> 'USD.SOFR'.
+
+    An aliased id (``STDCSA``) maps per-currency to its OIS index; an unrecognised id is
+    treated as a concrete index name and passed straight through to :func:`curve_name`
+    (so ``funding_id='SOFR'`` or ``'FEDFUNDS'`` also works).
+    """
+    aliases = _FUNDING_ALIASES.get(funding_id.upper())
+    if aliases is None:
+        return curve_name(currency, funding_id)
+    try:
+        index = aliases[currency.upper()]
+    except KeyError:
+        raise KeyError(f"no '{funding_id}' funding alias for currency '{currency}'") from None
+    return curve_name(currency, index)
+
+
 def resolve_conventions(
     currency: str, index_name: str, registry: ConventionRegistry = default_registry
 ) -> ConventionSet:
@@ -39,4 +67,4 @@ def roll_spot(as_of: Date, spot_lag: Term, calendar: str) -> Date:
     return Date.from_numpy(eff)
 
 
-__all__ = ["curve_name", "resolve_conventions", "roll_spot"]
+__all__ = ["curve_name", "funding_curve_name", "resolve_conventions", "roll_spot", "STDCSA"]

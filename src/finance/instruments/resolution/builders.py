@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from finance.dates import Date, Term
+from finance.dates import Date, DayCountMethod, Term, add_term
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
 from finance.instruments.resolution.resolver import resolve_conventions, roll_spot
@@ -27,13 +27,23 @@ class ResolvedSwap:
     """Two fully-specified legs. ``receive_leg``/``pay_leg`` satisfy the Swap protocol.
 
     Pure data — no curve, no methods that price. ``currency``/``index_name`` let the pricer
-    resolve the discount & projection curve by name.
+    resolve the *projection* curve by name; ``funding_id`` (default ``STDCSA``) resolves the
+    *discount* curve, so the two can differ for a real basis trade.
+
+    Iterating a ``ResolvedSwap`` yields its legs in pricing order (receive then pay) — the
+    same order the pricer compiles them and ``KernelResult.leg_pv`` is laid out in.
     """
 
     receive_leg: CommonInstrument
     pay_leg: CommonInstrument
     currency: str
     index_name: str
+    funding_id: str = "STDCSA"
+
+    def __iter__(self):
+        """Yield legs in pricing/compile order (receive, pay)."""
+        yield self.receive_leg
+        yield self.pay_leg
 
 
 def Swap(
@@ -44,6 +54,7 @@ def Swap(
     tenor: str = "10Y",
     as_of: Date,
     currency: str = "USD",
+    funding_id: str = "STDCSA",
     registry: ConventionRegistry = default_registry,
     **overrides,
 ) -> ResolvedSwap:
@@ -75,7 +86,107 @@ def Swap(
 
     # receive fixed: receive_leg = fixed; pay fixed (negative notional): receive_leg = float
     receive_leg, pay_leg = (fixed_leg, float_leg) if receive_fixed else (float_leg, fixed_leg)
-    return ResolvedSwap(receive_leg=receive_leg, pay_leg=pay_leg, currency=currency, index_name=rate_index)
+    return ResolvedSwap(
+        receive_leg=receive_leg, pay_leg=pay_leg,
+        currency=currency, index_name=rate_index, funding_id=funding_id,
+    )
 
 
-__all__ = ["ResolvedSwap", "Swap"]
+# ---------------------------------------------------------------------------
+# Money-market instruments (deposits / FRAs) — short-end calibration helpers.
+# Single-period contracts: there is no schedule builder downstream to adjust the
+# end date, so the builder BDC-adjusts the maturity itself.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class ResolvedDeposit:
+    """A cash deposit: lend ``notional`` over ``[effective, maturity]`` at simple ``rate``.
+
+    Pure data.  ``index_name``/``currency`` resolve the forecast curve; ``funding_id`` the
+    discount curve (a no-op for the single-curve case where they coincide).
+    """
+
+    effective: Date
+    maturity: Date
+    rate: float
+    day_count_method: DayCountMethod
+    currency: str
+    index_name: str
+    funding_id: str = "STDCSA"
+    notional: float = 1.0
+
+
+@dataclass
+class ResolvedFra:
+    """A forward rate agreement over ``[effective, maturity]``.
+
+    Field names (``effective``/``maturity``/``day_count_method``/``coupon_rate``/``rate_index``)
+    satisfy the structural ``FRA`` protocol in ``interfaces.products.fra``.
+    """
+
+    effective: Date
+    maturity: Date
+    coupon_rate: float
+    day_count_method: DayCountMethod
+    rate_index: str
+    currency: str
+    index_name: str
+    funding_id: str = "STDCSA"
+    notional: float = 1.0
+
+
+def Deposit(
+    *,
+    rate: float,
+    tenor: str,
+    as_of: Date,
+    rate_index: str = "SOFR",
+    currency: str = "USD",
+    funding_id: str = "STDCSA",
+    notional: float = 1.0,
+    registry: ConventionRegistry = default_registry,
+) -> ResolvedDeposit:
+    """Build a spot-starting cash deposit from minimal trader input."""
+    conv = resolve_conventions(currency, rate_index, registry)
+    effective = roll_spot(as_of, conv.spot_lag, conv.calendar)
+    maturity = Date.from_numpy(
+        add_term(effective.to_numpy(), Term.from_str(tenor), conv.business_day_convention, conv.calendar)
+    )
+    if maturity.to_numpy() <= effective.to_numpy():
+        raise ValueError(f"deposit maturity {maturity} must be after effective {effective}")
+    return ResolvedDeposit(
+        effective=effective, maturity=maturity, rate=float(rate),
+        day_count_method=conv.day_count_method, currency=currency,
+        index_name=rate_index, funding_id=funding_id, notional=float(notional),
+    )
+
+
+def Fra(
+    *,
+    rate: float,
+    start: str,
+    end: str,
+    as_of: Date,
+    rate_index: str = "SOFR",
+    currency: str = "USD",
+    funding_id: str = "STDCSA",
+    notional: float = 1.0,
+    registry: ConventionRegistry = default_registry,
+) -> ResolvedFra:
+    """Build a forward rate agreement, e.g. a 3x6 is ``start='3M', end='6M'``."""
+    conv = resolve_conventions(currency, rate_index, registry)
+    spot = roll_spot(as_of, conv.spot_lag, conv.calendar)
+    bdc, cal = conv.business_day_convention, conv.calendar
+    effective = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(start), bdc, cal))
+    maturity = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(end), bdc, cal))
+    if maturity.to_numpy() <= effective.to_numpy():
+        raise ValueError(f"FRA end {end} must be after start {start}")
+    return ResolvedFra(
+        effective=effective, maturity=maturity, coupon_rate=float(rate),
+        day_count_method=conv.day_count_method, rate_index=f"{currency} {rate_index}",
+        currency=currency, index_name=rate_index, funding_id=funding_id, notional=float(notional),
+    )
+
+
+__all__ = ["ResolvedSwap", "Swap", "ResolvedDeposit", "Deposit", "ResolvedFra", "Fra"]

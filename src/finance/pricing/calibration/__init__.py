@@ -1,0 +1,54 @@
+"""Curve calibration — build market curves from single-quote instruments and a solver.
+
+Import directly (``from finance.pricing.calibration import CurveCalibrator``); this package
+is *not* re-exported from ``finance.pricing`` to avoid the import cycle documented there
+(calibration -> markets.context -> pricing.conventions).
+"""
+from finance.pricing.calibration.solvers import (
+    Bootstrapper,
+    GlobalSolver,
+    ResidualFn,
+    Solver,
+    SolverResult,
+)
+from finance.pricing.calibration.instruments import (
+    CalibrationInstrument,
+    DepositHelper,
+    FraHelper,
+    Quote,
+    QuoteKind,
+    SwapHelper,
+    deposit_helper,
+    fra_helper,
+    swap_helper,
+)
+from finance.pricing.calibration.calibrator import (
+    CalibrationResult,
+    CurveCalibrator,
+    CurveDefinition,
+    LOCAL_INTERPOLATORS,
+)
+
+__all__ = [
+    # solvers
+    "ResidualFn",
+    "SolverResult",
+    "Solver",
+    "GlobalSolver",
+    "Bootstrapper",
+    # instruments
+    "QuoteKind",
+    "Quote",
+    "CalibrationInstrument",
+    "DepositHelper",
+    "FraHelper",
+    "SwapHelper",
+    "deposit_helper",
+    "fra_helper",
+    "swap_helper",
+    # calibrator
+    "CurveDefinition",
+    "CalibrationResult",
+    "CurveCalibrator",
+    "LOCAL_INTERPOLATORS",
+]
