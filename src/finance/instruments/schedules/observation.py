@@ -74,16 +74,18 @@ def build_observation_grid(
     lookback_style: LookbackStyle = LookbackStyle.Lookback,
 ) -> ObservationGrid:
     """Build the in-arrears daily observation grid for a leg."""
-    accrual_starts = np.asarray(accrual_starts, dtype="datetime64[D]")
-    accrual_ends = np.asarray(accrual_ends, dtype="datetime64[D]")
     effective = accrual_starts[0]
     maturity = accrual_ends[-1]
 
-    # 1. continuous boundary set: business days UNION accrual boundaries
-    all_days = np.arange(effective, maturity, dtype="datetime64[D]")
-    bdays = all_days[is_good_bd(all_days, calendar)]
-    boundaries = np.union1d(np.union1d(bdays, accrual_starts), accrual_ends)
-    boundaries = boundaries[(boundaries >= effective) & (boundaries <= maturity)]
+    # 1. continuous boundary set: business days UNION accrual boundaries.  All inputs are
+    #    sorted, dense datetime64[D] over [effective, maturity], so mark a day-offset bool
+    #    mask and read it back — sorted & unique with no union1d sort.
+    all_days = np.arange(effective, maturity + np.timedelta64(1, "D"), dtype="datetime64[D]")
+    mark = is_good_bd(all_days, calendar)
+    day0 = all_days.view(np.int64)[0]
+    mark[accrual_starts.view(np.int64) - day0] = True
+    mark[accrual_ends.view(np.int64) - day0] = True
+    boundaries = all_days[mark]
 
     sub_starts = boundaries[:-1]
     sub_ends = boundaries[1:]

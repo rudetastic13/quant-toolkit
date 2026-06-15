@@ -9,7 +9,7 @@ from __future__ import annotations
 from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
-from finance.instruments.resolution import ResolvedSwap, curve_name
+from finance.instruments.resolution import ResolvedSwap, curve_name, funding_curve_name
 from finance.instruments.schedules.coupon_schedule import (
     CouponSchedule,
     FixedCouponEvent,
@@ -52,9 +52,10 @@ class SwapPricer:
     def compile(self, swaps: list[ResolvedSwap]) -> PricingProgram:
         legs: list[LegSpec] = []
         for inst, swap in enumerate(swaps):
-            cname = curve_name(swap.currency, swap.index_name)
-            legs.append(self._leg_spec(swap.receive_leg, +1.0, cname, inst))
-            legs.append(self._leg_spec(swap.pay_leg, -1.0, cname, inst))
+            proj = curve_name(swap.currency, swap.index_name)
+            disc = funding_curve_name(swap.currency, swap.funding_id)
+            legs.append(self._leg_spec(swap.receive_leg, +1.0, disc, proj, inst))
+            legs.append(self._leg_spec(swap.pay_leg, -1.0, disc, proj, inst))
         return PricingProgram(inputs=compile_portfolio(legs))
 
     def price(self, swaps: list[ResolvedSwap], market, *, backend: Backend = Backend.Numpy) -> PricingResult:
@@ -62,7 +63,9 @@ class SwapPricer:
             raise NotImplementedError(f"backend {backend.name} not implemented; reprice routes through numpy kernels")
         return self.compile(swaps).price(market)
 
-    def _leg_spec(self, leg: CommonInstrument, sign: float, cname: str, inst: int) -> LegSpec:
+    def _leg_spec(
+        self, leg: CommonInstrument, sign: float, discount_curve: str, projection_curve: str, inst: int
+    ) -> LegSpec:
         ps = build_payment_schedule(
             effective=leg.effective, maturity=leg.maturity, frequency=leg.payment_frequency,
             day_count_method=leg.day_count_method, bdc=leg.business_day_convention,
@@ -74,8 +77,8 @@ class SwapPricer:
         )
         coupon = CouponSchedule(events=[_event(leg)])
         return LegSpec(
-            schedule=ps, coupon=coupon, sign=sign, discount_curve=cname,
-            projection_curve=cname if leg.coupon_type.is_floating else None,
+            schedule=ps, coupon=coupon, sign=sign, discount_curve=discount_curve,
+            projection_curve=projection_curve if leg.coupon_type.is_floating else None,
             notional=StaticNotional(leg.notional), instrument=inst,
         )
 

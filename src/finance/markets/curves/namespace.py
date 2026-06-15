@@ -1,3 +1,4 @@
+
 """CurveNamespace — name -> ZeroCurve store with a version counter.
 
 Lives with the curves it holds (``finance.markets.curves``), so market-data containers like
