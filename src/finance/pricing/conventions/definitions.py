@@ -32,3 +32,23 @@ def _usd_sofr() -> ConventionSet:
         spot_lag=Term(2, TermType.BusinessDays),
         fixed_day_count_method=DayCountMethod.Actual360,
     )
+
+
+@register_convention("USD", "FEDFUND", overwrite=True)
+def _usd_fedfund() -> ConventionSet:
+    """USD Fed Funds OIS conventions — same shape as SOFR (compounded, annual pay).
+
+    Fed Funds is the projection index of a SOFR-discounted basis trade: a Fed-Funds-vs-fixed
+    swap projects off ``USD.FEDFUND`` and discounts off ``USD.SOFR`` (``funding_id='SOFR'``),
+    so projection and funding are genuinely different curves.
+    """
+    return ConventionSet(
+        day_count_method=DayCountMethod.Actual360,
+        payment_frequency=Frequency.Annually,
+        reset_frequency=Frequency.Daily,
+        business_day_convention=BDC.ModifiedFollowing,
+        roll_convention=Roll.Empty,
+        calendar="no_holidays",
+        spot_lag=Term(2, TermType.BusinessDays),
+        fixed_day_count_method=DayCountMethod.Actual360,
+    )

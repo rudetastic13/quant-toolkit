@@ -14,11 +14,18 @@ from common.containers.enums import SupportedIntEnum
 
 
 class Backend(SupportedIntEnum):
-    """Numeric kernel backend. numpy is implemented; numba/rust are reserved seams."""
+    """Numeric kernel backend. numpy is implemented; numba/rust are reserved seams.
+
+    ``Jax`` is the autodiff backend: the same columnar ``KernelInputs`` repriced through a
+    pure ``jax.numpy`` valuation, so risk comes from ``jax.grad``/``jacobian``/``hessian``
+    instead of bump-and-reprice.  It is optional and lazily imported (the core path never
+    imports jax); register its kernels only when the backend is actually requested.
+    """
 
     Numpy = 1
     Numba = 2
     Rust = 3
+    Jax = 4
 
 
 class RateKind(IntEnum):
