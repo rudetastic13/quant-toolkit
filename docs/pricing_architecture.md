@@ -4,6 +4,14 @@ How a raw trade record becomes a price — from a row of data, through an instru
 compiled `PricingProgram`, repriced against market data. This document lays out the flow,
 the design decisions, and the patterns in play.
 
+> **Backends & risk:** [engine_selection.md](engine_selection.md) — how a pricer's numeric
+> backend is determined by the product's model (and why greeks must come from that same engine).
+> [numba_engine.md](numba_engine.md) — the Numba engine implementation plan: analytic
+> first-order risk for linear rates and European options, and a finite-difference-of-gradient
+> approximation for second order.
+> [sofr_futures.md](sofr_futures.md) — adding SOFR futures: instrument layer, contract-month
+> dating, and convexity-adjusted calibration.
+
 ---
 
 ## 1. Design philosophy

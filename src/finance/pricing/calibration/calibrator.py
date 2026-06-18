@@ -46,13 +46,20 @@ class CurveDefinition:
 
 @dataclass
 class CalibrationResult:
-    """The calibrated curve plus the market it's bound into and solver diagnostics."""
+    """The calibrated curve plus the market it's bound into and solver diagnostics.
+
+    ``jacobian`` (populated only when ``calibrate(..., jacobian=True)``) is the exact
+    ``J_ij = ∂impliedᵢ/∂zⱼ`` at the solution, computed via the JAX backend.  It is the
+    change-of-variables from pillar (zero-rate) risk to market-quote risk: a partial DV01 to
+    the calibration quotes is ``(∂V/∂z) · J⁻¹`` (see ``finance.pricing.risk.autodiff``).
+    """
 
     curve: ZeroCurve
     market: MarketContext
     solver_result: SolverResult
     pillar_dates: DateArray
     residuals: FloatArray
+    jacobian: FloatArray | None = None
 
 
 @dataclass
@@ -64,7 +71,14 @@ class CurveCalibrator:
     target: CurveDefinition
     vol_shim: float | None = None
 
-    def calibrate(self, market: MarketContext) -> CalibrationResult:
+    def calibrate(self, market: MarketContext, *, jacobian: bool = False) -> CalibrationResult:
+        """Solve for the target curve.
+
+        ``jacobian=True`` additionally captures the exact ``∂implied/∂z`` at the solution via
+        the (lazily imported) JAX backend and attaches it to the result — the hook that turns
+        zero-rate sensitivities into market-quote partial DV01s.  The default path never
+        imports jax.
+        """
         helpers = list(self.instruments)
         if not helpers:
             raise ValueError("CurveCalibrator requires at least one instrument")
@@ -122,9 +136,17 @@ class CurveCalibrator:
             out = dataclasses.replace(out, vols=vns)
 
         residuals = np.array([h.residual(out) for h in helpers], dtype=np.float64)
+
+        jac = None
+        if jacobian:
+            # Lazy: only touch the JAX backend when the hook is explicitly requested.
+            from finance.pricing.engines.jax.calibration import calibration_jacobian
+
+            jac = calibration_jacobian(helpers, self.target.name, out, curve)
+
         return CalibrationResult(
             curve=curve, market=out, solver_result=sr,
-            pillar_dates=pillars, residuals=residuals,
+            pillar_dates=pillars, residuals=residuals, jacobian=jac,
         )
 
 
