@@ -12,6 +12,9 @@ _NP_EPOCH_ORDINAL = datetime.date(1970, 1, 1).toordinal
 _MONTHS = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12}
 _MONTHS_THIRTY_ONE = {1, 3, 5, 7, 8, 10, 12}
 _CIVIL_TO_ISO_WEEKDAY = [6, 0, 1, 2, 3, 4, 5] # [0,6] [Sun, Sat], we shift [0, 6] [Mon, Sun]
+# Excel 1900-system serial for 1970-01-01. Excel's day 0 is 1899-12-30 (it includes the
+# fictitious 1900-02-29), so a serial converts to our 1970-epoch ordinal by this offset.
+_EXCEL_DATE_OFFSET = 25_569
 
 @dataclass(slots=True)
 class Date:
@@ -78,6 +81,10 @@ class Date:
         doe = yoe * 365 + yoe // 4 - yoe // 100 + doy
         return era * 146_097 + doe - _MARCH_EPOCH
 
+    def to_excel(self) -> int:
+        """Convert to an Excel 1900-system serial date (1899-12-30 is day 0)."""
+        return self.toordinal() + _EXCEL_DATE_OFFSET
+
     # endregion
 
     # region, from-converters
@@ -129,6 +136,14 @@ class Date:
         m = mp + 3 if mp < 10 else mp - 9
         y = y + (m <= 2)
         return cls(y, m, d)
+
+    @classmethod
+    def from_excel(cls, serial: float) -> Date:
+        """Build from an Excel 1900-system serial date (1899-12-30 is day 0).
+
+        Fractional serials (intraday time) are truncated to the day.
+        """
+        return cls.fromordinal(int(serial) - _EXCEL_DATE_OFFSET)
 
     # endregion
 

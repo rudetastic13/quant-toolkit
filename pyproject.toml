@@ -47,6 +47,12 @@ dev = [
     "coverage>=7.0",
     "pytest-ruff",
 ]
+# Excel add-in adapter (quant_toolkit_xl). xlwings only drives Excel on Windows/macOS;
+# on Linux it imports but cannot connect, so this is intentionally an opt-in extra and
+# belongs in the Windows trader bundle, not the WSL/CI env.
+excel = [
+    "xlwings>=0.30",
+]
 
 
 [tool.setuptools]
@@ -61,12 +67,15 @@ include=[
     "common.*",
     "quant_toolkit",
     "quant_toolkit.*",
+    "quant_toolkit_xl",
+    "quant_toolkit_xl.*",
 ]
 [tool.pytest.ini_options]
 pythonpath=["src"]
 testpaths=[
     "src/finance/tests",
     "src/common/tests",
+    "src/quant_toolkit_xl/tests",
 ]
 addopts = [
     "--cov=finance", # measure coverage for finance package
