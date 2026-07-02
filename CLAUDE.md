@@ -48,6 +48,7 @@ mypy src/             # type check
 - `src/common/` — shared utilities (registry, singleton, array buffers, curve container, test base classes)
 - `src/finance/` — core financial domain (dates, calendars, terms, markets/curves)
 - `src/quant_toolkit/` — public API re-exporting from `finance`
+- `src/quant_toolkit_xl/` — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
 - `src/finance/tests/` — test suite mirroring the source structure
 
 ### Core Design Patterns
