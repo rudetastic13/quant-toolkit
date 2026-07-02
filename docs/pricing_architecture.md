@@ -168,6 +168,29 @@ Across a portfolio, every SOFR instrument shares the same daily fixing dates, so
 lookup is **deduped** (`np.unique(..., return_inverse=True)`): the curve is evaluated once
 per unique calendar date, then scattered back via the inverse indices.
 
+### Single-fixing reset windows (pay vs reset mismatch)
+
+The observation grid handles coupons with *many* fixings per period. The complementary case —
+one governing fixing per period, possibly on a different cadence than payment — is the
+**reset window** machinery in `instruments/schedules/payment_schedule.py`:
+
+- `CommonInstrument.reset_frequency` decouples the reset cadence from the payment
+  frequency, and `fixing_type` (`FixingType.Advance` / `Arrears`) says whether the fixing is
+  set at the start or the end of its window (in-advance IBOR-style vs in-arrears).
+- The schedule carries per-period `reset_starts` / `reset_ends` columns — the projection
+  window each accrual period reads. Aligned frequencies read the accrual window itself
+  (Arrears) or the previous one (Advance); a **slower** reset (e.g. pay Monthly / reset
+  Annually) builds its own reset-frequency grid and `searchsorted`-maps each accrual period
+  to its governing window, so consecutive periods repeat the same window (downstream
+  projection dedups the repeated dates).
+- A synthetic **pre-effective window** (one reset term back, BDC-adjusted on the reset
+  calendar) is prepended so an in-advance first period has something to read.
+- A **faster** reset has no single fixing — that is exactly the compounded/averaged case,
+  which routes to the Tier-2 observation grid above.
+
+`coupons/calculators.py` and `coupons/rates.py` consume these columns when projecting
+single-fixing floats.
+
 ---
 
 ## 5. Patterns in use
@@ -182,6 +205,7 @@ per unique calendar date, then scattered back via the inverse indices.
 | **Compile-once / reprice-many** | `PricingProgram.reprice` | A scenario/bump is one array pass, not a rebuild. |
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
+| **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler, the JAX program, and the reference coupon calculators — the three can't drift. |
 | **Convention resolution** | `Swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; `(currency, index)` does the rest. |
 | **Versioned namespace** | `CurveNamespace` / `VolNamespace` | Rebind a curve per scenario; version counter for cache invalidation without observers. |
 
@@ -205,6 +229,9 @@ per unique calendar date, then scattered back via the inverse indices.
 - **Lookback styles are explicit.** ISDA `Lookback` (default; rate at shifted date, real
   weight) vs `ObservationShift` (rate and weight from the shifted window); `lockout` and
   `payment_delay` stay orthogonal.
+- **Reset cadence is decoupled from payment.** `reset_frequency` + `fixing_type`
+  (Advance/Arrears) generalize the reset grid: aligned, slower (repeated window), or faster
+  (observation grid) all fall out of one `searchsorted` mapping — see §4.
 
 ---
 
