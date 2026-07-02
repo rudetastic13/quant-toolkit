@@ -24,7 +24,7 @@ pytest
 pytest -m unit
 
 # Run a specific test file
-pytest src/tests/unit/finance/dates/test_date.py
+pytest src/finance/tests/unit/dates/test_date.py
 
 # Run by marker (available: unit, hypothesis, datemath, market_data, instruments, risk, calculators, calibration, slow, integration, regression, performance)
 pytest -m "unit and datemath"
@@ -48,7 +48,7 @@ mypy src/             # type check
 - `src/common/` — shared utilities (registry, singleton, array buffers, curve container, test base classes)
 - `src/finance/` — core financial domain (dates, calendars, terms, markets/curves)
 - `src/quant_toolkit/` — public API re-exporting from `finance`
-- `src/tests/` — test suite mirroring the source structure
+- `src/finance/tests/` — test suite mirroring the source structure
 
 ### Core Design Patterns
 

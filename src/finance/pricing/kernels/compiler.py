@@ -30,6 +30,7 @@ from finance.pricing.kernels.inputs import (
     NO_FLOOR,
     NO_CURVE,
 )
+from finance.pricing.kernels.shaping import prep_obs, shape_float, shape_period
 from finance.pricing.types import RateKind
 
 _KIND = {
@@ -183,8 +184,11 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         marg.append(np.array([c["margin"] for c in cols], dtype=np.int8))
         disc.append(np.full(n, disc_id, dtype=np.int64))
         proj.append(np.where(rk == RateKind.Fixed, NO_CURVE, proj_id).astype(np.int64))
-        rstart.append(ps.accrual_starts.astype("datetime64[D]"))
-        rend.append(ps.accrual_ends.astype("datetime64[D]"))
+        # Float projection windows: the schedule's governing reset windows (fixing type and
+        # reset-frequency aware); accrual windows for schedules that didn't build them.
+        has_reset = ps.reset_starts is not None
+        rstart.append((ps.reset_starts if has_reset else ps.accrual_starts).astype("datetime64[D]"))
+        rend.append((ps.reset_ends if has_reset else ps.accrual_ends).astype("datetime64[D]"))
 
         # global observation grid: only compounded/averaged periods contribute fixings
         needs_obs = (rk == RateKind.Compounded) | (rk == RateKind.Averaged)
@@ -268,11 +272,7 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
             mm = proj_fl == ci
             if mm.any():
                 idx[mm] = market.project(name, rs_fl[mm], re_fl[mm])
-        np.maximum(idx, ki.index_floor[fl], out=idx)
-        idx += ki.spread[fl]
-        np.maximum(idx, ki.floor[fl], out=idx)
-        np.minimum(idx, ki.cap[fl], out=idx)
-        rate[fl] = idx
+        rate[fl] = shape_float(idx, ki.index_floor[fl], ki.spread[fl], ki.floor[fl], ki.cap[fl])
 
     # -- compounded / averaged via the global observation grid --
     P = ki.n_obs_periods
@@ -292,20 +292,26 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
                 obs_rate[mm] = _project_dedup(market, name, ki.obs_starts[mm], ki.obs_ends[mm])
 
         # input prep: per-fixing index_floor, then inclusive spread (broadcast from the period)
-        np.maximum(obs_rate, ki.index_floor[flow_of_obs], out=obs_rate)
         incl = ki.margin[flow_of_obs] == int(MarginTreatment.Inclusive)
-        obs_rate[incl] += ki.spread[flow_of_obs][incl]
+        obs_rate = prep_obs(obs_rate, ki.index_floor[flow_of_obs], ki.spread[flow_of_obs], incl)
 
-        comp = compounded(obs_rate, ki.obs_w, ki.obs_offsets)   # (P,)
-        avg = averaged(obs_rate, ki.obs_w, ki.obs_offsets)      # (P,)
+        # single-kind portfolios skip the reduction they'd discard anyway
         period_kind = ki.rate_kind[flow_of_period]
-        period_rate = np.where(period_kind == RateKind.Compounded, comp, avg)
+        is_comp = period_kind == RateKind.Compounded
+        if is_comp.all():
+            period_rate = compounded(obs_rate, ki.obs_w, ki.obs_offsets)   # (P,)
+        elif not is_comp.any():
+            period_rate = averaged(obs_rate, ki.obs_w, ki.obs_offsets)     # (P,)
+        else:
+            comp = compounded(obs_rate, ki.obs_w, ki.obs_offsets)
+            avg = averaged(obs_rate, ki.obs_w, ki.obs_offsets)
+            period_rate = np.where(is_comp, comp, avg)
 
         # output prep: exclusive spread, then floor/cap on the final period coupon
         excl = ki.margin[flow_of_period] == int(MarginTreatment.Exclusive)
-        period_rate[excl] += ki.spread[flow_of_period][excl]
-        np.maximum(period_rate, ki.floor[flow_of_period], out=period_rate)
-        np.minimum(period_rate, ki.cap[flow_of_period], out=period_rate)
+        period_rate = shape_period(
+            period_rate, ki.spread[flow_of_period], excl, ki.floor[flow_of_period], ki.cap[flow_of_period]
+        )
 
         rate[flow_of_period] = period_rate
 

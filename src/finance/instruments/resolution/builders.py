@@ -18,17 +18,20 @@ from dataclasses import dataclass
 from finance.dates import Date, DayCountMethod, Term, add_term
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
-from finance.instruments.resolution.resolver import resolve_conventions, roll_spot
+from finance.instruments.priceable import Priceable
+from finance.instruments.resolution.resolver import STDCSA, resolve_conventions, roll_spot
 from finance.pricing.conventions import ConventionRegistry, default_registry
 
 
 @dataclass
-class ResolvedSwap:
-    """Two fully-specified legs. ``receive_leg``/``pay_leg`` satisfy the Swap protocol.
+class ResolvedSwap(Priceable):
+    """Two fully-specified legs (``CommonInstrument`` each).
 
-    Pure data — no curve, no methods that price. ``currency``/``index_name`` let the pricer
-    resolve the *projection* curve by name; ``funding_id`` (default ``STDCSA``) resolves the
-    *discount* curve, so the two can differ for a real basis trade.
+    Pure data plus the ``Priceable`` functor: ``swap(market)`` prices standalone through
+    the same compile→reprice machinery the portfolio path uses (compiled once, cached).
+    ``currency``/``index_name`` let the pricer resolve the *projection* curve by name;
+    ``funding_id`` (default ``STDCSA``) resolves the *discount* curve, so the two can
+    differ for a real basis trade.
 
     Iterating a ``ResolvedSwap`` yields its legs in pricing order (receive then pay) — the
     same order the pricer compiles them and ``KernelResult.leg_pv`` is laid out in.
@@ -38,7 +41,7 @@ class ResolvedSwap:
     pay_leg: CommonInstrument
     currency: str
     index_name: str
-    funding_id: str = "STDCSA"
+    funding_id: str = STDCSA
 
     def __iter__(self):
         """Yield legs in pricing/compile order (receive, pay)."""
@@ -54,7 +57,7 @@ def Swap(
     tenor: str = "10Y",
     as_of: Date,
     currency: str = "USD",
-    funding_id: str = "STDCSA",
+    funding_id: str = STDCSA,
     registry: ConventionRegistry = default_registry,
     **overrides,
 ) -> ResolvedSwap:
@@ -79,6 +82,7 @@ def Swap(
         payment_frequency=conv.payment_frequency, day_count_method=conv.day_count_method,
         business_day_convention=conv.business_day_convention, roll_convention=conv.roll_convention,
         pay_calendar=conv.calendar, reset_frequency=conv.reset_frequency,
+        fixing_type=conv.fixing_type,
         coupon_type=CouponType.GeometricAveraged,  # SOFR compounds in arrears
         rate_index=f"{currency} {rate_index}", spread=0.0, rate_calendar=conv.calendar,
         **overrides,
@@ -113,7 +117,7 @@ class ResolvedDeposit:
     day_count_method: DayCountMethod
     currency: str
     index_name: str
-    funding_id: str = "STDCSA"
+    funding_id: str = STDCSA
     notional: float = 1.0
 
 
@@ -121,8 +125,8 @@ class ResolvedDeposit:
 class ResolvedFra:
     """A forward rate agreement over ``[effective, maturity]``.
 
-    Field names (``effective``/``maturity``/``day_count_method``/``coupon_rate``/``rate_index``)
-    satisfy the structural ``FRA`` protocol in ``interfaces.products.fra``.
+    Pure data: ``coupon_rate`` is the agreed forward rate, ``rate_index`` the projected
+    index label, ``index_name``/``currency``/``funding_id`` resolve the curves.
     """
 
     effective: Date
@@ -132,7 +136,7 @@ class ResolvedFra:
     rate_index: str
     currency: str
     index_name: str
-    funding_id: str = "STDCSA"
+    funding_id: str = STDCSA
     notional: float = 1.0
 
 
@@ -143,7 +147,7 @@ def Deposit(
     as_of: Date,
     rate_index: str = "SOFR",
     currency: str = "USD",
-    funding_id: str = "STDCSA",
+    funding_id: str = STDCSA,
     notional: float = 1.0,
     registry: ConventionRegistry = default_registry,
 ) -> ResolvedDeposit:
@@ -170,7 +174,7 @@ def Fra(
     as_of: Date,
     rate_index: str = "SOFR",
     currency: str = "USD",
-    funding_id: str = "STDCSA",
+    funding_id: str = STDCSA,
     notional: float = 1.0,
     registry: ConventionRegistry = default_registry,
 ) -> ResolvedFra:

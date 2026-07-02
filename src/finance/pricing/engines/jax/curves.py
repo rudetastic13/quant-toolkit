@@ -51,8 +51,7 @@ def curve_geometry(curve: ZeroCurve) -> CurveGeometry:
     x_nodes = (curve.node_dates.astype(np.int64) - o).astype(np.float64)  # incl. origin (0.0)
     t_nodes = x_nodes[1:] / 365.0
     z0 = -np.log(curve.node_dfs[1:]) / t_nodes
-    interp = getattr(curve, "_interp_type", CurveInterpolator.LogLinearDF)
-    return CurveGeometry(x_nodes=x_nodes, t_nodes=t_nodes, z0=z0, interpolation=interp)
+    return CurveGeometry(x_nodes=x_nodes, t_nodes=t_nodes, z0=z0, interpolation=curve.interpolation)
 
 
 def make_logdf(geom: CurveGeometry):

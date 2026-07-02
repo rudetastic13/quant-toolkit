@@ -11,10 +11,31 @@ from finance.dates import (
     Direction,
     Frequency,
 )
+from finance.dates.enums import FixingType
 from .enums import AmortizationType, CouponType
 
 @dataclass(kw_only=True)
 class CommonInstrument(CommonObject):
+    """The one concrete leg type: schedule + balance + coupon parameters, flat.
+
+    Designated refactor (when a second leg-bearing product lands — Bond/Loan): split the
+    field groups below into ``kw_only`` dataclass mixins the products compose, defining
+    each trait surface once::
+
+        @dataclass(kw_only=True)
+        class ScheduleParamsMixin: effective: Date; maturity: Date; ...
+        @dataclass(kw_only=True)
+        class FloatingRateMixin: rate_index: str | None = None; ...
+
+        @dataclass(kw_only=True)
+        class CommonInstrument(ScheduleParamsMixin, NotionalMixin, FixedRateMixin,
+                               FloatingRateMixin, AmortizationMixin, CommonObject): ...
+
+    ``kw_only`` keeps every construction site identical, so the split is mechanical.  Until
+    a second product shares a field group, the mixins would be structure without a consumer
+    — don't introduce them early (a property-only Protocol layer was tried and deleted for
+    exactly that reason).
+    """
 
     # for grid generation
     effective: Date
@@ -39,6 +60,7 @@ class CommonInstrument(CommonObject):
 
     # coupon info
     reset_frequency: Frequency | None = field(default=None)
+    fixing_type: FixingType = field(default=FixingType.Arrears)
     coupon_rate: float = field(default=0.0)
     coupon_type: CouponType | None = field(default=CouponType.Zero)
     rate_index: str | None = field(default=None)

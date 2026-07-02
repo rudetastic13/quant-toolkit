@@ -52,17 +52,15 @@ class TestBuildPaymentSchedule(UnitTest):
         ps = self._build_5y_semi()
         np.testing.assert_array_equal(ps.payment_dates, ps.accrual_ends)
 
-    def test_reset_dates_none_when_no_reset_frequency(self):
+    def test_reset_windows_default_to_accrual_windows(self):
+        # no reset_frequency (aligned) + Arrears -> governing window IS the accrual window
         ps = self._build_5y_semi()
-        self.assertIsNone(ps.reset_dates)
+        np.testing.assert_array_equal(ps.reset_starts, ps.accrual_starts)
+        np.testing.assert_array_equal(ps.reset_ends, ps.accrual_ends)
 
     def test_notional_schedule_initially_none(self):
         ps = self._build_5y_semi()
         self.assertIsNone(ps.notional_schedule)
-
-    def test_fixing_dates_initially_none(self):
-        ps = self._build_5y_semi()
-        self.assertIsNone(ps.fixing_dates)
 
 
 class TestBuildPaymentScheduleQuarterly(UnitTest):
@@ -94,21 +92,20 @@ class TestBuildPaymentScheduleQuarterly(UnitTest):
 class TestBuildPaymentScheduleResetFrequency(UnitTest):
     COVERAGE = ["finance.instruments.schedules.payment_schedule"]
 
-    def test_different_reset_frequency_produces_reset_dates(self):
-        ps = build_payment_schedule(
-            effective=Date(2025, 1, 15),
-            maturity=Date(2026, 1, 15),
-            frequency=Frequency.Quarterly,
-            day_count_method=DayCountMethod.Actual360,
-            bdc=BDC.NoAdjustment,
-            calendar="no_holidays",
-            reset_frequency=Frequency.Monthly,
-        )
-        self.assertIsNotNone(ps.reset_dates)
-        # Monthly resets over 1Y = 12 reset dates
-        self.assertEqual(len(ps.reset_dates), 12)
+    def test_faster_reset_without_observations_raises(self):
+        # multiple fixings per period is observation-grid territory, not single-fixing float
+        with self.assertRaises(ValueError):
+            build_payment_schedule(
+                effective=Date(2025, 1, 15),
+                maturity=Date(2026, 1, 15),
+                frequency=Frequency.Quarterly,
+                day_count_method=DayCountMethod.Actual360,
+                bdc=BDC.NoAdjustment,
+                calendar="no_holidays",
+                reset_frequency=Frequency.Monthly,
+            )
 
-    def test_same_reset_frequency_produces_no_reset_dates(self):
+    def test_same_reset_frequency_gives_accrual_windows(self):
         ps = build_payment_schedule(
             effective=Date(2025, 1, 15),
             maturity=Date(2026, 1, 15),
@@ -118,7 +115,8 @@ class TestBuildPaymentScheduleResetFrequency(UnitTest):
             calendar="no_holidays",
             reset_frequency=Frequency.Quarterly,
         )
-        self.assertIsNone(ps.reset_dates)
+        np.testing.assert_array_equal(ps.reset_starts, ps.accrual_starts)
+        np.testing.assert_array_equal(ps.reset_ends, ps.accrual_ends)
 
 
 class TestBuildPaymentScheduleStubDates(UnitTest):

@@ -116,6 +116,19 @@ class TestCurveCalibrator(UnitTest):
         with self.assertRaises(ValueError):
             CurveCalibrator([], GlobalSolver(), self.defn).calibrate(self.base)
 
+    def test_jacobian_rejects_non_loglinear_interpolation_up_front(self):
+        # The JAX curve model only supports LogLinearDF; the guard must fire before any
+        # jax import / tracing, with a message naming the offending interpolator.
+        defn = CurveDefinition(CURVE, CurveInterpolator.RateLinear)
+        with self.assertRaises(NotImplementedError) as ctx:
+            CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base, jacobian=True)
+        self.assertIn("RateLinear", str(ctx.exception))
+
+    def test_rate_linear_calibrates_without_jacobian(self):
+        defn = CurveDefinition(CURVE, CurveInterpolator.RateLinear)
+        res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base)
+        self.assertLess(np.abs(res.residuals).max(), 1e-10)
+
 
 @pytest.mark.calibration
 class TestWithCurve(UnitTest):

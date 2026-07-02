@@ -1,6 +1,6 @@
 """Defining a custom coupon schedule"""
 from __future__ import annotations
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, fields, asdict
 from functools import partial, cached_property
 from typing import Sequence, ClassVar, Callable, Protocol, Self
 import numpy as np
@@ -11,14 +11,13 @@ from .base_schedule import BaseEvent, BaseSchedule
 
 class InstrumentLike(Protocol):
     """Protocol for instruments that can be used to define coupon events."""
-    effective_date: Date
+    effective: Date
     coupon_type: CouponType
     coupon_rate: float
     index_floor: float
     cap: float
     floor: float
     rate_index: str
-    margin_treatment: MarginTreatment
     schedules: dict[str, BaseSchedule]
 
 @dataclass
@@ -32,7 +31,7 @@ class CouponEvent(BaseEvent):
 
     @cached_property
     def _calculator(self) -> Callable:
-        return NotImplementedError
+        raise NotImplementedError("CouponEvent subclasses bind their reference calculator")
 
     @property
     def calculate(self) -> Callable:
@@ -41,19 +40,27 @@ class CouponEvent(BaseEvent):
         return func
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        # ``coupon_type`` is a ClassVar, so asdict() omits it — add it back explicitly;
+        # from_dict needs it to dispatch to the right event class.
+        return {"coupon_type": self.coupon_type, **asdict(self)}
 
     @staticmethod
     def from_dict(data: dict) -> CouponEvent:
-        if data["coupon_type"] == CouponType.Fixed:
-            return FixedCouponEvent(**data)
-        elif data["coupon_type"] == CouponType.Floating:
-            return FloatingCouponEvent(**data)
-        elif data["coupon_type"] == CouponType.ArithmeticAveraged:
-            return AveragedCouponEvent(**data)
-        elif data["coupon_type"] == CouponType.GeometricAveraged:
-            return CompoundedCouponEvent(**data)
-        return NotImplementedError
+        """Build the concrete event for ``data['coupon_type']``.
+
+        Extra keys are ignored (so a ``CommonInstrument.__dict__`` can be passed through),
+        and a ``start_date`` serialized by ``asdict`` (a plain year/month/day dict) is
+        rebuilt into a ``Date``.
+        """
+        try:
+            event_cls = _EVENT_TYPES[data["coupon_type"]]
+        except KeyError:
+            raise ValueError(f"unknown coupon_type {data.get('coupon_type')!r}") from None
+        init_fields = {f.name for f in fields(event_cls) if f.init}
+        kwargs = {key: val for key, val in data.items() if key in init_fields}
+        if isinstance(kwargs.get("start_date"), dict):
+            kwargs["start_date"] = Date(**kwargs["start_date"])
+        return event_cls(**kwargs)
 
 
 @dataclass
@@ -92,7 +99,7 @@ class FloatingCouponEvent(CouponEvent):
 
 @dataclass
 class AveragedCouponEvent(FloatingCouponEvent):
-    """Defines a fixed coupon payment event."""
+    """Defines an arithmetically-averaged floating coupon payment event."""
     coupon_type: ClassVar[CouponType] = CouponType.ArithmeticAveraged
     margin_treatment: MarginTreatment = field(init=True, default=MarginTreatment.Inclusive)
 
@@ -103,7 +110,7 @@ class AveragedCouponEvent(FloatingCouponEvent):
 
 @dataclass
 class CompoundedCouponEvent(FloatingCouponEvent):
-    """Defines a fixed coupon payment event."""
+    """Defines a compounded (geometrically-averaged) floating coupon payment event."""
     coupon_type: ClassVar[CouponType] = CouponType.GeometricAveraged
     margin_treatment: MarginTreatment = field(init=True, default=MarginTreatment.Inclusive)
 
@@ -111,6 +118,16 @@ class CompoundedCouponEvent(FloatingCouponEvent):
     def _calculator(self) -> Callable:
         from finance.coupons.calculators import calculate_geometric_average
         return calculate_geometric_average
+
+# from_dict dispatch: CouponType -> concrete event class. GeometricAveraged maps to
+# CompoundedCouponEvent (daily-compounded in arrears, e.g. SOFR OIS legs).
+_EVENT_TYPES: dict[CouponType, type[CouponEvent]] = {
+    CouponType.Fixed: FixedCouponEvent,
+    CouponType.Floating: FloatingCouponEvent,
+    CouponType.ArithmeticAveraged: AveragedCouponEvent,
+    CouponType.GeometricAveraged: CompoundedCouponEvent,
+}
+
 
 @dataclass
 class CouponSchedule(BaseSchedule):
@@ -136,8 +153,11 @@ class CouponSchedule(BaseSchedule):
     def schedule_from_instrument(cls, instrument: InstrumentLike) -> Self:
         if instrument.schedules and "coupon" in instrument.schedules:
             return instrument.schedules["coupon"]
-        else:
-            return cls(events=[CouponEvent.from_dict(instrument.__dict__)])
+        # Single-event schedule anchored at the leg's effective date. None values are
+        # dropped so event-class defaults apply (e.g. spread=0.0 when the leg carries None).
+        data = {key: val for key, val in vars(instrument).items() if val is not None}
+        data["start_date"] = instrument.effective
+        return cls(events=[CouponEvent.from_dict(data)])
 
 
     def schedule_from_accrual_grid(self, accrual_grid: np.ndarray) -> np.ndarray:

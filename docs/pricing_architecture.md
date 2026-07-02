@@ -85,7 +85,7 @@ Reading it:
 flowchart TB
     subgraph CONTRACT["Contract layer — no market data"]
         CONV["ConventionRegistry<br/>(ccy, index) -> ConventionSet"]
-        CI["CommonInstrument + trait Protocols"]
+        CI["CommonInstrument"]
         RS2["ResolvedSwap"]
     end
     subgraph MARKET["Market layer"]
@@ -175,7 +175,8 @@ per unique calendar date, then scattered back via the inverse indices.
 | Pattern | Where | Why |
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
-| **Protocol traits / structural typing** | `instruments/interfaces/` (`HasFixedRate`, `Bond`, `Swap`, …) | Compose products from capabilities without inheritance; `ResolvedSwap` satisfies `Swap` structurally. |
+| **Concrete resolved instruments as the contract** | `ResolvedSwap` / `ResolvedDeposit` / `ResolvedFra` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
+| **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Pricers self-register in `pricer_registry`. |
 | **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (`CouponEvent`); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
 | **Compile-once / reprice-many** | `PricingProgram.reprice` | A scenario/bump is one array pass, not a rebuild. |

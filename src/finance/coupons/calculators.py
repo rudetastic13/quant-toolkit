@@ -1,24 +1,45 @@
-"""Define common calculator functions for coupons."""
+"""Reference coupon calculators over a MarketContext.
+
+The slow, explicit twin of the kernel path (``pricing.kernels.compiler.reprice``): each
+calculator prices one coupon flavour for one leg directly against a ``MarketContext``,
+using the same shared pieces — ``MarketContext.project`` for index rates, the tight
+``compounded``/``averaged`` reductions, and the single-source shaping algebra (via
+``coupons.rates``).  It exists as a per-event cross-check of the compiler lowering, not as
+a production path: the engine never calls it.
+
+Calculator signatures line up with ``CouponEvent.calculate``: the event binds its own
+dataclass fields (rate parameters) via ``functools.partial``, and the caller supplies the
+market plus the date/observation grids from a ``PaymentSchedule``.
+"""
 import numpy as np
-from finance.markets import Market
-from finance.instruments.enums import MarginTreatment, CouponType
+
+from finance.instruments.enums import CouponType, MarginTreatment
+from finance.instruments.resolution.resolver import curve_name
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
+from finance.coupons.rates import averaged_coupon, compounded_coupon, floating_coupon
+from finance.markets.context import MarketContext
+
+
+def _projection_curve(market: MarketContext, rate_index: str) -> str:
+    """Resolve an instrument's ``rate_index`` label to a bound curve name.
+
+    Accepts either a curve name directly (``"USD.SOFR"``) or the instrument-level
+    ``"CCY INDEX"`` label (``"USD SOFR"``) that builders stamp on legs.
+    """
+    if rate_index in market.curves:
+        return rate_index
+    parts = rate_index.split()
+    if len(parts) == 2:
+        name = curve_name(*parts)
+        if name in market.curves:
+            return name
+    raise KeyError(f"rate_index {rate_index!r} does not resolve to a curve in the market")
 
 
 def calculate_fixed(coupon_rate: float, out: np.ndarray) -> np.ndarray:
-    """Calculate fixed rate, which is just the same rate for all dates.
+    """Fixed rate: the same rate for every period.
 
-    Parameters
-    ----------
-    coupon_rate: float
-        rate to fill array
-    out: np.ndarray
-        array to fill with rate, should be pre-allocated with correct shape and dtype
-
-    Returns
-    -------
-    out: np.ndarray
-        array filled with fixed rates, same as input ``out`` parameter
+    ``out`` is pre-allocated with one slot per accrual period; returned filled.
     """
     out[:] = coupon_rate
     return out
@@ -27,198 +48,123 @@ def calculate_fixed(coupon_rate: float, out: np.ndarray) -> np.ndarray:
 def calculate_floating(
     rate_index: str,
     spread: float,
-    index_floor: float,
-    cap: float,
-    floor: float,
-    market: Market,
-    reset_dates: np.ndarray,
+    index_floor: float | None,
+    cap: float | None,
+    floor: float | None,
+    *,
+    market: MarketContext,
+    reset_starts: np.ndarray,
+    reset_ends: np.ndarray,
     out: np.ndarray,
-    ) -> np.ndarray:
-    """Calculate the floating rate applying rate transformations in correct order
+) -> np.ndarray:
+    """Single-fixing float: project each reset window, then shape.
 
-    Parameters
-    ----------
-    rate_index: str
-    spread: float
-    index_floor: float
-    cap: float
-    floor: float
-    market: Market
-    reset_dates: np.ndarray
-    out: np.ndarray
-
-    Returns
-    -------
-    out: np.ndarray
-        array filled with calculated rates, same as input ``out`` parameter
+    ``reset_starts``/``reset_ends`` are the per-period projection windows (for the aligned
+    reset==payment case these are the accrual windows, matching the kernel).
     """
-    out[:] = market.get_rates(rate_index, reset_dates)
-    if index_floor is not None:
-        np.maximum(out, index_floor, out=out)
-    np.add(out, spread, out=out)
-    if floor is not None:
-        np.maximum(out, floor, out=out)
-    if cap is not None:
-        np.minimum(out, cap, out=out)
+    idx = market.project(_projection_curve(market, rate_index), reset_starts, reset_ends)
+    out[:] = floating_coupon(idx, spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor)
     return out
+
 
 def calculate_geometric_average(
     rate_index: str,
     spread: float,
-    index_floor: float,
-    cap: float,
-    floor: float,
+    index_floor: float | None,
+    cap: float | None,
+    floor: float | None,
     margin_treatment: MarginTreatment,
-    market: Market,
-    fixing_dates: np.ndarray,
-    rate_weights: np.ndarray,
+    *,
+    market: MarketContext,
+    obs_starts: np.ndarray,
+    obs_ends: np.ndarray,
+    obs_weights: np.ndarray,
+    obs_offsets: np.ndarray,
     out: np.ndarray,
 ) -> np.ndarray:
-    """Calculate the geometric average of the index rates for the given fixing dates.
+    """Compounded (geometric-average) coupon over the observation grid.
 
-    Parameters
-    ----------
-    rate_index: str
-    spread: float
-    index_floor: float
-    cap: float
-    floor: float
-    margin_treatment: MarginTreatment
-    market: Market
-    fixing_dates: np.ndarray
-    rate_weights: np.ndarray
-    out: np.ndarray
-
-    Returns
-    -------
-    out: np.ndarray
-        array filled with calculated geometric average rates, same as input ``out`` parameter
+    ``obs_*`` are the Tier-2 observation-grid arrays from a ``PaymentSchedule`` (fixing
+    read windows, accrual weights, per-period ``reduceat`` offsets) — the same arrays the
+    compiler lowers, so lookback/lockout shifts flow through identically.
     """
-    for idx in range(out.shape[0]):
-        index_rates = market.get_rates(rate_index, fixing_dates)
-        if index_floor:
-            np.maximum(index_rates, index_floor, out=index_rates)
-        if margin_treatment == MarginTreatment.Inclusive:
-            np.add(index_rates, spread, out=index_rates)
-        np.multiply(index_rates, rate_weights, out=index_rates)
-        np.add(index_rates, 1, out=index_rates)
-        np.cumprod(index_rates, out=index_rates)
-        np.divide(index_rates, rate_weights.cumsum(), out=index_rates)
-        np.subtract(index_rates, 1, out=index_rates)
-        if margin_treatment == MarginTreatment.Exclusive:
-            np.add(index_rates, spread, out=index_rates)
-        if floor:
-            np.maximum(index_rates, floor, out=index_rates)
-        if cap:
-            np.minimum(index_rates, cap, out=index_rates)
-        out[idx] = index_rates[idx]
+    obs_rate = market.project(_projection_curve(market, rate_index), obs_starts, obs_ends)
+    out[:] = compounded_coupon(
+        obs_rate, obs_weights, obs_offsets,
+        spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor, margin=margin_treatment,
+    )
     return out
 
 
 def calculate_arithmetic_average(
     rate_index: str,
     spread: float,
-    index_floor: float,
-    cap: float,
-    floor: float,
+    index_floor: float | None,
+    cap: float | None,
+    floor: float | None,
     margin_treatment: MarginTreatment,
-    market: Market,
-    fixing_dates: np.ndarray,
-    rate_weights: np.ndarray,
+    *,
+    market: MarketContext,
+    obs_starts: np.ndarray,
+    obs_ends: np.ndarray,
+    obs_weights: np.ndarray,
+    obs_offsets: np.ndarray,
     out: np.ndarray,
 ) -> np.ndarray:
-    """Calculate the arithmetic average of the index rates for the given fixing dates.
-
-    Parameters
-    ----------
-    rate_index: str
-    spread: float
-    index_floor: float
-    cap: float
-    floor: float
-    margin_treatment: MarginTreatment
-    market: Market
-    fixing_dates: np.ndarray
-    rate_weights: np.ndarray
-    out: np.ndarray
-
-    Returns
-    -------
-    out: np.ndarray
-        array filled with calculated geometric average rates, same as input ``out`` parameter
-    """
-    for idx in range(out.shape[0]):
-        index_rates = market.get_rates(rate_index, fixing_dates)
-        if index_floor:
-            np.maximum(index_rates, index_floor, out=index_rates)
-        if margin_treatment == MarginTreatment.Inclusive:
-            np.add(index_rates, spread, out=index_rates)
-        np.multiply(index_rates, rate_weights, out=index_rates)
-        np.cumsum(index_rates, out=index_rates)
-        np.divide(index_rates, rate_weights.cumsum(), out=index_rates)
-        if margin_treatment == MarginTreatment.Exclusive:
-            np.add(index_rates, spread, out=index_rates)
-        if floor:
-            np.maximum(index_rates, floor, out=index_rates)
-        if cap:
-            np.minimum(index_rates, cap, out=index_rates)
-        out[idx] = index_rates[idx]
+    """Arithmetic-average coupon over the observation grid (see calculate_geometric_average)."""
+    obs_rate = market.project(_projection_curve(market, rate_index), obs_starts, obs_ends)
+    out[:] = averaged_coupon(
+        obs_rate, obs_weights, obs_offsets,
+        spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor, margin=margin_treatment,
+    )
     return out
+
 
 def calculate_custom(
     schedule: CouponSchedule,
     accrual_grid: np.ndarray,
     out: np.ndarray,
-    market: Market | None = None,
-    reset_dates: np.ndarray | None = None,
-    fixing_dates: np.ndarray | None = None,
-    rate_weights: np.ndarray | None = None,
+    *,
+    market: MarketContext,
+    reset_starts: np.ndarray | None = None,
+    reset_ends: np.ndarray | None = None,
+    obs_starts: np.ndarray | None = None,
+    obs_ends: np.ndarray | None = None,
+    obs_weights: np.ndarray | None = None,
+    obs_offsets: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Calculate custom rate based on user-defined logic.
+    """Piecewise coupon: dispatch each accrual period to its governing event's calculator.
 
-    Parameters
-    ----------
-    schedule: CouponSchedule
-        schedule of coupon events defining the logic for rate calculations, should be aligned with accrual grid
-    accrual_grid: np.ndarray
-        array of accrual dates for which rates need to be calculated, should be aligned with schedule
-    out: np.ndarray
-        pre-allocated array to fill with calculated rates, should have correct shape and dtype
-    market: Market, optional
-        market data provider, can be used to fetch rates or other market data for calculations
-    reset_dates: np.ndarray, optional
-        array of reset dates relevant for the calculation, can be used to fetch time series data from
-    fixing_dates: np.ndarray, optional
-        array of fixing dates relevant for the calculation, can be used to fetch time series data from market
-    rate_weights: np.ndarray, optional
-        array of weights for rate calculations, can be used in averaging or other weighted calculations
-
-    Returns
-    -------
-    out: np.ndarray
-        array filled with calculated custom rates, same as input ``out`` parameter
+    The reference twin of the compiler's per-period lowering: ``schedule_from_accrual_grid``
+    maps each period to an event, and each event's calculator fills its periods.  Grids are
+    sliced per event — including the observation grid, whose per-period segments are
+    regrouped with rebased offsets so the segmented reductions stay aligned.
     """
-    # Placeholder implementation, replace with actual custom logic as needed
-    schedule_arr = schedule.schedule_from_accrual_grid(accrual_grid)
-    bool_mask = np.full_like(schedule_arr, False, dtype=bool)
-    for idx in np.unique(schedule_arr):
-        if idx == 0:
-            bool_mask[:] = True
-        else:
-            bool_mask[:] = schedule_arr == idx
-        event = schedule.events[idx]
-        params = {"out" : out[bool_mask]}
-        if event.coupon_type == CouponType.Fixed:
-            pass # nothing to do
-        elif event.coupon_type == CouponType.Floating:
-            params.update(
-                {"market" : market,
-                  "reset_dates" : reset_dates,})
-        else:
-            params = {"market" : market,
-                      "fixing_dates" : fixing_dates,
-                      "rate_weights" : rate_weights,}
+    event_idx = schedule.schedule_from_accrual_grid(accrual_grid)
+    n = out.shape[0]
+    if obs_offsets is not None:
+        obs_bounds = np.append(obs_offsets, obs_weights.shape[0])
 
-        out[bool_mask] = event.calculate(**params)
-        bool_mask[:] = False
+    for i, event in enumerate(schedule.events):
+        mask = event_idx == i
+        if not mask.any():
+            continue
+        sub_out = np.zeros(int(mask.sum()), dtype=np.float64)
+        if event.coupon_type == CouponType.Fixed:
+            event.calculate(out=sub_out)
+        elif event.coupon_type == CouponType.Floating:
+            event.calculate(market=market, reset_starts=reset_starts[mask], reset_ends=reset_ends[mask], out=sub_out)
+        else:
+            # regroup this event's observation segments and rebase the offsets
+            if obs_offsets is None or obs_offsets.shape[0] != n:
+                raise ValueError("averaged/compounded events need a per-period observation grid")
+            segments = [slice(int(obs_bounds[p]), int(obs_bounds[p + 1])) for p in np.nonzero(mask)[0]]
+            sub_lens = np.array([s.stop - s.start for s in segments], dtype=np.intp)
+            sub_offsets = np.concatenate([[0], np.cumsum(sub_lens[:-1])])
+            take = np.concatenate([np.arange(s.start, s.stop) for s in segments])
+            event.calculate(
+                market=market, obs_starts=obs_starts[take], obs_ends=obs_ends[take],
+                obs_weights=obs_weights[take], obs_offsets=sub_offsets, out=sub_out,
+            )
+        out[mask] = sub_out
     return out

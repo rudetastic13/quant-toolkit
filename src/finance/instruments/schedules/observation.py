@@ -72,17 +72,30 @@ def build_observation_grid(
     lookback: int = 0,
     lockout: int = 0,
     lookback_style: LookbackStyle = LookbackStyle.Lookback,
+    sub_boundaries: np.ndarray | None = None,
 ) -> ObservationGrid:
-    """Build the in-arrears daily observation grid for a leg."""
+    """Build the in-arrears observation grid for a leg.
+
+    ``sub_boundaries`` selects the intra-period fixing granularity: ``None`` (default) uses
+    every business day — the classic daily RFR grid — while an explicit sorted date array
+    (e.g. a monthly reset schedule inside quarterly accrual periods) uses those dates as the
+    sub-period boundaries instead.  Accrual boundaries are always unioned in, so every
+    sub-period falls inside exactly one accrual period either way.
+    """
     effective = accrual_starts[0]
     maturity = accrual_ends[-1]
 
-    # 1. continuous boundary set: business days UNION accrual boundaries.  All inputs are
-    #    sorted, dense datetime64[D] over [effective, maturity], so mark a day-offset bool
-    #    mask and read it back — sorted & unique with no union1d sort.
+    # 1. continuous boundary set: sub-period boundaries UNION accrual boundaries.  All
+    #    inputs are sorted, dense datetime64[D] over [effective, maturity], so mark a
+    #    day-offset bool mask and read it back — sorted & unique with no union1d sort.
     all_days = np.arange(effective, maturity + np.timedelta64(1, "D"), dtype="datetime64[D]")
-    mark = is_good_bd(all_days, calendar)
     day0 = all_days.view(np.int64)[0]
+    if sub_boundaries is None:
+        mark = is_good_bd(all_days, calendar)
+    else:
+        mark = np.zeros(all_days.shape[0], dtype=bool)
+        inside = sub_boundaries[(sub_boundaries >= effective) & (sub_boundaries <= maturity)]
+        mark[inside.view(np.int64) - day0] = True
     mark[accrual_starts.view(np.int64) - day0] = True
     mark[accrual_ends.view(np.int64) - day0] = True
     boundaries = all_days[mark]
