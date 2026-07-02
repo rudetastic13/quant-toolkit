@@ -6,9 +6,11 @@ on the instrument), so the same compiled portfolio reprices across scenarios che
 """
 from __future__ import annotations
 
+from common.registry import register_with
 from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
+from finance.instruments.priceable import pricer_registry
 from finance.instruments.resolution import ResolvedSwap, curve_name, funding_curve_name
 from finance.instruments.schedules.coupon_schedule import (
     CouponSchedule,
@@ -46,8 +48,13 @@ def _event(leg: CommonInstrument):
     return CompoundedCouponEvent(**common)
 
 
+@register_with(pricer_registry, "ResolvedSwap", overwrite=True)
 class SwapPricer:
-    """Compiles ResolvedSwaps to columnar inputs and prices them against a MarketContext."""
+    """Compiles ResolvedSwaps to columnar inputs and prices them against a MarketContext.
+
+    Registered in ``pricer_registry`` so ``ResolvedSwap.__call__`` (the ``Priceable``
+    functor) can dispatch here for standalone pricing.
+    """
 
     def compile(self, swaps: list[ResolvedSwap]) -> PricingProgram:
         legs: list[LegSpec] = []
@@ -70,7 +77,7 @@ class SwapPricer:
             effective=leg.effective, maturity=leg.maturity, frequency=leg.payment_frequency,
             day_count_method=leg.day_count_method, bdc=leg.business_day_convention,
             calendar=leg.pay_calendar, roll=leg.roll_convention,
-            reset_frequency=leg.reset_frequency,
+            reset_frequency=leg.reset_frequency, fixing_type=leg.fixing_type,
             build_observations=leg.coupon_type.needs_observation_grid,
             observation_calendar=leg.rate_calendar,
             rate_lookback=_bd(leg.rate_lookback), rate_lockout=_bd(leg.rate_lockout),

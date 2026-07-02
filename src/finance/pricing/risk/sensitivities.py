@@ -15,7 +15,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.markets.curves import ZeroCurve, CurveInterpolator
+from finance.markets.curves import ZeroCurve
 from finance.markets.context import MarketContext
 from finance.pricing.pricers.base import PricingProgram
 
@@ -47,8 +47,7 @@ def bumped_curve(curve: ZeroCurve, bp: float, pillar: int | None = None) -> Zero
         z2[pillar] += bp
     new_dfs = curve.node_dfs.copy()
     new_dfs[m] = np.exp(-z2[m] * t[m])
-    interp = getattr(curve, "_interp_type", CurveInterpolator.LogLinearDF)
-    return ZeroCurve(curve.node_dates, new_dfs, interpolation=interp)
+    return ZeroCurve(curve.node_dates, new_dfs, interpolation=curve.interpolation)
 
 
 @dataclass

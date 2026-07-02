@@ -29,6 +29,7 @@ from jax.ops import segment_sum
 
 from finance.pricing.engines.jax.curves import CurveGeometry, curve_geometry, make_df
 from finance.pricing.kernels.inputs import KernelInputs
+from finance.pricing.kernels.shaping import prep_obs, shape_float, shape_period
 from finance.pricing.types import RateKind
 from finance.instruments.enums import MarginTreatment
 
@@ -172,10 +173,7 @@ class JaxProgram:
                 df_e = self._df[name](proj_params[name], self.reset_end_off)
                 simple = (df_s / df_e - 1.0) / self.float_tau
                 idx = jnp.where(mm, simple, idx)
-            idx = jnp.maximum(idx, self.index_floor)
-            idx = idx + self.spread
-            idx = jnp.maximum(idx, self.floor)
-            idx = jnp.minimum(idx, self.cap)
+            idx = shape_float(idx, self.index_floor, self.spread, self.floor, self.cap, xp=jnp)
             rate = jnp.where(is_float, idx, rate)
 
         # -- compounded / averaged over the daily observation grid ----------------------
@@ -189,8 +187,7 @@ class JaxProgram:
                 simple = (df_s / df_e - 1.0) / self.obs_tau
                 obs_rate = jnp.where(mm, simple, obs_rate)
             # per-fixing index floor, then inclusive spread
-            obs_rate = jnp.maximum(obs_rate, self.obs_index_floor)
-            obs_rate = obs_rate + jnp.where(self.obs_incl, self.obs_spread, 0.0)
+            obs_rate = prep_obs(obs_rate, self.obs_index_floor, self.obs_spread, self.obs_incl, xp=jnp)
 
             log_g = jnp.log1p(obs_rate * self.obs_w)
             growth = jnp.expm1(segment_sum(log_g, self.per_obs_period, num_segments=self.P))
@@ -199,9 +196,9 @@ class JaxProgram:
             avg = segment_sum(obs_rate * self.obs_w, self.per_obs_period, num_segments=self.P) / weight
             period_rate = jnp.where(self.period_is_comp, comp, avg)
             # exclusive spread, then floor / cap on the final-period coupon
-            period_rate = period_rate + jnp.where(self.period_excl, self.period_spread, 0.0)
-            period_rate = jnp.maximum(period_rate, self.period_floor)
-            period_rate = jnp.minimum(period_rate, self.period_cap)
+            period_rate = shape_period(
+                period_rate, self.period_spread, self.period_excl, self.period_floor, self.period_cap, xp=jnp
+            )
             rate = rate.at[self.obs_flow_j].set(period_rate)
 
         return rate

@@ -98,20 +98,24 @@ class MarketContext:
         before ``as_of_date`` are overlaid from realized ``fixings`` when present.
         """
         curve = self.curves.resolve(name)
-        df_s = curve.discount_factor(starts)
-        df_e = curve.discount_factor(ends)
         tau = period_fractions(day_count, starts, ends)
-        # guard zero-length windows (tau==0) — leave as 0 rate
         out = np.zeros_like(tau, dtype=np.float64)
-        nz = tau > 0
-        out[nz] = (df_s[nz] / df_e[nz] - 1.0) / tau[nz]
 
+        # Overlay realized fixings FIRST, so historical windows (e.g. an in-advance first
+        # fixing set before the valuation date) never hit the curve — which cannot
+        # extrapolate before its origin.
         fix = self.fixings.get(name)
-        if fix is not None:
-            as_of = np.datetime64(self.as_of_date.to_str(), "D")
-            past = starts < as_of
-            if past.any():
-                out[past] = fix.get_value(starts[past])
+        as_of = np.datetime64(self.as_of_date.to_str(), "D")
+        past = starts < as_of if fix is not None else np.zeros(starts.shape[0], dtype=bool)
+        if past.any():
+            out[past] = fix.get_value(starts[past])
+
+        # guard zero-length windows (tau==0) — leave as 0 rate
+        proj = ~past & (tau > 0)
+        if proj.any():
+            df_s = curve.discount_factor(starts[proj])
+            df_e = curve.discount_factor(ends[proj])
+            out[proj] = (df_s / df_e - 1.0) / tau[proj]
         return out
 
     # -- convention helper --------------------------------------------------

@@ -109,6 +109,15 @@ class CurveCalibrator:
                 f"got {self.target.interpolation.name}"
             )
 
+        # The exact-Jacobian path runs through the JAX curve model, which only supports
+        # LogLinearDF today — fail here with a clear message instead of deep in tracing.
+        if jacobian and self.target.interpolation is not CurveInterpolator.LogLinearDF:
+            raise NotImplementedError(
+                f"calibrate(jacobian=True) requires CurveInterpolator.LogLinearDF (the JAX "
+                f"curve model does not support {self.target.interpolation.name} yet); "
+                "calibrate without jacobian and use the numpy bump path for risk instead"
+            )
+
         node_dates = np.concatenate([[origin], pillars]).astype("datetime64[D]")
         t = (pillars.astype(np.int64) - origin.astype(np.int64)) / 365.0
 

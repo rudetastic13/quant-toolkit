@@ -40,6 +40,11 @@ class TestConventionSet(UnitTest):
         self.assertEqual(c2.day_count_method, c.day_count_method)
         self.assertEqual(c2.business_day_convention, c.business_day_convention)
 
+    def test_override_rejects_unknown_field(self):
+        c = _make_convention()
+        with self.assertRaises(TypeError):
+            c.override(not_a_field="x")
+
     def test_optional_fixed_day_count_defaults_none(self):
         c = _make_convention()
         self.assertIsNone(c.fixed_day_count_method)

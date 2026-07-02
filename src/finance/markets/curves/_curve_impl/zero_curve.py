@@ -101,8 +101,7 @@ class ZeroCurve:
                 "Cutover interpolation (interpolation_long) is experimental. "
                 "The two segments are fit independently, so discount factors are "
                 "continuous at the cutover but the forward rate is NOT — a "
-                "derivative discontinuity is expected at the join. "
-                "See the module-level TODO for details.",
+                "derivative discontinuity is expected at the join.",
                 UserWarning,
                 stacklevel=2,
             )
@@ -250,6 +249,11 @@ class ZeroCurve:
     @property
     def max_date(self) -> np.datetime64:
         return self._node_dates[-1]
+
+    @property
+    def interpolation(self) -> CurveInterpolator:
+        """The curve's (short-segment) interpolation scheme."""
+        return self._interp_type
 
     def discount_factor(self, dates: DateArray) -> FloatArray:
         """

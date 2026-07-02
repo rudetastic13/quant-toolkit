@@ -3,7 +3,6 @@ import pytest
 
 from common.testing import UnitTest
 from finance.dates import Date
-from finance.instruments.interfaces.products.fra import FRA
 from finance.instruments.resolution import Deposit, Fra, Swap, curve_name, funding_curve_name
 
 
@@ -40,10 +39,10 @@ class TestResolutionBuilders(UnitTest):
         self.assertEqual(d.funding_id, "STDCSA")
         self.assertEqual(curve_name(d.currency, d.index_name), "USD.SOFR")
 
-    def test_fra_builder_and_protocol(self):
+    def test_fra_builder(self):
         f = Fra(rate=0.04, start="3M", end="6M", as_of=self.as_of)
         self.assertGreater(f.maturity.to_numpy(), f.effective.to_numpy())
-        self.assertIsInstance(f, FRA)  # structurally satisfies the runtime-checkable protocol
+        self.assertEqual(f.rate_index, "USD SOFR")
 
     def test_fra_rejects_inverted_window(self):
         with self.assertRaises(ValueError):
