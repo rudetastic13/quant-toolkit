@@ -215,3 +215,7 @@ __marimo__/
 # OS / reports
 .DS_Store
 pytest-reports/
+
+# C++ core build outputs
+*.pyd
+compile_commands.json

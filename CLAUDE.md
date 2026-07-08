@@ -15,6 +15,16 @@ The goal is to design interest rate analytics levering composition over inherita
 source bin/use_env.sh pricing
 ```
 
+### Building the C++ core (finance._core)
+```bash
+# Requires the `cpp` extras in the active env: pip install pybind11 cmake ninja
+# Compiles src/finance/_core/cpp/ and installs the .so into src/finance/_core/
+bin/build_core.sh
+```
+The build is CMake + ninja, decoupled from the setuptools packaging; rerun after
+pulling or editing C++ sources (header changes are tracked). Without the built
+extension the repo still works — C++ paths report unavailable and their tests skip.
+
 ### Running Tests
 ```bash
 # Run all tests with coverage
@@ -28,6 +38,9 @@ pytest src/finance/tests/unit/dates/test_date.py
 
 # Run by marker (available: unit, hypothesis, datemath, market_data, instruments, risk, calculators, calibration, slow, integration, regression, performance)
 pytest -m "unit and datemath"
+
+# Performance tests (disable coverage so instrumentation doesn't skew pure-Python timings)
+pytest -m performance --no-cov -s
 ```
 
 ### Linting & Formatting
@@ -47,6 +60,7 @@ mypy src/             # type check
 ### Package Layout
 - `src/common/` — shared utilities (registry, singleton, array buffers, curve container, test base classes)
 - `src/finance/` — core financial domain (dates, calendars, terms, markets/curves)
+- `src/finance/_core/` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/build_core.sh`, all day counts are 1970-01-01 epoch ordinals)
 - `src/quant_toolkit/` — public API re-exporting from `finance`
 - `src/quant_toolkit_xl/` — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
 - `src/finance/tests/` — test suite mirroring the source structure
