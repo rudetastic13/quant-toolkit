@@ -16,7 +16,7 @@ dependencies = [
     "scipy",
     "matplotlib",
     "pytest",
-    "pyest-cov",
+    "pytest-cov",
 ]
 
 classifiers = [
@@ -52,6 +52,17 @@ dev = [
 # belongs in the Windows trader bundle, not the WSL/CI env.
 excel = [
     "xlwings>=0.30",
+]
+# toolchain for the finance._core C++ extensions (built via bin/build_core.sh);
+# pybind11 3.x is the line with CPython 3.14 support
+cpp = [
+    "pybind11>=3.0",
+    "cmake>=3.26",
+    "ninja",
+]
+# optional jitted kernels (finance.dates.schedules.numba_based degrades without it)
+accel = [
+    "numba>=0.64",
 ]
 
 
@@ -110,6 +121,8 @@ omit = [
     "\\tests\\*",
     "*/data/*",
     "*\\data\\*",
+    "*/finance/_core/*",
+    "*\\finance\\_core\\*",
     "setup.py"]
 
 [tool.coverage.report]
