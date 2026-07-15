@@ -3,7 +3,7 @@ from common.testing import UnitTest
 from finance.dates import Term
 from finance.dates.term.term_type import TermType
 from finance.dates.enums import BDC, DayCountMethod, Frequency, Roll
-from finance.pricing.conventions import ConventionSet, ConventionRegistry
+from finance.conventions import ConventionSet, ConventionRegistry
 
 
 def _make_convention(**overrides) -> ConventionSet:
@@ -21,7 +21,7 @@ def _make_convention(**overrides) -> ConventionSet:
 
 
 class TestConventionSet(UnitTest):
-    COVERAGE = ["finance.pricing.conventions.convention_set"]
+    COVERAGE = ["finance.conventions.convention_set"]
 
     def test_frozen(self):
         c = _make_convention()
@@ -55,7 +55,7 @@ class TestConventionSet(UnitTest):
 
 
 class TestConventionRegistry(UnitTest):
-    COVERAGE = ["finance.pricing.conventions.convention_registry"]
+    COVERAGE = ["finance.conventions.convention_registry"]
 
     def _fresh_registry(self) -> ConventionRegistry:
         from common.registry import Registry

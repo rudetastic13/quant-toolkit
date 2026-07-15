@@ -20,7 +20,7 @@ from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
 from finance.instruments.priceable import Priceable
 from finance.instruments.resolution.resolver import STDCSA, resolve_conventions, roll_spot
-from finance.pricing.conventions import ConventionRegistry, default_registry
+from finance.conventions import ConventionRegistry, default_registry
 
 
 @dataclass

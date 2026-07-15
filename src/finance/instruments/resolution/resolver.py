@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from finance.dates import Date, Term, BDC, add_business_days, add_term
 from finance.dates.term import TermType
-from finance.pricing.conventions import ConventionRegistry, ConventionSet, default_registry
+from finance.conventions import ConventionRegistry, ConventionSet, default_registry
 
 
 def curve_name(currency: str, index_name: str) -> str:
@@ -21,7 +21,7 @@ def curve_name(currency: str, index_name: str) -> str:
 # *which* curve it is collateralised/discounted on; ``STDCSA`` ("standard CSA") is the
 # market-standard OIS discount curve, which resolves per-currency to that ccy's OIS index.
 # A simple per-ccy map for now — graduates to a registry / on-curve alias later (the
-# ``FundingIndex`` stub in markets.conventions is the eventual home).
+# ``FundingIndex`` stub in finance.conventions is the eventual home).
 STDCSA = "STDCSA"
 _FUNDING_ALIASES: dict[str, dict[str, str]] = {
     STDCSA: {"USD": "SOFR", "EUR": "ESTR"},

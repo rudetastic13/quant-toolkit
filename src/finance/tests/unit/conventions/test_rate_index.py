@@ -1,11 +1,11 @@
 """Tests for RateIndex / FundingIndex convention descriptors."""
 from common.testing import UnitTest
 from finance.dates import Term
-from finance.markets.conventions.rate_index import FundingIndex, RateIndex
+from finance.conventions.rate_index import FundingIndex, RateIndex
 
 
 class TestRateIndex(UnitTest):
-    COVERAGE = ["finance.markets.conventions.rate_index"]
+    COVERAGE = ["finance.conventions.rate_index"]
 
     def test_term_parsed_from_tenor(self):
         idx = RateIndex(currency="USD", name="SOFR", tenor="3M")

@@ -28,7 +28,7 @@ from finance.instruments.resolution import (
     curve_name,
 )
 from finance.markets.context import MarketContext
-from finance.pricing.conventions import ConventionRegistry, default_registry
+from finance.conventions import ConventionRegistry, default_registry
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
 

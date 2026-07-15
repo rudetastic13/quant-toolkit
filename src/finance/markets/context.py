@@ -18,7 +18,7 @@ from finance.dates import Date, DayCountMethod, period_fractions
 from finance.markets.curves import ZeroCurve
 from finance.markets.paths.single_path import SinglePath
 from finance.markets.curves import CurveNamespace
-from finance.pricing.conventions import ConventionRegistry, default_registry
+from finance.conventions import ConventionRegistry, default_registry
 
 FloatArray = np.ndarray
 DateArray = np.ndarray

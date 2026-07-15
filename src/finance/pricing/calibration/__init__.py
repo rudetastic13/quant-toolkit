@@ -1,8 +1,7 @@
 """Curve calibration — build market curves from single-quote instruments and a solver.
 
 Import directly (``from finance.pricing.calibration import CurveCalibrator``); this package
-is *not* re-exported from ``finance.pricing`` to avoid the import cycle documented there
-(calibration -> markets.context -> pricing.conventions).
+is *not* re-exported from ``finance.pricing``.
 """
 from finance.pricing.calibration.solvers import (
     Bootstrapper,

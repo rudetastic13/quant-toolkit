@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from common.registry import Registry
-from finance.pricing.conventions.convention_set import ConventionSet
+from finance.conventions.convention_set import ConventionSet
 
 # Internal registry keyed by (currency, index_name) tuples.
 _registry: Registry[ConventionSet] = Registry("ConventionRegistry")

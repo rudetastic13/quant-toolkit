@@ -15,8 +15,8 @@ from __future__ import annotations
 
 from finance.dates import Term, DayCountMethod, BDC, Roll, Frequency
 from finance.dates.term import TermType
-from finance.pricing.conventions.convention_set import ConventionSet
-from finance.pricing.conventions.convention_registry import register_convention
+from finance.conventions.convention_set import ConventionSet
+from finance.conventions.convention_registry import register_convention
 
 
 @register_convention("USD", "SOFR", overwrite=True)
