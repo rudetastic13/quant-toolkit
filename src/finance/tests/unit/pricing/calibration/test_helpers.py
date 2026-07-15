@@ -62,7 +62,7 @@ class TestHelpers(UnitTest):
         h = swap_helper(rate=0.0, tenor="3Y", as_of=self.as_of)
         par = h.implied(self.mkt)
         # A swap struck at the implied par rate must price to ~0.
-        swap = Swap(notional=100.0, rate_index="SOFR", fixed_rate=par, tenor="3Y", as_of=self.as_of)
+        swap = Swap.fixed_float_swap(notional=100.0, rate_index="SOFR", fixed_rate=par, tenor="3Y", as_of=self.as_of)
         pv = SwapPricer().price([swap], self.mkt).pv
         self.assertAlmostEqual(float(pv), 0.0, places=6)
 

@@ -33,7 +33,7 @@ convexity step at calibration.
 ## 1. Instrument layer
 
 A SOFR future is a pure-data contract in the resolution layer, alongside
-`ResolvedDeposit`/`ResolvedFra`/`ResolvedSwap` — no curve, no pricing methods.
+`Deposit`/`Fra`/`Swap` — no curve, no pricing methods.
 
 ```python
 @dataclass

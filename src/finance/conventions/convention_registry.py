@@ -2,26 +2,26 @@
 from __future__ import annotations
 
 from common.registry import Registry
-from finance.conventions.convention_set import ConventionSet
+from finance.conventions.market_conventions import MarketConventions
 
 # Internal registry keyed by (currency, index_name) tuples.
-_registry: Registry[ConventionSet] = Registry("ConventionRegistry")
+_registry: Registry[MarketConventions] = Registry("ConventionRegistry")
 
 
 class ConventionRegistry:
     """
-    Lookup table: (currency: str, index_name: str) -> ConventionSet.
+    Lookup table: (currency: str, index_name: str) -> MarketConventions.
 
     Static definitions are registered via @register_convention. Runtime
     overrides can be applied with register() for non-standard configurations.
     """
 
-    def __init__(self, registry: Registry[ConventionSet] | None = None) -> None:
+    def __init__(self, registry: Registry[MarketConventions] | None = None) -> None:
         self._registry = registry if registry is not None else _registry
 
-    def get(self, currency: str, index_name: str) -> ConventionSet:
+    def get(self, currency: str, index_name: str) -> MarketConventions:
         """
-        Return the ConventionSet for (currency, index_name).
+        Return the MarketConventions for (currency, index_name).
         Raises KeyError if no convention is registered.
         """
         key = (currency.upper(), index_name.upper())
@@ -37,7 +37,7 @@ class ConventionRegistry:
         self,
         currency: str,
         index_name: str,
-        convention: ConventionSet,
+        convention: MarketConventions,
         *,
         overwrite: bool = False,
     ) -> None:
@@ -56,13 +56,13 @@ def register_convention(
     overwrite: bool = False,
 ):
     """
-    Decorator to statically register a ConventionSet in the module-level registry.
+    Decorator to statically register a MarketConventions in the module-level registry.
 
     Usage::
 
         @register_convention("USD", "SOFR")
-        def _usd_sofr() -> ConventionSet:
-            return ConventionSet(...)
+        def _usd_sofr() -> MarketConventions:
+            return MarketConventions(...)
 
     The decorated callable is invoked immediately and its return value is stored.
     """

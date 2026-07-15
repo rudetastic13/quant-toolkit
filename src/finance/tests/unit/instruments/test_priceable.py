@@ -26,7 +26,7 @@ class TestPriceableFunctor(UnitTest):
     def setUp(self):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
-        self.swap = Swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of)
+        self.swap = Swap.fixed_float_swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of)
 
     def test_call_matches_pricer_path(self):
         standalone = self.swap(self.market)

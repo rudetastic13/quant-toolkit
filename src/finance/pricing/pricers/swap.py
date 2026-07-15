@@ -1,4 +1,4 @@
-"""SwapPricer — turns ResolvedSwaps into compiled columns and prices them.
+"""SwapPricer — turns Swaps into compiled columns and prices them.
 
 Impure orchestration only: it builds each leg's schedule + coupon, assigns the pay/receive
 sign, resolves curve names, and compiles.  The market is passed to ``price`` (never stored
@@ -11,7 +11,7 @@ from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
 from finance.instruments.priceable import pricer_registry
-from finance.instruments.resolution import ResolvedSwap, curve_name, funding_curve_name
+from finance.instruments.resolution import Swap, curve_name, funding_curve_name
 from finance.instruments.schedules.coupon_schedule import (
     CouponSchedule,
     FixedCouponEvent,
@@ -48,15 +48,15 @@ def _event(leg: CommonInstrument):
     return CompoundedCouponEvent(**common)
 
 
-@register_with(pricer_registry, "ResolvedSwap", overwrite=True)
+@register_with(pricer_registry, "Swap", overwrite=True)
 class SwapPricer:
-    """Compiles ResolvedSwaps to columnar inputs and prices them against a MarketContext.
+    """Compiles Swaps to columnar inputs and prices them against a MarketContext.
 
-    Registered in ``pricer_registry`` so ``ResolvedSwap.__call__`` (the ``Priceable``
+    Registered in ``pricer_registry`` so ``Swap.__call__`` (the ``Priceable``
     functor) can dispatch here for standalone pricing.
     """
 
-    def compile(self, swaps: list[ResolvedSwap]) -> PricingProgram:
+    def compile(self, swaps: list[Swap]) -> PricingProgram:
         legs: list[LegSpec] = []
         for inst, swap in enumerate(swaps):
             proj = curve_name(swap.currency, swap.index_name)
@@ -65,7 +65,7 @@ class SwapPricer:
             legs.append(self._leg_spec(swap.pay_leg, -1.0, disc, proj, inst))
         return PricingProgram(inputs=compile_portfolio(legs))
 
-    def price(self, swaps: list[ResolvedSwap], market, *, backend: Backend = Backend.Numpy) -> PricingResult:
+    def price(self, swaps: list[Swap], market, *, backend: Backend = Backend.Numpy) -> PricingResult:
         if backend != Backend.Numpy:
             raise NotImplementedError(f"backend {backend.name} not implemented; reprice routes through numpy kernels")
         return self.compile(swaps).price(market)

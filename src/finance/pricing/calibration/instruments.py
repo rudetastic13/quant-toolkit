@@ -21,9 +21,6 @@ import numpy as np
 from finance.instruments.resolution import (
     Deposit,
     Fra,
-    ResolvedDeposit,
-    ResolvedFra,
-    ResolvedSwap,
     Swap,
     curve_name,
 )
@@ -73,7 +70,7 @@ def _as_date_array(d) -> np.ndarray:
 class DepositHelper:
     """A cash deposit whose quote is the simple money-market rate over its accrual window."""
 
-    deposit: ResolvedDeposit
+    deposit: Deposit
     quote: Quote
     curve: str
 
@@ -94,7 +91,7 @@ class DepositHelper:
 class FraHelper:
     """A forward rate agreement whose quote is the simple forward rate over [start, end]."""
 
-    fra: ResolvedFra
+    fra: Fra
     quote: Quote
     curve: str
 
@@ -122,7 +119,7 @@ class SwapHelper:
     this is the par rate regardless of receive- vs pay-fixed orientation.
     """
 
-    swap: ResolvedSwap
+    swap: Swap
     quote: Quote
     curve: str
     _program: PricingProgram = field(init=False, repr=False)
@@ -163,7 +160,7 @@ def deposit_helper(
     *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> DepositHelper:
-    dep = Deposit(
+    dep = Deposit.spot_deposit(
         rate=rate, tenor=tenor, as_of=as_of, rate_index=rate_index,
         currency=currency, funding_id=funding_id, registry=registry,
     )
@@ -177,7 +174,7 @@ def fra_helper(
     *, rate: float, start: str, end: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> FraHelper:
-    fra = Fra(
+    fra = Fra.forward_starting(
         rate=rate, start=start, end=end, as_of=as_of, rate_index=rate_index,
         currency=currency, funding_id=funding_id, registry=registry,
     )
@@ -191,7 +188,7 @@ def swap_helper(
     *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> SwapHelper:
-    swap = Swap(
+    swap = Swap.fixed_float_swap(
         notional=1.0, rate_index=rate_index, fixed_rate=1.0, tenor=tenor, as_of=as_of,
         currency=currency, funding_id=funding_id, registry=registry,
     )

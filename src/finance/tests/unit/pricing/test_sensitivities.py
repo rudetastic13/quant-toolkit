@@ -29,7 +29,7 @@ class TestDv01(UnitTest):
     def setUp(self):
         self.mkt = _market()
         self.program = SwapPricer().compile(
-            [Swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF)]
+            [Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF)]
         )
         self.sens = Sensitivities(self.program, self.mkt)
 
@@ -58,7 +58,7 @@ class TestKeyRateDurations(UnitTest):
     def setUp(self):
         self.mkt = _market()
         self.program = SwapPricer().compile(
-            [Swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF)]
+            [Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF)]
         )
         self.sens = Sensitivities(self.program, self.mkt)
 
@@ -76,8 +76,8 @@ class TestKeyRateDurations(UnitTest):
 
     def test_two_instruments_independent_ladders(self):
         program = SwapPricer().compile([
-            Swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF),
-            Swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="2Y", as_of=AS_OF),
+            Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF),
+            Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="2Y", as_of=AS_OF),
         ])
         ladder = Sensitivities(program, self.mkt).key_rate_durations("USD.SOFR")
         self.assertEqual(ladder.krd.shape, (2, 3))

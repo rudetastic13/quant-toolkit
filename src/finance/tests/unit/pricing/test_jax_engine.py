@@ -51,9 +51,9 @@ class TestJaxEngineParity(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
         self.book = [
-            Swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
-            Swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.045, tenor="7Y", as_of=self.as_of),
-            Swap(notional=5e6, rate_index="SOFR", fixed_rate=0.038, tenor="3Y", as_of=self.as_of,
+            Swap.fixed_float_swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.045, tenor="7Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=5e6, rate_index="SOFR", fixed_rate=0.038, tenor="3Y", as_of=self.as_of,
                  index_floor=0.0, cap=0.06, floor=0.005),
         ]
         self.program = SwapPricer().compile(self.book)

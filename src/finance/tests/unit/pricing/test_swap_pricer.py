@@ -32,7 +32,7 @@ class TestSwapResolution(UnitTest):
     COVERAGE = ["finance.instruments.resolution.builders", "finance.instruments.resolution.resolver"]
 
     def test_minimal_input_resolves_conventions(self):
-        swap = Swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="10Y", as_of=AS_OF)
+        swap = Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="10Y", as_of=AS_OF)
         # effective = as_of + 2 business days (SOFR spot lag), maturity = effective + 10Y
         expected_eff = np.busday_offset(AS_OF.to_numpy(), 2, roll="following")
         self.assertEqual(swap.receive_leg.effective.to_numpy(), expected_eff)
@@ -43,12 +43,12 @@ class TestSwapResolution(UnitTest):
         self.assertEqual(swap.receive_leg.day_count_method, DayCountMethod.Actual360)
 
     def test_receive_fixed_is_default(self):
-        swap = Swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)
+        swap = Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)
         self.assertEqual(swap.receive_leg.coupon_type, CouponType.Fixed)
         self.assertEqual(swap.pay_leg.coupon_type, CouponType.GeometricAveraged)
 
     def test_negative_notional_pays_fixed(self):
-        swap = Swap(notional=-100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)
+        swap = Swap.fixed_float_swap(notional=-100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)
         # paying fixed: the fixed leg is now the pay leg
         self.assertEqual(swap.pay_leg.coupon_type, CouponType.Fixed)
         self.assertEqual(swap.receive_leg.coupon_type, CouponType.GeometricAveraged)
@@ -63,11 +63,11 @@ class TestSwapPricing(UnitTest):
         pricer = SwapPricer()
         # price at an off-par rate, derive par from the two leg PVs, reprice at par
         r0 = 0.04
-        res0 = pricer.price([Swap(notional=100, rate_index="SOFR", fixed_rate=r0, tenor="10Y", as_of=AS_OF)], mkt)
+        res0 = pricer.price([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=r0, tenor="10Y", as_of=AS_OF)], mkt)
         fixed_pv, float_pv = res0.leg_pv[0], res0.leg_pv[1]  # receive=fixed(+), pay=float(-)
         par = r0 * (-float_pv) / fixed_pv
 
-        res = pricer.price([Swap(notional=100, rate_index="SOFR", fixed_rate=par, tenor="10Y", as_of=AS_OF)], mkt)
+        res = pricer.price([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=par, tenor="10Y", as_of=AS_OF)], mkt)
         self.assertEqual(res.instrument_pv.shape[0], 1)
         self.assertEqual(res.leg_pv.shape[0], 2)
         self.assertAlmostEqual(res.pv, 0.0, places=8)
@@ -75,15 +75,15 @@ class TestSwapPricing(UnitTest):
     def test_negative_notional_flips_pv(self):
         mkt = _market()
         pricer = SwapPricer()
-        recv = pricer.price([Swap(notional=100, rate_index="SOFR", fixed_rate=0.06, tenor="10Y", as_of=AS_OF)], mkt)
-        pay = pricer.price([Swap(notional=-100, rate_index="SOFR", fixed_rate=0.06, tenor="10Y", as_of=AS_OF)], mkt)
+        recv = pricer.price([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.06, tenor="10Y", as_of=AS_OF)], mkt)
+        pay = pricer.price([Swap.fixed_float_swap(notional=-100, rate_index="SOFR", fixed_rate=0.06, tenor="10Y", as_of=AS_OF)], mkt)
         self.assertAlmostEqual(recv.pv, -pay.pv, places=10)
         self.assertGreater(recv.pv, 0.0)  # receiving 6% above par is positive PV
 
     def test_compile_once_reprice_many(self):
         # one compiled portfolio, repriced against two different curves -> no rebuild
         mkt = _market()
-        compiled = SwapPricer().compile([Swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="10Y", as_of=AS_OF)])
+        compiled = SwapPricer().compile([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="10Y", as_of=AS_OF)])
         pv1 = compiled.price(mkt).pv
 
         ns2 = CurveNamespace()
@@ -97,8 +97,8 @@ class TestSwapPricing(UnitTest):
     def test_population_two_swaps(self):
         mkt = _market()
         swaps = [
-            Swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF),
-            Swap(notional=50, rate_index="SOFR", fixed_rate=0.05, tenor="5Y", as_of=AS_OF),
+            Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.04, tenor="10Y", as_of=AS_OF),
+            Swap.fixed_float_swap(notional=50, rate_index="SOFR", fixed_rate=0.05, tenor="5Y", as_of=AS_OF),
         ]
         res = SwapPricer().price(swaps, mkt)
         self.assertEqual(res.instrument_pv.shape[0], 2)
@@ -107,7 +107,7 @@ class TestSwapPricing(UnitTest):
 
     def test_cashflow_report(self):
         mkt = _market()
-        res = SwapPricer().price([Swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)], mkt)
+        res = SwapPricer().price([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="5Y", as_of=AS_OF)], mkt)
         cf = res.cashflows
         self.assertIsNotNone(cf)
         # fixed leg flows carry the fixed rate
