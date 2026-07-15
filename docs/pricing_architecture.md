@@ -44,7 +44,7 @@ analytics) and made every concern entangled.
 ## 2. End-to-end flow
 
 From a table of trades to a price. The `Factory` is illustrative — any mapping from a raw
-record to an instrument; in practice the `Swap(...)` builder *is* a convention-resolving
+record to an instrument; in practice `Swap.fixed_float_swap(...)` *is* a convention-resolving
 factory.
 
 ```mermaid
@@ -52,8 +52,8 @@ flowchart LR
     T["Trade table<br/>(rows of raw fields)"]
     ROW["row -> dict"]
     FACT["InstrumentFactory<br/>(illustrative; registry-dispatched)"]
-    SWAP["Swap(...) builder<br/>resolve conventions"]
-    RS["ResolvedSwap<br/>receive_leg / pay_leg<br/>(pure contract, no curve)"]
+    SWAP["Swap.fixed_float_swap(...)<br/>resolve conventions"]
+    RS["Swap<br/>receive_leg / pay_leg<br/>(pure contract, no curve)"]
     BOX["container<br/>(list of instruments)"]
     COMP["SwapPricer.compile(...)"]
     PP["PricingProgram<br/>(columnar KernelInputs)"]
@@ -69,9 +69,9 @@ flowchart LR
 
 Reading it:
 - **Row -> dict -> Factory -> Instrument.** A trade record is just data. A factory turns one
-  record into an instrument. For a swap, the `Swap(...)` builder resolves market conventions
+  record into an instrument. For a swap, `Swap.fixed_float_swap(...)` resolves market conventions
   from `(currency, index)` so the trader supplies ~4 fields, not ~25.
-- **Resolve, or push to a container.** A `ResolvedSwap` is a pure-data contract. Many of
+- **Resolve, or push to a container.** A `Swap` is a pure-data contract. Many of
   them collect into a plain container (a list — *not* a "Portfolio"; that word is reserved).
 - **Compile -> PricingProgram.** `SwapPricer.compile` lowers the instruments into one
   columnar `KernelInputs` and wraps it as a `PricingProgram`.
@@ -84,9 +84,9 @@ Reading it:
 ```mermaid
 flowchart TB
     subgraph CONTRACT["Contract layer — no market data"]
-        CONV["ConventionRegistry<br/>(ccy, index) -> ConventionSet"]
+        CONV["ConventionRegistry<br/>(ccy, index) -> MarketConventions"]
         CI["CommonInstrument"]
-        RS2["ResolvedSwap"]
+        RS2["Swap"]
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
@@ -198,7 +198,7 @@ single-fixing floats.
 | Pattern | Where | Why |
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
-| **Concrete resolved instruments as the contract** | `ResolvedSwap` / `ResolvedDeposit` / `ResolvedFra` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
+| **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
 | **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Pricers self-register in `pricer_registry`. |
 | **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (`CouponEvent`); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
@@ -206,7 +206,7 @@ single-fixing floats.
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
 | **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler, the JAX program, and the reference coupon calculators — the three can't drift. |
-| **Convention resolution** | `Swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; `(currency, index)` does the rest. |
+| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (index / per-leg / per-product tiers) does the rest. |
 | **Versioned namespace** | `CurveNamespace` / `VolNamespace` | Rebind a curve per scenario; version counter for cache invalidation without observers. |
 
 ---
@@ -306,33 +306,36 @@ from finance.instruments.resolution import Swap, Deposit, Fra
 
 as_of = Date(2026, 6, 1)
 
-swap = Swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=as_of)
-depo = Deposit(rate=0.0432, tenor="3M", as_of=as_of)          # spot-start cash deposit
-fra  = Fra(rate=0.0440, start="6M", end="12M", as_of=as_of)   # 6x12 FRA
+swap = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=as_of)
+depo = Deposit.spot_deposit(rate=0.0432, tenor="3M", as_of=as_of)      # spot-start cash deposit
+fra  = Fra.forward_starting(rate=0.0440, start="6M", end="12M", as_of=as_of)  # 6x12 FRA
 
 # sign rides on the notional — positive = receive fixed, negative = pay fixed
 # swap legs -> ['Fixed', 'GeometricAveraged']  (fixed vs compounded-SOFR);  funding_id 'STDCSA'
 ```
 
 The **hard layer** is the resolved contract underneath: pure, fully-specified data with no
-curve attached. A `ResolvedSwap` is *iterable over its legs*, and each leg is a
+curve attached. A `Swap` is *iterable over its legs*, and each leg is a
 `CommonInstrument` you can inspect:
 
 ```python
-recv, pay = list(swap)                 # ResolvedSwap iterates (receive_leg, pay_leg)
+recv, pay = list(swap)                 # Swap iterates (receive_leg, pay_leg)
 recv.coupon_type.name                  # 'Fixed'
 recv.payment_frequency.name            # 'Annually'
 recv.day_count_method.name             # 'Actual360'
 
 # negative notional flips orientation: receive leg becomes the floating leg
-recv_of_pay_fixed = list(Swap(notional=-50e6, rate_index="SOFR", fixed_rate=0.041,
+recv_of_pay_fixed = list(Swap.fixed_float_swap(notional=-50e6, rate_index="SOFR", fixed_rate=0.041,
                               tenor="5Y", as_of=as_of))[0]
 recv_of_pay_fixed.coupon_type.name     # 'GeometricAveraged'
 ```
 
-`Swap(..., **overrides)` is the escape hatch for a non-standard trade (any
-`CommonInstrument` field the builder doesn't already set — e.g. `cap`, `index_floor`,
-`payment_delay`). `funding_id` (default `STDCSA`) selects the discount curve independently of
+Every overridable field is an explicit keyword on `fixed_float_swap` (`None` = take the
+convention), routed to the leg it belongs to: `fixed_frequency` / `float_frequency` /
+`fixed_day_count` / `float_day_count`, plus the float-shaping fields (`spread`, `cap`,
+`floor`, `index_floor`, `rate_lookback`, `rate_lockout`). For a leg structure the
+conventions can't express, build the `CommonInstrument` legs directly and construct
+`Swap(...)` — the fully-general escape hatch. `funding_id` (default `STDCSA`) selects the discount curve independently of
 the `rate_index` projection curve.
 
 ### 9.2 Calibrating a curve
@@ -428,8 +431,8 @@ cf.flow_pv[:3]                  # [3,977,564.21, 3,853,881.73, 3,667,857.12]
 
 ```python
 book = [
-    Swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y",  as_of=as_of),
-    Swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.040, tenor="10Y", as_of=as_of),
+    Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y",  as_of=as_of),
+    Swap.fixed_float_swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.040, tenor="10Y", as_of=as_of),
 ]
 program = SwapPricer().compile(book)
 program.price(market).instrument_pv      # [224,696.22, 305,787.36]  (first matches the swap above)

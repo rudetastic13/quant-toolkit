@@ -56,7 +56,7 @@ def make_swap(
     Sign rides on the notional: positive = receive fixed, negative = pay fixed.
     """
     as_of_date = marshalling.to_date(as_of)
-    swap = Swap(
+    swap = Swap.fixed_float_swap(
         notional=float(notional),
         rate_index=str(rate_index),
         fixed_rate=float(fixed_rate),

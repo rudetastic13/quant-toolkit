@@ -75,6 +75,11 @@ class CommonInstrument(CommonObject):
     # pre-computed schedule info
     schedules: dict = field(default_factory=dict)
 
+    def __post_init__(self):
+        # invalid contracts fail at construction, whichever path built them
+        # (raises ValidationException on failures; warnings pass through)
+        self.validate()
+
     def _validate_impl(self) -> ValidationResult:
         result = ValidationResult()
         if self.maturity <= self.effective:

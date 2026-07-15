@@ -26,10 +26,9 @@ class TestCommonInstrumentValidation(UnitTest):
         result = ci.validate(raise_on=set())
         self.assertFalse(result.has_failures)
 
-    def test_maturity_before_effective_fails(self):
-        ci = self._make(effective=Date(2030, 1, 15), maturity=Date(2025, 1, 15))
+    def test_maturity_before_effective_fails_at_construction(self):
         with self.assertRaises(ValidationException):
-            ci.validate()
+            self._make(effective=Date(2030, 1, 15), maturity=Date(2025, 1, 15))
 
     def test_negative_notional_adds_warning(self):
         ci = self._make(notional=-1_000_000.0)
@@ -37,15 +36,13 @@ class TestCommonInstrumentValidation(UnitTest):
         self.assertTrue(result.has_warnings)
         self.assertFalse(result.has_failures)
 
-    def test_floating_without_rate_index_fails(self):
-        ci = self._make(coupon_type=CouponType.Floating, rate_index=None)
+    def test_floating_without_rate_index_fails_at_construction(self):
         with self.assertRaises(ValidationException):
-            ci.validate()
+            self._make(coupon_type=CouponType.Floating, rate_index=None)
 
-    def test_cap_below_floor_fails(self):
-        ci = self._make(cap=0.01, floor=0.05)
+    def test_cap_below_floor_fails_at_construction(self):
         with self.assertRaises(ValidationException):
-            ci.validate()
+            self._make(cap=0.01, floor=0.05)
 
     def test_valid_cap_and_floor_no_failure(self):
         ci = self._make(cap=0.08, floor=0.02)

@@ -9,9 +9,6 @@ from finance.instruments.resolution.resolver import (
 from finance.instruments.resolution.builders import (
     Deposit,
     Fra,
-    ResolvedDeposit,
-    ResolvedFra,
-    ResolvedSwap,
     Swap,
 )
 
@@ -23,8 +20,5 @@ __all__ = [
     "STDCSA",
     "Deposit",
     "Fra",
-    "ResolvedDeposit",
-    "ResolvedFra",
-    "ResolvedSwap",
     "Swap",
 ]

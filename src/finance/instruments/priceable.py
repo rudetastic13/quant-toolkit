@@ -12,7 +12,7 @@ dataclasses, so mutate-and-reprice is not supported — build a new instrument i
 same contract the portfolio path already implies).
 
 Pricers self-register in ``pricer_registry`` keyed by the resolved type's name (e.g.
-``SwapPricer`` registers under ``"ResolvedSwap"``).  Dispatch imports ``finance.pricing``
+``SwapPricer`` registers under ``"Swap"``).  Dispatch imports ``finance.pricing``
 lazily inside ``__call__`` so ``instruments`` carries no import-time dependency on the
 pricing layer (pricing already imports instruments).
 """
@@ -25,7 +25,7 @@ from common.registry import Registry
 PricingRequest = Literal["pv", "leg_pvs", "cashflows"]
 _VALID_REQUESTS = frozenset(get_args(PricingRequest))
 
-# resolved-instrument type name -> pricer class (SwapPricer registers "ResolvedSwap", ...)
+# resolved-instrument type name -> pricer class (SwapPricer registers "Swap", ...)
 pricer_registry: Registry = Registry(name="Pricers")
 
 

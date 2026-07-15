@@ -79,4 +79,5 @@ class TestMarketContext(UnitTest):
 
     def test_convention_helper(self):
         conv = self.mkt.convention("USD", "SOFR")
-        self.assertEqual(conv.calendar, "no_holidays")
+        self.assertEqual(conv.index.label, "USD SOFR")
+        self.assertEqual(conv.swap.spot_calendar, "no_holidays")

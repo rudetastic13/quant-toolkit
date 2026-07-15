@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from finance.dates import Date, Term, BDC, add_business_days, add_term
 from finance.dates.term import TermType
-from finance.conventions import ConventionRegistry, ConventionSet, default_registry
+from finance.conventions import ConventionRegistry, MarketConventions, default_registry
 
 
 def curve_name(currency: str, index_name: str) -> str:
@@ -47,8 +47,8 @@ def funding_curve_name(currency: str, funding_id: str = STDCSA) -> str:
 
 def resolve_conventions(
     currency: str, index_name: str, registry: ConventionRegistry = default_registry
-) -> ConventionSet:
-    """Look up the ConventionSet for a (currency, index) pair."""
+) -> MarketConventions:
+    """Look up the MarketConventions bundle for a (currency, index) pair."""
     return registry.get(currency, index_name)
 
 

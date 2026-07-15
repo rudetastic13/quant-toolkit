@@ -120,7 +120,7 @@ class MarketContext:
 
     # -- convention helper --------------------------------------------------
     def convention(self, currency: str, index_name: str):
-        """Resolve the ConventionSet for a (currency, index) pair."""
+        """Resolve the MarketConventions bundle for a (currency, index) pair."""
         return self.conventions.get(currency, index_name)
 
 
