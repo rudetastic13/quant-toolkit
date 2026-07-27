@@ -14,11 +14,13 @@ from finance.pricing.calibration.instruments import (
     CalibrationInstrument,
     DepositHelper,
     FraHelper,
+    FuturesHelper,
     Quote,
     QuoteKind,
     SwapHelper,
     deposit_helper,
     fra_helper,
+    futures_helper,
     swap_helper,
 )
 from finance.pricing.calibration.calibrator import (
@@ -41,9 +43,11 @@ __all__ = [
     "CalibrationInstrument",
     "DepositHelper",
     "FraHelper",
+    "FuturesHelper",
     "SwapHelper",
     "deposit_helper",
     "fra_helper",
+    "futures_helper",
     "swap_helper",
     # calibrator
     "CurveDefinition",

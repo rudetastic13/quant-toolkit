@@ -33,7 +33,7 @@ jax.config.update("jax_enable_x64", True)
 from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveNamespace, CurveInterpolator  # noqa: E402
+from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve  # noqa: E402
 from finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator,
     CurveDefinition,
@@ -64,8 +64,11 @@ def build_basis_market(as_of: Date):
     ]
     base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
     r_sofr = CurveCalibrator(
-        sofr_helpers, GlobalSolver(), CurveDefinition(SOFR, CurveInterpolator.LogLinearDF)
+        sofr_helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
+    sofr_market = base.with_curve(
+        YieldCurve.from_registry(r_sofr.zero_curve, currency="USD", index_name="SOFR")
+    )
 
     # Fed Funds projection curve — discounted on the SOFR curve just built (funding_id='SOFR').
     ff_helpers = [
@@ -75,10 +78,15 @@ def build_basis_market(as_of: Date):
         swap_helper(rate=0.0410, tenor="10Y", as_of=as_of, rate_index="FEDFUND", funding_id="SOFR"),
     ]
     r_ff = CurveCalibrator(
-        ff_helpers, GlobalSolver(), CurveDefinition(FF, CurveInterpolator.LogLinearDF)
-    ).calibrate(r_sofr.market, jacobian=True)   # <-- the JAX hook: capture ∂implied/∂z
+        ff_helpers,
+        GlobalSolver(),
+        CurveDefinition("USD", "FEDFUND", CurveInterpolator.LogLinearDF),
+    ).calibrate(sofr_market, jacobian=True)   # <-- the JAX hook: capture ∂implied/∂z
+    market = sofr_market.with_curve(
+        YieldCurve.from_registry(r_ff.zero_curve, currency="USD", index_name="FEDFUND")
+    )
 
-    return r_ff.market, r_sofr, r_ff, SOFR, FF
+    return market, r_sofr, r_ff, SOFR, FF
 
 
 def main() -> None:
@@ -93,8 +101,14 @@ def main() -> None:
     print(f"calibration Jacobian : {r_ff.jacobian.shape}  ∂implied/∂z (exact, one jax.jacobian)")
 
     # A SOFR-discounted Fed Funds swap.
-    swap = Swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.041, tenor="5Y",
-                as_of=as_of, funding_id="SOFR")
+    swap = Swap.fixed_float_swap(
+        notional=100e6,
+        rate_index="FEDFUND",
+        fixed_rate=0.041,
+        tenor="5Y",
+        as_of=as_of,
+        funding_id="SOFR",
+    )
     program = SwapPricer().compile([swap])
     priced = program.price(market)
     eng = Sensitivities(program, market)

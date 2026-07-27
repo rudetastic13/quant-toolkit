@@ -11,6 +11,8 @@ from finance.instruments.resolution.builders import (
     Fra,
     Swap,
 )
+from finance.instruments.resolution.futures import SofrFuture, imm_date, next_quarterly_imm
+from finance.instruments.resolution.swaption import Swaption, SwaptionModel
 
 __all__ = [
     "curve_name",
@@ -21,4 +23,9 @@ __all__ = [
     "Deposit",
     "Fra",
     "Swap",
+    "SofrFuture",
+    "imm_date",
+    "next_quarterly_imm",
+    "Swaption",
+    "SwaptionModel",
 ]

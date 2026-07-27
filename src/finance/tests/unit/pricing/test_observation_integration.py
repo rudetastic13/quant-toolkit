@@ -1,15 +1,16 @@
 """The real observation grid feeds project + compounded kernel and telescopes to DF.
 
-This closes the loop: build_observation_grid -> MarketContext.project -> compounded kernel,
+This closes the loop: build_observation_grid -> RateGenerator -> compounded kernel,
 across a multi-period leg, must reproduce the curve's DF ratios period-by-period.
 """
 import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod, Frequency, BDC
-from finance.markets.curves import ZeroCurve
+from finance.markets.curves import YieldCurve, ZeroCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
+from finance.markets.rate_generator import RateGenerator
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.instruments.schedules.observation import build_observation_grid
 from finance.pricing.engines.numpy.rates import compounded
@@ -33,9 +34,16 @@ class TestRealGridTelescopes(UnitTest):
 
     def setUp(self):
         ns = CurveNamespace()
-        ns.bind(CURVE, _curve())
+        ns.bind(
+            YieldCurve.from_registry(
+                _curve(),
+                currency="USD",
+                index_name="SOFR",
+            )
+        )
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
-        self.curve = ns.resolve(CURVE)
+        self.curve = self.mkt.zero_curve(CURVE)
+        self.rates = RateGenerator(self.mkt)
         self.ps = build_payment_schedule(
             Date(2026, 6, 1), Date(2028, 6, 1), Frequency.SemiAnnually,
             ACT360, BDC.ModifiedFollowing, CAL, build_observations=True,
@@ -44,7 +52,7 @@ class TestRealGridTelescopes(UnitTest):
     def test_compounded_period_rates_telescope(self):
         grid = build_observation_grid(self.ps.accrual_starts, self.ps.accrual_ends, CAL, ACT360)
         # read overnight simple rates over each sub-period (lookback=0 => value_date == sub_start)
-        obs_rate = self.mkt.project(CURVE, grid.sub_starts, grid.sub_ends, ACT360)
+        obs_rate = self.rates.simple_rate(CURVE, grid.sub_starts, grid.sub_ends, ACT360)
         rates = compounded(obs_rate, grid.weights, grid.offsets)
 
         # each period's compounded rate * period_frac == DF(start)/DF(end) - 1

@@ -1,16 +1,30 @@
-"""Numba kernel backend — SEAM (no kernels implemented yet).
+"""Numba pricing and analytic-adjoint backend.
 
-To add a numba implementation, register it under the SAME kernel id with ``Backend.Numba``
-and the SAME ``KernelInputs``/``KernelResult`` contract as the numpy kernel, e.g.::
-
-    from numba import njit
-    from common.registry import register_with
-    from finance.pricing.engines import engine_registry
-    from finance.pricing.types import RATE_COMPOUNDED, Backend
-
-    @register_with(engine_registry, (RATE_COMPOUNDED, Backend.Numba))
-    def compounded_numba(obs_rate, obs_w, offsets): ...
-
-Nothing in the pricer changes — selection is a one-line key swap at the call site. Because
-the boundary is contiguous numpy arrays, the kernel body is a drop-in replacement.
+Importing the package registers the narrow kernel ABI.  Machine-code compilation remains
+lazy and cached; constructing a :class:`NumbaProgram` and making its first call creates one
+dtype/layout signature that is reused for every subsequent portfolio length.
 """
+from __future__ import annotations
+
+from finance.pricing.engines.numba.kernels import (
+    averaged,
+    bachelier,
+    bachelier_greeks,
+    black,
+    black_greeks,
+    compounded,
+    dcf,
+)
+from finance.pricing.engines.numba.program import NumbaAdjointResult, NumbaProgram
+
+__all__ = [
+    "NumbaProgram",
+    "NumbaAdjointResult",
+    "dcf",
+    "compounded",
+    "averaged",
+    "bachelier",
+    "black",
+    "bachelier_greeks",
+    "black_greeks",
+]

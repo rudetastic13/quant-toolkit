@@ -28,9 +28,15 @@ class TestZeroCurveProperties(UnitTest):
         self.assertEqual(c.max_date, np.datetime64("2031-06-01"))
 
     def test_node_arrays_are_copies(self):
-        c = _curve()
+        nd = np.array(["2026-06-01", "2027-06-01"], dtype="datetime64[D]")
+        dfs = np.array([1.0, 0.96])
+        c = ZeroCurve(nd, dfs)
+        nd[-1] = np.datetime64("2030-01-01")
+        dfs[-1] = 0.50
         c.node_dfs[0] = 99.0
         self.assertEqual(c.node_dfs[0], 1.0)
+        self.assertEqual(c.node_dfs[-1], 0.96)
+        self.assertEqual(c.node_dates[-1], np.datetime64("2027-06-01"))
 
 
 class TestZeroCurveQueries(UnitTest):
@@ -47,21 +53,18 @@ class TestZeroCurveQueries(UnitTest):
     def test_zero_rate_recovers_flat_level(self):
         c = _curve(level=0.04)
         d = np.array(["2028-06-01"], dtype="datetime64[D]")
-        self.assertAlmostEqual(c.rate(d)[0], 0.04, places=10)
+        self.assertAlmostEqual(c.zero_rate(d)[0], 0.04, places=10)
 
-    def test_forward_rate_between_pillars(self):
+    def test_log_discount_factor(self):
         c = _curve(level=0.04)
-        f = c.forward_rate(
-            np.array(["2027-06-01"], dtype="datetime64[D]"),
-            np.array(["2028-06-01"], dtype="datetime64[D]"),
-        )
-        self.assertAlmostEqual(f[0], 0.04, places=10)
+        date = np.array(["2027-06-01"], dtype="datetime64[D]")
+        self.assertAlmostEqual(c.log_discount_factor(date)[0], -0.04, places=10)
 
     def test_flat_forward_extrapolation_beyond_last_pillar(self):
         c = _curve(level=0.04)
         beyond = np.array(["2033-06-01"], dtype="datetime64[D]")
         # flat-forward: the terminal forward continues, so the zero rate stays ~flat
-        self.assertAlmostEqual(c.rate(beyond)[0], 0.04, places=6)
+        self.assertAlmostEqual(c.zero_rate(beyond)[0], 0.04, places=6)
 
     def test_rate_linear_interpolates_zero_rates(self):
         nd = np.array(["2026-06-01", "2027-06-01", "2029-06-01"], dtype="datetime64[D]")
@@ -71,7 +74,7 @@ class TestZeroCurveQueries(UnitTest):
         dfs[0] = 1.0
         c = ZeroCurve(nd, dfs, CurveInterpolator.RateLinear)
         mid = np.array(["2028-06-01"], dtype="datetime64[D]")  # halfway between pillars 2 and 3
-        self.assertAlmostEqual(c.rate(mid)[0], 0.04, places=3)
+        self.assertAlmostEqual(c.zero_rate(mid)[0], 0.04, places=3)
 
 
 class TestZeroCurveValidation(UnitTest):
@@ -87,6 +90,17 @@ class TestZeroCurveValidation(UnitTest):
         with self.assertRaises(ValueError):
             ZeroCurve(nd, np.array([1.0, 0.96]), CurveInterpolator.LogLinearDF)
 
+    def test_duplicate_dates_rejected(self):
+        nd = np.array(["2026-06-01", "2026-06-01"], dtype="datetime64[D]")
+        with self.assertRaises(ValueError):
+            ZeroCurve(nd, np.array([1.0, 0.99]))
+
+    def test_nonpositive_or_nonfinite_df_rejected(self):
+        nd = np.array(["2026-06-01", "2027-06-01"], dtype="datetime64[D]")
+        for bad in (0.0, -0.1, np.nan, np.inf):
+            with self.assertRaises(ValueError):
+                ZeroCurve(nd, np.array([1.0, bad]))
+
     def test_too_few_nodes_rejected(self):
         nd = np.array(["2026-06-01"], dtype="datetime64[D]")
         with self.assertRaises(ValueError):
@@ -94,5 +108,7 @@ class TestZeroCurveValidation(UnitTest):
 
     def test_pre_origin_query_rejected(self):
         c = _curve()
-        with self.assertRaises(ValueError):
-            c.discount_factor(np.array(["2026-01-01"], dtype="datetime64[D]"))
+        query = np.array(["2026-01-01"], dtype="datetime64[D]")
+        for method in (c.discount_factor, c.log_discount_factor, c.zero_rate):
+            with self.assertRaises(ValueError):
+                method(query)

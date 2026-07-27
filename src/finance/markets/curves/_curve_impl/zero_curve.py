@@ -1,4 +1,12 @@
-"""ZeroCurve implementation with support for dual-segment interpolation."""
+"""Pure discount-function curve with support for dual-segment interpolation.
+
+``ZeroCurve`` deliberately has no index, fixing, coupon, or market-forward semantics.  It
+owns only mathematical curve state and exposes discount factors, log discount factors, and
+continuously-compounded zero rates.  Market conventions are composed by ``YieldCurve``;
+rate generation lives in ``RateGenerator``.
+"""
+from __future__ import annotations
+
 import warnings
 import numpy as np
 from finance.dates import Term
@@ -7,8 +15,8 @@ from finance.markets.curves._curve_impl.interpolators import (
     DateArray,
     FloatArray,
     InterpolatedSegment,
-    CurveInterpolator,
 )
+from finance.markets.curves.types import CurveInterpolator, RateExtrapolator
 
 
 class ZeroCurve:
@@ -18,8 +26,7 @@ class ZeroCurve:
     Parameters
     ----------
     node_dates : np.ndarray[datetime64[D]]
-        Pillar dates.  The first entry must be the curve origin (today).
-        Need not be pre-sorted — the constructor sorts them.
+        Strictly increasing pillar dates.  The first entry is the curve origin.
     node_values : np.ndarray[float64]
         Discount factors corresponding to each pillar date.  The value
         at the origin date must be exactly 1.0.
@@ -42,16 +49,17 @@ class ZeroCurve:
         Override alpha for the long segment.  Falls back to ``alpha``.
     beta_long : float | None
         Override beta for the long segment.  Falls back to ``beta``.
-    t : np.ndarray[datetime64[D]] | None
-        Explicit knot sequence for spline methods (advanced usage).
+    extrapolation : RateExtrapolator
+        Behaviour after the final pillar. ``Flat`` continues the terminal instantaneous
+        forward; ``NotAllowed`` rejects the query. Pre-origin queries are always rejected.
 
     Public query methods
     --------------------
     All accept ``np.ndarray[datetime64[D]]`` and return ``np.ndarray[float64]``.
 
     discount_factor(dates)  →  DF values
-    rate(dates)             →  continuously compounded zero rates (annualised)
-    forward_rate(starts, ends) → forward rates between date pairs
+    log_discount_factor(dates) → natural logarithm of DF values
+    zero_rate(dates)        → continuously compounded zero rates (Act/365 annualised)
     """
 
     def __init__(
@@ -66,19 +74,31 @@ class ZeroCurve:
         beta: float = 0.0,
         alpha_long: float | None = None,
         beta_long: float | None = None,
-        spline_knot_sequence: DateArray | None = None,
+        extrapolation: RateExtrapolator = RateExtrapolator.Flat,
     ) -> None:
-        if node_dates.ndim != 1 or len(node_dates) < 2:
+        dates = np.asarray(node_dates).astype("datetime64[D]").copy()
+        dfs = np.asarray(node_values, dtype=np.float64).copy()
+        if dates.ndim != 1 or len(dates) < 2:
             raise ValueError("node_dates must be a 1-D array with at least 2 elements.")
-        if node_values.shape != node_dates.shape:
+        if dfs.shape != dates.shape:
             raise ValueError("node_dates and node_values must have the same length.")
-        if np.any(node_dates[:-1] > node_dates[1:]):
-            raise ValueError("node_dates must be pre-sorted in ascending order.")
+        if np.isnat(dates).any():
+            raise ValueError("node_dates cannot contain NaT.")
+        if np.any(dates[:-1] >= dates[1:]):
+            raise ValueError("node_dates must be strictly increasing with no duplicates.")
+        if not np.isfinite(dfs).all() or np.any(dfs <= 0.0):
+            raise ValueError("node_values must be finite, strictly positive discount factors.")
+        if not np.isfinite([alpha, beta]).all():
+            raise ValueError("alpha and beta must be finite.")
+        if alpha_long is not None and not np.isfinite(alpha_long):
+            raise ValueError("alpha_long must be finite when supplied.")
+        if beta_long is not None and not np.isfinite(beta_long):
+            raise ValueError("beta_long must be finite when supplied.")
 
-        self._origin: np.datetime64 = node_dates[0]
+        self._origin: np.datetime64 = dates[0]
         self._origin_ord = self._origin.astype(np.int64)
-        self._node_dates: DateArray = node_dates
-        self._node_dfs: FloatArray = node_values
+        self._node_dates: DateArray = dates
+        self._node_dfs: FloatArray = dfs
 
         if abs(self._node_dfs[0] - 1.0) > 1e-12:
             raise ValueError(
@@ -86,13 +106,15 @@ class ZeroCurve:
             )
 
         self._x_all: FloatArray = _dates_to_floats(self._node_dates, self._origin_ord)
-        self._interp_type = interpolation
-        self._interp_type_long = interpolation_long
-        self._alpha = alpha
-        self._beta = beta
-        self._alpha_long = alpha_long if alpha_long is not None else alpha
-        self._beta_long = beta_long if beta_long is not None else beta
-        self._spline_knot_sequence = spline_knot_sequence
+        self._interp_type = CurveInterpolator(interpolation)
+        self._interp_type_long = (
+            None if interpolation_long is None else CurveInterpolator(interpolation_long)
+        )
+        self._alpha = float(alpha)
+        self._beta = float(beta)
+        self._alpha_long = float(alpha_long) if alpha_long is not None else self._alpha
+        self._beta_long = float(beta_long) if beta_long is not None else self._beta
+        self._extrapolation = RateExtrapolator(extrapolation)
 
         # Resolve cutover
         self._cutover_x: float | None = None
@@ -114,7 +136,15 @@ class ZeroCurve:
                 cutover_date = self._origin + interpolation_cutover
             else:
                 cutover_date = interpolation_cutover
-            self._cutover_x = cutover_date.astype(np.int64) - self._origin_ord
+            cutover_date = np.datetime64(cutover_date, "D")
+            if cutover_date not in self._node_dates:
+                raise ValueError(
+                    "interpolation_cutover must coincide with a curve node so both "
+                    "segments share the same discount factor."
+                )
+            self._cutover_x = float(cutover_date.astype(np.int64) - self._origin_ord)
+        elif interpolation_cutover is not None:
+            raise ValueError("interpolation_cutover requires interpolation_long.")
 
         # Build segments
         self._segments: list[InterpolatedSegment] = []
@@ -213,12 +243,14 @@ class ZeroCurve:
         if np.any(interior_mask):
             result[interior_mask] = self._interpolate_interior(xs[interior_mask])
         if np.any(extrap_mask):
+            if self._extrapolation is RateExtrapolator.NotAllowed:
+                raise ValueError("query after the final curve pillar is not allowed.")
             result[extrap_mask] = self._last_df * np.exp(
                 -self._last_fwd * (xs[extrap_mask] - self._last_x)
             )
         return result
 
-    def _rate_xs(self, xs: FloatArray) -> FloatArray:
+    def _zero_rate_xs(self, xs: FloatArray) -> FloatArray:
         """Fully vectorized zero rates from float day offsets."""
         result = np.empty(len(xs), dtype=np.float64)
         origin_mask = xs <= 1e-10
@@ -255,6 +287,25 @@ class ZeroCurve:
         """The curve's (short-segment) interpolation scheme."""
         return self._interp_type
 
+    @property
+    def extrapolation(self) -> RateExtrapolator:
+        return self._extrapolation
+
+    def _query_xs(self, dates: DateArray) -> FloatArray:
+        dates = np.asarray(dates).astype("datetime64[D]")
+        if dates.ndim != 1:
+            raise ValueError("curve queries require a 1-D date array.")
+        if np.isnat(dates).any():
+            raise ValueError("curve query dates cannot contain NaT.")
+        xs = _dates_to_floats(dates, self._origin_ord)
+        if np.any(xs < -1e-10):
+            bad = dates[xs < -1e-10]
+            raise ValueError(
+                f"{len(bad)} date(s) before the curve origin (earliest: {bad[0]}). "
+                "Pre-origin extrapolation is not supported at the Curve level."
+            )
+        return xs
+
     def discount_factor(self, dates: DateArray) -> FloatArray:
         """
         Discount factors for an array of dates.
@@ -272,16 +323,13 @@ class ZeroCurve:
         ValueError
             If any date is before the curve origin.
         """
-        xs = _dates_to_floats(dates, self._origin_ord)
-        if np.any(xs < -1e-10):
-            bad = dates[xs < -1e-10]
-            raise ValueError(
-                f"{len(bad)} date(s) before the curve origin (earliest: {bad[0]}). "
-                "Pre-origin extrapolation is not supported at the Curve level."
-            )
-        return self._discount_factor_xs(xs)
+        return self._discount_factor_xs(self._query_xs(dates))
 
-    def rate(self, dates: DateArray) -> FloatArray:
+    def log_discount_factor(self, dates: DateArray) -> FloatArray:
+        """Natural logarithm of the discount factor at each date."""
+        return np.log(self._discount_factor_xs(self._query_xs(dates)))
+
+    def zero_rate(self, dates: DateArray) -> FloatArray:
         """
         Continuously compounded zero rates to each date.
         r(t) = -ln(DF(t)) / t   (annualised, Act/365)
@@ -294,36 +342,25 @@ class ZeroCurve:
         -------
         np.ndarray[float64]
         """
-        return self._rate_xs(_dates_to_floats(dates, self._origin_ord))
+        return self._zero_rate_xs(self._query_xs(dates))
 
-    def forward_rate(self, starts: DateArray, ends: DateArray) -> FloatArray:
-        """
-        Continuously compounded forward rates between paired date arrays.
-        f(t1, t2) = -[ln DF(t2) - ln DF(t1)] / (t2 - t1)   (annualised)
-
-        Parameters
-        ----------
-        starts : np.ndarray[datetime64[D]]
-        ends   : np.ndarray[datetime64[D]]
-
-        Returns
-        -------
-        np.ndarray[float64]
-        """
-        if starts.shape != ends.shape:
-            raise ValueError("starts and ends must have the same shape.")
-        xs1 = _dates_to_floats(starts, self._origin_ord)
-        xs2 = _dates_to_floats(ends, self._origin_ord)
-        dt_years = (xs2 - xs1) / 365.0
-        degen = np.abs(dt_years) < 1e-14
-        result = np.empty(len(xs1), dtype=np.float64)
-        if np.any(~degen):
-            df1 = self._discount_factor_xs(xs1[~degen])
-            df2 = self._discount_factor_xs(xs2[~degen])
-            result[~degen] = -(np.log(df2) - np.log(df1)) / dt_years[~degen]
-        if np.any(degen):
-            result[degen] = self._rate_xs(xs1[degen])
-        return result
+    def with_node_dfs(self, node_dfs: FloatArray) -> ZeroCurve:
+        """Return the same curve geometry/configuration with new discount-factor state."""
+        cutover = None
+        if self._cutover_x is not None:
+            cutover = self._origin + np.timedelta64(int(self._cutover_x), "D")
+        return ZeroCurve(
+            self._node_dates,
+            node_dfs,
+            interpolation=self._interp_type,
+            interpolation_long=self._interp_type_long,
+            interpolation_cutover=cutover,
+            alpha=self._alpha,
+            beta=self._beta,
+            alpha_long=self._alpha_long,
+            beta_long=self._beta_long,
+            extrapolation=self._extrapolation,
+        )
 
     def __repr__(self) -> str:
         seg_info = " + ".join(s.interp_type.name for s in self._segments)

@@ -9,7 +9,7 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod, Frequency, BDC
-from finance.markets.curves import ZeroCurve
+from finance.markets.curves import YieldCurve, ZeroCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
@@ -31,8 +31,13 @@ def _market(origin="2026-06-01"):
     dates = np.array([origin, "2028-06-01", "2031-06-01"], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     ns = CurveNamespace()
-    ns.bind(CURVE, ZeroCurve(dates, np.exp(-0.04 * t)))
-    return MarketContext(as_of_date=Date(2026, 6, 1), curves=ns), ns.resolve(CURVE)
+    yield_curve = YieldCurve.from_registry(
+        ZeroCurve(dates, np.exp(-0.04 * t)),
+        currency="USD",
+        index_name="SOFR",
+    )
+    ns.bind(yield_curve)
+    return MarketContext(as_of_date=Date(2026, 6, 1), curves=ns), yield_curve.zero_curve
 
 
 def _annual_schedule(years=4, build_obs=False):

@@ -6,7 +6,7 @@ from finance.pricing.results import PricingResult, CashflowReport
 # (CurveCalibrator) are not re-exported here; import them directly:
 #     from finance.pricing.risk import Sensitivities
 #     from finance.pricing.calibration import CurveCalibrator
-from finance.pricing.pricers import PricingProgram, SwapPricer
+from finance.pricing.pricers import FuturesPricer, PricingProgram, SwaptionPricer, SwapPricer
 
 
 __all__ = [
@@ -16,5 +16,7 @@ __all__ = [
     "PricingResult",
     "CashflowReport",
     "SwapPricer",
+    "FuturesPricer",
+    "SwaptionPricer",
     "PricingProgram",
 ]

@@ -11,7 +11,7 @@ from common.testing import UnitTest
 from finance.dates import Date, period_fractions
 from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.calibration.instruments import deposit_helper, fra_helper, swap_helper
 from finance.pricing.pricers.swap import SwapPricer
 
@@ -37,7 +37,7 @@ class TestHelpers(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.curve = _curve("2026-06-01")
         ns = CurveNamespace()
-        ns.bind(CURVE, self.curve)
+        ns.bind(YieldCurve.from_registry(self.curve, currency="USD", index_name="SOFR"))
         self.mkt = MarketContext(as_of_date=self.as_of, curves=ns)
 
     def _df_ratio_rate(self, eff, mat, dcm) -> float:

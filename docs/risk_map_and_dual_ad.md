@@ -90,17 +90,17 @@ changes never reach the pricer at all.
 | PyTorch eager (`torch.func`) | reverse | none in eager | fastest to adopt; tensor overhead on tiny arrays. |
 | Enzyme / CoDiPack in the C++ core | either | none | reverse AD at C++ speed with dynamic shapes; composes with the existing `finance/_core`. |
 
-**numba is not AD.** numba is a speed tool; it pairs with **bump-and-reprice** (finite
-differences), not autodiff. The one AD-adjacent route is hand-writing the adjoint of the
-cashflow kernel and njit-compiling both primal and adjoint — the fastest option for a *stable*
-kernel, at the cost of re-deriving adjoints when the pricer changes.
+**Numba is the compiler, not the differentiation system.** The implemented engine takes the
+AD-adjacent route: a hand-written reverse adjoint of the stable cashflow kernel, with both
+primal and adjoint compiled by Numba. It produces exact first order without tracing or shape
+specialization; its formulas must be kept in sync when pricing algebra changes.
 
 **Recommended sequencing (cheapest first):**
 
-1. **Now:** forward-mode dual numbers through the cashflow kernel (njit or in `_core`) — exact
-   δ and γ, no compile tax, float64, ragged-shape-safe. Proven rateslib pattern.
-2. **When factor counts explode:** add reverse-mode AAD (hand-written adjoint, or
-   CoDiPack/Enzyme in `_core`).
+1. **Now (implemented):** hand-written reverse adjoint through the Numba cashflow kernel —
+   exact δ, one dtype/layout compile, float64, and ragged-shape-safe.
+2. **When pricing algebra expands materially:** consider dual-number types or
+   CoDiPack/Enzyme in `_core` to reduce manual adjoint maintenance.
 3. **Keep bump-and-reprice** as the universal fallback for non-smooth products (American
    swaptions, barriers, MC).
 4. **Drop JAX from the fast path** — keep it only as a cross-check oracle in tests.

@@ -11,27 +11,54 @@ that word is reserved for a future book abstraction that would sit on top of thi
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from finance.pricing.kernels.compiler import reprice
 from finance.pricing.kernels.inputs import KernelInputs
 from finance.pricing.results import CashflowReport, PricingResult
+from finance.pricing.types import Backend
 
 
 @dataclass
 class PricingProgram:
-    """Immutable compiled form; reprice across markets without recompiling."""
+    """Compiled form with lazily cached backend preparation; reprice without rebuilding."""
 
     inputs: KernelInputs
+    backend: Backend = Backend.Numpy
+    _prepared_numba: object | None = field(default=None, init=False, repr=False, compare=False)
 
-    def reprice(self, market):
+    def prepare(self, market, *, backend: Backend | None = None):
+        """Prepare and cache a backend-specific executable for repeated repricing."""
+        selected = self.backend if backend is None else Backend(backend)
+        if selected == Backend.Numpy:
+            return self
+        if selected == Backend.Numba:
+            from finance.pricing.engines.numba import NumbaProgram
+
+            if self._prepared_numba is None:
+                self._prepared_numba = NumbaProgram(self.inputs, market)
+            return self._prepared_numba
+        raise NotImplementedError(f"prepared backend {selected.name} is not implemented")
+
+    def reprice(self, market, *, backend: Backend | None = None):
         """Raw kernel result (instrument/leg/flow PVs + realized rates)."""
+        selected = self.backend if backend is None else Backend(backend)
+        if selected == Backend.Numba:
+            return self.prepare(market, backend=selected).reprice(market)
+        if selected != Backend.Numpy:
+            raise NotImplementedError(f"backend {selected.name} is not implemented for PricingProgram")
         return reprice(self.inputs, market)
 
-    def price(self, market, *, with_cashflows: bool = True) -> PricingResult:
-        kr = self.reprice(market)
+    def price(
+        self,
+        market,
+        *,
+        with_cashflows: bool = True,
+        backend: Backend | None = None,
+    ) -> PricingResult:
+        kr = self.reprice(market, backend=backend)
         cashflows = None
         if with_cashflows:
             ki = self.inputs

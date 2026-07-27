@@ -63,7 +63,7 @@ repeated-book performance. `Jax` is the production engine only for the numerical
 elsewhere it is the validation oracle (§5).
 
 `Backend.Rust` is a fourth registered seam (`engines/rust/`, contract documented, no kernel
-implemented yet — same status as `engines/numba/`): a PyO3/maturin kernel would register under
+implemented yet): a PyO3/maturin kernel would register under
 the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays zero-copy. It
 would slot into the same rows as `Numba` when it lands.
 

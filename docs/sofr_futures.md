@@ -4,11 +4,9 @@
 > layering and the calibration layer), [engine_selection.md](engine_selection.md) (futures
 > price through the linear-rates engine), and [numba_engine.md](numba_engine.md).
 
-> **Status: design spec — not yet implemented.** None of the symbols specified below
-> (`SofrFuture`, `ResolvedSofrFuture`, `FuturesHelper`, `QuoteKind.FuturesRate`, `Roll.IMM`,
-> `imm_date` / `next_quarterly_imm`) exist in `src/` yet; the work items are G1–G6 (§6).
-> The rate-kind mapping it builds on (SR3 → `GeometricAveraged`, SR1 → `ArithmeticAveraged`)
-> is current.
+> **Status:** SR1/SR3 contracts, IMM helpers, pricing/P&L, analytic Numba risk,
+> `FuturesHelper`, `QuoteKind.FuturesRate`, and exogenous convexity are implemented. A formal
+> `Roll.IMM` enum and model-derived Hull-White convexity remain follow-ups.
 
 SOFR futures are the liquid front-to-mid of the USD curve (out to ~2–3y), sitting between
 deposits (very short) and swaps (2y+). This document specifies how they enter the **instrument

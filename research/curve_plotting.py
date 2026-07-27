@@ -24,8 +24,10 @@ import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import numpy as np
 from numpy.typing import NDArray
-from finance.dates import Term, TermType
-from finance.markets.curves import ZeroCurve, CurveInterpolator
+from finance.dates import Date, Term, TermType
+from finance.markets import RateGenerator
+from finance.markets.context import MarketContext
+from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve, CurveInterpolator
 
 # ---------------------------------------------------------------------------
 # Shared node inputs  (np.ndarray[datetime64[D]] + np.ndarray[float64])
@@ -102,7 +104,14 @@ def _eval_curve(
     dates: NDArray[np.datetime64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Return (discount_factors, zero_rates_pct) for a smooth date grid."""
-    return curve.discount_factor(dates), curve.rate(dates) * 100.0
+    return curve.discount_factor(dates), curve.zero_rate(dates) * 100.0
+
+
+def _rate_generator(curve: ZeroCurve) -> RateGenerator:
+    namespace = CurveNamespace()
+    namespace.bind(YieldCurve.from_registry(curve, currency="USD", index_name="SOFR"))
+    market = MarketContext(as_of_date=Date.from_numpy(curve.origin), curves=namespace)
+    return RateGenerator(market)
 
 
 def _eval_fwd(
@@ -119,8 +128,9 @@ def _eval_fwd(
     ends_1d = fwd_grid[1:]
     ends_1m = starts + np.timedelta64(30, "D")
 
-    fwd_1d = curve.forward_rate(starts, ends_1d) * 100.0
-    fwd_1m = curve.forward_rate(starts, ends_1m) * 100.0
+    generator = _rate_generator(curve)
+    fwd_1d = generator.continuous_forward_rate("USD.SOFR", starts, ends_1d) * 100.0
+    fwd_1m = generator.continuous_forward_rate("USD.SOFR", starts, ends_1m) * 100.0
     return _to_years(starts), fwd_1d, fwd_1m
 
 
@@ -129,7 +139,7 @@ def _pillar_values(
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Pillar times-in-years, DF values, and zero-rate-pct values."""
     t_yr = _to_years(PILLAR_DATES)
-    return t_yr, curve.discount_factor(PILLAR_DATES), curve.rate(PILLAR_DATES) * 100.0
+    return t_yr, curve.discount_factor(PILLAR_DATES), curve.zero_rate(PILLAR_DATES) * 100.0
 
 
 def _label(itype: CurveInterpolator) -> str:

@@ -3,7 +3,16 @@
 ``MarketContext`` (in ``finance.markets.context``) is the single market-data object
 pricers consume; ``curves``/``paths`` hold the underlying stores it composes.
 """
-from .curves import ZeroCurve, CurveInterpolator
+from .curves import CurveInterpolator, YieldCurve, ZeroCurve
 from .paths import SinglePath, FlatPath, InvertedPath
+from .rate_generator import RateGenerator
 
-__all__ = ["ZeroCurve", "CurveInterpolator", "SinglePath", "FlatPath", "InvertedPath"]
+__all__ = [
+    "ZeroCurve",
+    "YieldCurve",
+    "CurveInterpolator",
+    "SinglePath",
+    "FlatPath",
+    "InvertedPath",
+    "RateGenerator",
+]

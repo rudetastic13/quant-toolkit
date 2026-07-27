@@ -56,19 +56,25 @@ class SwapPricer:
     functor) can dispatch here for standalone pricing.
     """
 
-    def compile(self, swaps: list[Swap]) -> PricingProgram:
+    default_backend = Backend.Numpy
+
+    def compile(self, swaps: list[Swap], *, backend: Backend | None = None) -> PricingProgram:
         legs: list[LegSpec] = []
         for inst, swap in enumerate(swaps):
             proj = curve_name(swap.currency, swap.index_name)
             disc = funding_curve_name(swap.currency, swap.funding_id)
             legs.append(self._leg_spec(swap.receive_leg, +1.0, disc, proj, inst))
             legs.append(self._leg_spec(swap.pay_leg, -1.0, disc, proj, inst))
-        return PricingProgram(inputs=compile_portfolio(legs))
+        return PricingProgram(
+            inputs=compile_portfolio(legs),
+            backend=self.default_backend if backend is None else Backend(backend),
+        )
 
     def price(self, swaps: list[Swap], market, *, backend: Backend = Backend.Numpy) -> PricingResult:
-        if backend != Backend.Numpy:
-            raise NotImplementedError(f"backend {backend.name} not implemented; reprice routes through numpy kernels")
-        return self.compile(swaps).price(market)
+        backend = Backend(backend)
+        if backend not in (Backend.Numpy, Backend.Numba):
+            raise NotImplementedError(f"backend {backend.name} is not implemented by SwapPricer")
+        return self.compile(swaps, backend=backend).price(market)
 
     def _leg_spec(
         self, leg: CommonInstrument, sign: float, discount_curve: str, projection_curve: str, inst: int

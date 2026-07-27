@@ -2,9 +2,9 @@
 
 This is the "object that calibrates": it wires a list of single-quote calibration
 instruments, a solver, and a target curve definition into one residual closure (trial node
-values -> per-instrument residuals) and hands that to the solver.  The solved node values
-become a ``ZeroCurve`` bound into a *fresh* ``MarketContext`` (the input market is never
-mutated), optionally with a flat vol shim.
+values -> per-instrument residuals) and hands that to the solver. The solved node values
+are returned as a mathematical ``ZeroCurve``; the input market is never mutated. Callers
+explicitly compose that state with index conventions to register a ``YieldCurve``.
 
 Parameterisation is continuously-compounded zero rates at the pillars (``DF = exp(-x·t)``,
 ``t`` in Act/365 from origin); the first node is pinned at the origin with ``DF = 1``.  The
@@ -15,17 +15,16 @@ multi-curve follow-up that reuses ``MarketContext.with_curve`` the same way.
 """
 from __future__ import annotations
 
-import dataclasses
 from dataclasses import dataclass
 from typing import Sequence
 
 import numpy as np
 
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, ZeroCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace
+from finance.markets.curves import CurveInterpolator, YieldCurve, ZeroCurve
 from finance.pricing.calibration.instruments import CalibrationInstrument
 from finance.pricing.calibration.solvers import Solver, SolverResult
+from finance.pricing.types import Backend
 
 FloatArray = np.ndarray
 DateArray = np.ndarray
@@ -37,25 +36,41 @@ LOCAL_INTERPOLATORS = frozenset({CurveInterpolator.LogLinearDF, CurveInterpolato
 
 @dataclass(frozen=True)
 class CurveDefinition:
-    """What to build: a curve name and how it interpolates.  Node dates come from the
-    calibration instruments' pillar dates."""
+    """Identity and mathematical interpolation of the zero curve being calibrated."""
 
-    name: str
+    currency: str
+    index_name: str
     interpolation: CurveInterpolator = CurveInterpolator.LogLinearDF
+
+    @property
+    def name(self) -> str:
+        return f"{self.currency.upper()}.{self.index_name.upper()}"
+
+    def compose(self, zero_curve: ZeroCurve, market: MarketContext) -> YieldCurve:
+        """Build the temporary convention-aware curve needed to price calibration quotes."""
+        return YieldCurve.from_registry(
+            zero_curve,
+            currency=self.currency,
+            index_name=self.index_name,
+            registry=market.conventions,
+        )
 
 
 @dataclass
 class CalibrationResult:
-    """The calibrated curve plus the market it's bound into and solver diagnostics.
+    """The calibrated mathematical curve and solver diagnostics.
+
+    ``zero_curve`` is deliberately mathematical state, not a market registration. The
+    caller composes it with ``MarketConventions`` to create a ``YieldCurve``.
 
     ``jacobian`` (populated only when ``calibrate(..., jacobian=True)``) is the exact
-    ``J_ij = ∂impliedᵢ/∂zⱼ`` at the solution, computed via the JAX backend.  It is the
+    ``J_ij = ∂impliedᵢ/∂zⱼ`` at the solution, computed by the Numba analytic adjoint by
+    default (JAX remains available as an explicit oracle).  It is the
     change-of-variables from pillar (zero-rate) risk to market-quote risk: a partial DV01 to
     the calibration quotes is ``(∂V/∂z) · J⁻¹`` (see ``finance.pricing.risk.autodiff``).
     """
 
-    curve: ZeroCurve
-    market: MarketContext
+    zero_curve: ZeroCurve
     solver_result: SolverResult
     pillar_dates: DateArray
     residuals: FloatArray
@@ -69,16 +84,21 @@ class CurveCalibrator:
     instruments: Sequence[CalibrationInstrument]
     solver: Solver
     target: CurveDefinition
-    vol_shim: float | None = None
 
-    def calibrate(self, market: MarketContext, *, jacobian: bool = False) -> CalibrationResult:
+    def calibrate(
+        self,
+        market: MarketContext,
+        *,
+        jacobian: bool = False,
+        jacobian_backend: Backend = Backend.Numba,
+    ) -> CalibrationResult:
         """Solve for the target curve.
 
-        ``jacobian=True`` additionally captures the exact ``∂implied/∂z`` at the solution via
-        the (lazily imported) JAX backend and attaches it to the result — the hook that turns
-        zero-rate sensitivities into market-quote partial DV01s.  The default path never
-        imports jax.
+        ``jacobian=True`` additionally captures ``∂implied/∂z`` at the solution.  The default
+        Numba path uses analytic curve weights and the hand-written swap adjoint; pass
+        ``jacobian_backend=Backend.Jax`` only for validation against traced autodiff.
         """
+        jacobian_backend = Backend(jacobian_backend)
         helpers = list(self.instruments)
         if not helpers:
             raise ValueError("CurveCalibrator requires at least one instrument")
@@ -109,12 +129,11 @@ class CurveCalibrator:
                 f"got {self.target.interpolation.name}"
             )
 
-        # The exact-Jacobian path runs through the JAX curve model, which only supports
-        # LogLinearDF today — fail here with a clear message instead of deep in tracing.
+        # Both exact-Jacobian curve models currently implement local LogLinearDF weights.
         if jacobian and self.target.interpolation is not CurveInterpolator.LogLinearDF:
             raise NotImplementedError(
-                f"calibrate(jacobian=True) requires CurveInterpolator.LogLinearDF (the JAX "
-                f"curve model does not support {self.target.interpolation.name} yet); "
+                f"calibrate(jacobian=True) requires CurveInterpolator.LogLinearDF (the "
+                f"adjoint curve model does not support {self.target.interpolation.name} yet); "
                 "calibrate without jacobian and use the numpy bump path for risk instead"
             )
 
@@ -126,7 +145,8 @@ class CurveCalibrator:
             return ZeroCurve(node_dates, dfs, self.target.interpolation)
 
         def residual_fn(x: FloatArray) -> FloatArray:
-            trial = market.with_curve(self.target.name, build_curve(x))
+            zero_curve = build_curve(x)
+            trial = market.with_curve(self.target.compose(zero_curve, market))
             return np.array([h.residual(trial) for h in helpers], dtype=np.float64)
 
         x0 = np.array([h.quote.value for h in helpers], dtype=np.float64)
@@ -138,23 +158,25 @@ class CurveCalibrator:
             )
 
         curve = build_curve(sr.x)
-        out = market.with_curve(self.target.name, curve)
-        if self.vol_shim is not None and out.vols is None:
-            vns = VolNamespace()
-            vns.bind(self.target.name, FlatVolSurface(self.vol_shim))
-            out = dataclasses.replace(out, vols=vns)
+        out = market.with_curve(self.target.compose(curve, market))
 
         residuals = np.array([h.residual(out) for h in helpers], dtype=np.float64)
 
         jac = None
         if jacobian:
-            # Lazy: only touch the JAX backend when the hook is explicitly requested.
-            from finance.pricing.engines.jax.calibration import calibration_jacobian
+            if jacobian_backend == Backend.Numba:
+                from finance.pricing.engines.numba.calibration import calibration_jacobian
+            elif jacobian_backend == Backend.Jax:
+                from finance.pricing.engines.jax.calibration import calibration_jacobian
+            else:
+                raise NotImplementedError(
+                    f"calibration Jacobian backend {jacobian_backend.name} is not implemented"
+                )
 
             jac = calibration_jacobian(helpers, self.target.name, out, curve)
 
         return CalibrationResult(
-            curve=curve, market=out, solver_result=sr,
+            zero_curve=curve, solver_result=sr,
             pillar_dates=pillars, residuals=residuals, jacobian=jac,
         )
 

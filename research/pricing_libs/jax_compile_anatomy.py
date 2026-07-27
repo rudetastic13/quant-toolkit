@@ -35,7 +35,7 @@ jax.config.update("jax_enable_x64", True)
 from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveNamespace, CurveInterpolator  # noqa: E402
+from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve  # noqa: E402
 from finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator, CurveDefinition, GlobalSolver, deposit_helper, fra_helper, swap_helper,
 )
@@ -56,15 +56,27 @@ def build_market(as_of: Date):
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
     base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
-    return CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition(cn, CurveInterpolator.LogLinearDF)
-    ).calibrate(base).market, cn
+    result = CurveCalibrator(
+        helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+    ).calibrate(base)
+    market = base.with_curve(
+        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+    )
+    return market, cn
 
 
 def book(as_of: Date, n: int) -> list:
     tenors = ["2Y", "3Y", "5Y", "7Y", "10Y"]
-    return [Swap(notional=(1.0 + i) * 1e6, rate_index="SOFR", fixed_rate=0.04,
-                 tenor=tenors[i % 5], as_of=as_of) for i in range(n)]
+    return [
+        Swap.fixed_float_swap(
+            notional=(1.0 + i) * 1e6,
+            rate_index="SOFR",
+            fixed_rate=0.04,
+            tenor=tenors[i % 5],
+            as_of=as_of,
+        )
+        for i in range(n)
+    ]
 
 
 def anatomy(n: int, as_of: Date, market, cn: str) -> None:

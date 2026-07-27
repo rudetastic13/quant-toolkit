@@ -58,12 +58,12 @@ class JaxProgram:
 
         # -- static curve geometry (gradient-free), one per curve name ------------------
         self.geoms: dict[str, CurveGeometry] = {
-            name: curve_geometry(market.discount(name)) for name in self.curve_names
+            name: curve_geometry(market.zero_curve(name)) for name in self.curve_names
         }
         self._df = {name: make_df(g) for name, g in self.geoms.items()}
 
         # -- per-flow static columns ----------------------------------------------------
-        o = market.discount(self.curve_names[0]).origin.astype(np.int64) if self.curve_names else 0
+        o = market.zero_curve(self.curve_names[0]).origin.astype(np.int64) if self.curve_names else 0
 
         def offs(dates: np.ndarray) -> np.ndarray:
             return (dates.astype(np.int64) - o).astype(np.float64)
@@ -147,7 +147,7 @@ class JaxProgram:
         Both dicts start from the same calibrated curves, but they are *separate* leaves:
         differentiating in ``disc_params`` gives funding risk, in ``proj_params`` index risk.
         """
-        z = {name: jnp.asarray(curve_geometry(market.discount(name)).z0) for name in self.curve_names}
+        z = {name: jnp.asarray(curve_geometry(market.zero_curve(name)).z0) for name in self.curve_names}
         return {k: v for k, v in z.items()}, {k: jnp.asarray(np.asarray(v)) for k, v in z.items()}
 
     # -- the differentiable valuation ---------------------------------------------------

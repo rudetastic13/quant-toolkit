@@ -47,7 +47,7 @@ def bumped_curve(curve: ZeroCurve, bp: float, pillar: int | None = None) -> Zero
         z2[pillar] += bp
     new_dfs = curve.node_dfs.copy()
     new_dfs[m] = np.exp(-z2[m] * t[m])
-    return ZeroCurve(curve.node_dates, new_dfs, interpolation=curve.interpolation)
+    return curve.with_node_dfs(new_dfs)
 
 
 @dataclass
@@ -77,18 +77,19 @@ class Sensitivities:
     bp: float = 1e-4
 
     def _reprice_with(self, curve_name: str, curve: ZeroCurve) -> FloatArray:
-        return self.program.reprice(self.market.with_curve(curve_name, curve)).instrument_pv
+        yield_curve = self.market.yield_curve(curve_name).with_zero_curve(curve)
+        return self.program.reprice(self.market.with_curve(yield_curve)).instrument_pv
 
     def dv01(self, curve_name: str) -> FloatArray:
         """Parallel DV01 per instrument (PV change for a +1bp parallel zero-rate move)."""
-        base = self.market.discount(curve_name)
+        base = self.market.zero_curve(curve_name)
         up = self._reprice_with(curve_name, bumped_curve(base, self.bp))
         dn = self._reprice_with(curve_name, bumped_curve(base, -self.bp))
         return (up - dn) / 2.0
 
     def key_rate_durations(self, curve_name: str) -> KeyRateLadder:
         """Key-rate durations per instrument across the curve's zero-rate pillars."""
-        base = self.market.discount(curve_name)
+        base = self.market.zero_curve(curve_name)
         t, _ = _zero_rates(base)
         pillars = np.nonzero(t > 0)[0]
         n_inst = self.program.inputs.n_instruments

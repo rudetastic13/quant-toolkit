@@ -1,8 +1,4 @@
-"""Backend seams: numba/rust and option kernels are reserved keys, not yet implemented.
-
-Pins the swappable-backend contract — the registry knows the numpy kernels and cleanly
-rejects unimplemented backends, so adding numba/rust later is purely additive.
-"""
+"""Backend registry coverage for NumPy, Numba, option models, and the Rust seam."""
 import numpy as np
 
 from common.testing import UnitTest
@@ -18,19 +14,19 @@ class TestBackendSeams(UnitTest):
         self.assertTrue(has_engine(KERNEL_DCF, Backend.Numpy))
         self.assertTrue(has_engine(RATE_COMPOUNDED, Backend.Numpy))
 
-    def test_numba_rust_backends_absent(self):
+    def test_numba_kernels_registered_and_rust_absent(self):
         for kernel in (KERNEL_DCF, RATE_COMPOUNDED):
-            self.assertFalse(has_engine(kernel, Backend.Numba))
+            self.assertTrue(has_engine(kernel, Backend.Numba))
             self.assertFalse(has_engine(kernel, Backend.Rust))
 
-    def test_option_kernels_reserved(self):
-        self.assertFalse(has_engine(KERNEL_BACHELIER, Backend.Numpy))
+    def test_option_kernels_registered(self):
+        self.assertTrue(has_engine(KERNEL_BACHELIER, Backend.Numpy))
+        self.assertTrue(has_engine(KERNEL_BACHELIER, Backend.Numba))
 
-    def test_option_stubs_raise(self):
+    def test_option_kernels_return_finite_values(self):
         a = np.array([0.04])
         for fn in (bachelier, black):
-            with self.assertRaises(NotImplementedError):
-                fn(a, a, a, a)
+            self.assertTrue(np.isfinite(fn(a, a, a, a)).all())
 
     def test_seam_packages_import(self):
         import finance.pricing.engines.numba  # noqa: F401

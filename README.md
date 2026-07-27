@@ -7,12 +7,18 @@ Dabbling in interest rate analytics
 - [Pricing Architecture](docs/pricing_architecture.md) — how a trade flows from a data row
   through an instrument into a compiled `PricingProgram` and is repriced against market data,
   with diagrams, design decisions, and the patterns used.
+- [Curve and Rate Architecture](docs/curve_architecture.md) — the `ZeroCurve` → `YieldCurve`
+  → `MarketContext` → `RateGenerator` layering, explicit calibration registration, and
+  Numba pricing/risk example.
 - [Engine Selection](docs/engine_selection.md) — policy for which numeric backend
   (`Numpy` / `Numba` / `Jax`) a pricer binds, and why greeks must come from the same engine.
-- [Numba Engine](docs/numba_engine.md) — implementation plan for the Numba engine: analytic
-  first-order risk for linear rates and European options, FD-of-gradient for second order.
-- [SOFR Futures](docs/sofr_futures.md) — design spec for adding SOFR futures (SR1/SR3):
-  instrument layer, contract-month dating, convexity-adjusted calibration.
+- [Numba Engine](docs/numba_engine.md) — fused pricing and analytic-adjoint engine for linear
+  rates and European options, with FD-of-gradient second order.
+- [SOFR Futures](docs/sofr_futures.md) — implemented SR1/SR3 contracts, contract-month dating,
+  pricing/risk, and convexity-adjusted calibration.
+- [SOFR calibration and aggregate risk sample](research/sofr_curve_calibration.py) — calibrates
+  deposits/swaps, registers a SOFR yield curve, reports a 7Y swap, then nets N randomized
+  swaps by zero and par-quote buckets with index/funding DV01 and gamma.
 - [Excel Add-in](src/quant_toolkit_xl/README.md) — the `quant_toolkit_xl` xlwings add-in:
   worksheet functions for curves, swaps, and compiled pricing programs.
 
