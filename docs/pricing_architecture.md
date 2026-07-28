@@ -57,7 +57,7 @@ flowchart LR
     BOX["container<br/>(list of instruments)"]
     COMP["SwapPricer.compile(...)"]
     PP["PricingProgram<br/>(columnar KernelInputs)"]
-    MKT["MarketContext<br/>(curves / fixings / vols)"]
+    MKT["MarketContext<br/>(yield curves / vols)"]
     RES["PricingResult<br/>(PV, leg PVs, cashflows)"]
 
     T --> ROW --> FACT --> SWAP --> RS
@@ -90,7 +90,7 @@ flowchart TB
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
-        CN["CurveNamespace -> YieldCurve -> ZeroCurve"]
+        CN["CurveNamespace -> YieldCurve<br/>(history + conventions + ZeroCurve)"]
         RG["RateGenerator"]
         VN["VolNamespace -> VolSurface (seam)"]
     end

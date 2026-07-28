@@ -69,7 +69,9 @@ class JaxProgram:
             return (dates.astype(np.int64) - o).astype(np.float64)
 
         self.F = ki.n_flows
-        self.pay_off = jnp.asarray(offs(ki.pay_dates))
+        pay_off = offs(ki.pay_dates)
+        self.pay_off = jnp.asarray(pay_off)
+        self.active_pay = jnp.asarray(pay_off >= 0.0)
         self.period_frac = jnp.asarray(ki.period_frac)
         self.notional = jnp.asarray(ki.notional)
         self.sign = jnp.asarray(ki.sign)
@@ -92,6 +94,24 @@ class JaxProgram:
         self.reset_start_off = jnp.asarray(rs_off)
         self.reset_end_off = jnp.asarray(re_off)
         self.float_tau = jnp.asarray(np.where(self.is_float, _act360(rs_off, re_off), 1.0))
+        reset_is_fixed = np.zeros(self.F, dtype=np.bool_)
+        reset_fixing = np.zeros(self.F, dtype=np.float64)
+        for ci, name in enumerate(self.curve_names):
+            yield_curve = market.yield_curve(name)
+            origin = yield_curve.zero_curve.origin
+            mask = (
+                (ki.proj_curve == ci)
+                & self.is_float
+                & (ki.pay_dates >= origin)
+                & (ki.reset_starts < origin)
+            )
+            if mask.any():
+                if yield_curve.historical_fixings is None:
+                    raise ValueError(f"curve '{name}' requires historical fixings before {origin}.")
+                reset_is_fixed[mask] = True
+                reset_fixing[mask] = yield_curve.historical_fixings.get_value(ki.reset_starts[mask])
+        self.reset_is_fixed = jnp.asarray(reset_is_fixed)
+        self.reset_fixing = jnp.asarray(reset_fixing)
 
         # -- leg / instrument reduction maps --------------------------------------------
         leg_sizes = np.diff(np.append(ki.leg_offsets, ki.n_flows))
@@ -139,6 +159,24 @@ class JaxProgram:
             self.period_cap = jnp.asarray(ki.cap[self.obs_flow])
             self.obs_flow_j = jnp.asarray(self.obs_flow)
             self.period_is_comp = jnp.asarray(self.period_kind == int(RateKind.Compounded))
+            obs_is_fixed = np.zeros(M, dtype=np.bool_)
+            obs_fixing = np.zeros(M, dtype=np.float64)
+            for ci, name in enumerate(self.curve_names):
+                yield_curve = market.yield_curve(name)
+                origin = yield_curve.zero_curve.origin
+                mask = (
+                    (self.obs_proj_of_obs == ci)
+                    & (ki.pay_dates[flow_of_obs] >= origin)
+                    & (ki.obs_starts < origin)
+                )
+                if mask.any():
+                    if yield_curve.historical_fixings is None:
+                        raise ValueError(f"curve '{name}' requires historical fixings before {origin}.")
+                    obs_is_fixed[mask] = True
+                    obs_fixing[mask] = yield_curve.historical_fixings.get_value(ki.obs_starts[mask])
+            self.obs_is_fixed = jnp.asarray(obs_is_fixed)
+            self.obs_fixing = jnp.asarray(obs_fixing)
+            self.obs_active_pay = self.active_pay[jnp.asarray(flow_of_obs)]
 
     # -- parameter plumbing -------------------------------------------------------------
     def params_from_market(self, market) -> tuple[dict, dict]:
@@ -153,9 +191,9 @@ class JaxProgram:
     # -- the differentiable valuation ---------------------------------------------------
     def _df_per_flow(self, disc_params: dict) -> jnp.ndarray:
         """(F,) discount factor at each flow's pay date off its funding curve."""
-        df = jnp.ones(self.F)
+        df = jnp.zeros(self.F)
         for ci, name in enumerate(self.curve_names):
-            mask = jnp.asarray(self.discount_curve == ci)
+            mask = jnp.asarray(self.discount_curve == ci) & self.active_pay
             df = jnp.where(mask, self._df[name](disc_params[name], self.pay_off), df)
         return df
 
@@ -172,6 +210,8 @@ class JaxProgram:
                 df_s = self._df[name](proj_params[name], self.reset_start_off)
                 df_e = self._df[name](proj_params[name], self.reset_end_off)
                 simple = (df_s / df_e - 1.0) / self.float_tau
+                simple = jnp.where(self.reset_is_fixed, self.reset_fixing, simple)
+                simple = jnp.where(self.active_pay, simple, 0.0)
                 idx = jnp.where(mm, simple, idx)
             idx = shape_float(idx, self.index_floor, self.spread, self.floor, self.cap, xp=jnp)
             rate = jnp.where(is_float, idx, rate)
@@ -185,6 +225,8 @@ class JaxProgram:
                 df_s = df_u[self.obs_inv_start]
                 df_e = df_u[self.obs_inv_end]
                 simple = (df_s / df_e - 1.0) / self.obs_tau
+                simple = jnp.where(self.obs_is_fixed, self.obs_fixing, simple)
+                simple = jnp.where(self.obs_active_pay, simple, 0.0)
                 obs_rate = jnp.where(mm, simple, obs_rate)
             # per-fixing index floor, then inclusive spread
             obs_rate = prep_obs(obs_rate, self.obs_index_floor, self.obs_spread, self.obs_incl, xp=jnp)

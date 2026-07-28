@@ -6,7 +6,7 @@ from finance.dates import Date
 from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
-from finance.markets.paths import FlatPath
+from finance.markets import HistoricalFixings
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import SwapPricer
 
@@ -60,16 +60,38 @@ class TestMarketContext(UnitTest):
         self.assertEqual(self.rates.continuous_forward_rate(CURVE, dates, dates)[0], 0.0)
 
     def test_rate_generator_overlays_fixings_before_curve(self):
-        market = MarketContext(
-            as_of_date=self.as_of,
-            curves=self.market.curves,
-            fixings={CURVE: FlatPath(name=CURVE, as_of_date=self.as_of, value=0.0311)},
+        history = HistoricalFixings(
+            dates=np.array(["2026-01-02", "2026-05-29"], dtype="datetime64[D]"),
+            values=np.array([0.0311, 0.0311]),
+        )
+        market = self.market.with_curve(
+            self.market.yield_curve(CURVE).with_historical_fixings(history)
         )
         starts = np.array(["2026-03-01", "2026-12-01"], dtype="datetime64[D]")
         ends = np.array(["2026-06-01", "2027-03-01"], dtype="datetime64[D]")
         got = RateGenerator(market).simple_rate(CURVE, starts, ends)
         self.assertAlmostEqual(got[0], 0.0311, places=12)
         self.assertAlmostEqual(got[1], self.rates.simple_rate(CURVE, starts[1:], ends[1:])[0], places=12)
+
+    def test_historical_request_without_fixings_raises(self):
+        starts = np.array(["2026-05-29"], dtype="datetime64[D]")
+        ends = np.array(["2026-06-01"], dtype="datetime64[D]")
+        with self.assertRaises(ValueError):
+            self.rates.simple_rate(CURVE, starts, ends)
+
+    def test_curve_origin_is_projected_even_when_history_contains_that_date(self):
+        history = HistoricalFixings(
+            dates=np.array(["2026-05-29", "2026-06-01"], dtype="datetime64[D]"),
+            values=np.array([0.0311, 0.99]),
+        )
+        market = self.market.with_curve(
+            self.market.yield_curve(CURVE).with_historical_fixings(history)
+        )
+        starts = np.array(["2026-06-01"], dtype="datetime64[D]")
+        ends = np.array(["2026-06-02"], dtype="datetime64[D]")
+        projected = RateGenerator(market).simple_rate(CURVE, starts, ends)[0]
+        self.assertNotAlmostEqual(projected, 0.99)
+        self.assertAlmostEqual(projected, self.rates.simple_rate(CURVE, starts, ends)[0])
 
     def test_with_curve_rebinds_without_mutating_original(self):
         bumped = self.market.with_curve(_yield_curve(self.origin, level=0.05))

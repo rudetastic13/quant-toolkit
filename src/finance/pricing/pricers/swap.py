@@ -83,6 +83,7 @@ class SwapPricer:
             effective=leg.effective, maturity=leg.maturity, frequency=leg.payment_frequency,
             day_count_method=leg.day_count_method, bdc=leg.business_day_convention,
             calendar=leg.pay_calendar, roll=leg.roll_convention,
+            payment_delay=leg.payment_delay,
             reset_frequency=leg.reset_frequency, fixing_type=leg.fixing_type,
             build_observations=leg.coupon_type.needs_observation_grid,
             observation_calendar=leg.rate_calendar,

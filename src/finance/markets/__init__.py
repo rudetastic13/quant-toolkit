@@ -4,6 +4,7 @@
 pricers consume; ``curves``/``paths`` hold the underlying stores it composes.
 """
 from .curves import CurveInterpolator, YieldCurve, ZeroCurve
+from .fixings import HistoricalFixings
 from .paths import SinglePath, FlatPath, InvertedPath
 from .rate_generator import RateGenerator
 
@@ -15,4 +16,5 @@ __all__ = [
     "FlatPath",
     "InvertedPath",
     "RateGenerator",
+    "HistoricalFixings",
 ]

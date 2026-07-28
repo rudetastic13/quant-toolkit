@@ -64,7 +64,9 @@ def _df_details(ci, xq, curve_x, node_t, curve_node_off, curve_param_off, z):
     hi = curve_node_off[ci + 1]
     po = curve_param_off[ci]
 
-    if xq <= curve_x[lo]:
+    if xq < curve_x[lo]:
+        return 0.0, -1, 0.0, -1, 0.0
+    if xq == curve_x[lo]:
         return 1.0, -1, 0.0, -1, 0.0
 
     if xq >= curve_x[hi - 1]:
@@ -177,6 +179,9 @@ def _execute(
         if kind == _FIXED:
             rate[f] = fixed_rate[f]
         elif kind == _FLOAT:
+            if df[f] == 0.0:
+                rate[f] = 0.0
+                continue
             active = 1.0
             q_ratio = 0.0
             s_details = (1.0, -1, 0.0, -1, 0.0)
@@ -238,7 +243,10 @@ def _execute(
         for m in range(m_count):
             p = per_obs_period[m]
             flow = obs_flow[p]
-            if obs_is_fixed[m]:
+            if df[flow] == 0.0:
+                projected = 0.0
+                obs_active[m] = 0.0
+            elif obs_is_fixed[m]:
                 projected = obs_fixing[m]
                 obs_active[m] = 0.0
             else:
@@ -344,6 +352,7 @@ def _execute(
         funding_grad,
         instrument_index_grad,
         instrument_funding_grad,
+        df,
     )
 
 
@@ -492,6 +501,23 @@ class NumbaProgram:
         self._false_reset_fixing = np.zeros(f_count, dtype=np.bool_)
         self._zero_obs_fixing = np.zeros(self.obs_w.size, dtype=np.float64)
         self._false_obs_fixing = np.zeros(self.obs_w.size, dtype=np.bool_)
+        active_flow = ki.pay_dates >= self.origin
+        historical_reset = (
+            (ki.rate_kind == _FLOAT)
+            & active_flow
+            & (ki.reset_starts < self.origin)
+        )
+        if ki.n_obs_periods:
+            flow_of_obs = ki.obs_flow[self.per_obs_period]
+            historical_observation = (
+                active_flow[flow_of_obs]
+                & (ki.obs_starts < self.origin)
+            )
+        else:
+            historical_observation = np.zeros(0, dtype=np.bool_)
+        self._requires_historical_fixings = bool(
+            historical_reset.any() or historical_observation.any()
+        )
 
     @classmethod
     def from_program(cls, program, market) -> "NumbaProgram":
@@ -514,31 +540,41 @@ class NumbaProgram:
         return _f64(np.concatenate(params))
 
     def _fixings_from_market(self, market):
-        if not market.fixings:
-            return (
-                self._false_reset_fixing,
-                self._zero_reset_fixing,
-                self._false_obs_fixing,
-                self._zero_obs_fixing,
-            )
         ki = self.inputs
-        as_of = np.datetime64(market.as_of_date.to_str(), "D")
         reset_mask = np.zeros(ki.n_flows, dtype=np.bool_)
         reset_value = np.zeros(ki.n_flows, dtype=np.float64)
         obs_mask = np.zeros(ki.obs_w.size, dtype=np.bool_)
         obs_value = np.zeros(ki.obs_w.size, dtype=np.float64)
         for ci, name in enumerate(self.curve_names):
-            path = market.fixings.get(name)
-            if path is None:
-                continue
-            rm = (ki.proj_curve == ci) & (ki.rate_kind == _FLOAT) & (ki.reset_starts < as_of)
+            yield_curve = market.yield_curve(name)
+            origin = yield_curve.zero_curve.origin
+            path = yield_curve.historical_fixings
+            rm = (
+                (ki.proj_curve == ci)
+                & (ki.rate_kind == _FLOAT)
+                & (ki.pay_dates >= origin)
+                & (ki.reset_starts < origin)
+            )
             if rm.any():
+                if path is None:
+                    raise ValueError(
+                        f"curve '{name}' requires historical fixings before {origin}."
+                    )
                 reset_mask[rm] = True
                 reset_value[rm] = path.get_value(ki.reset_starts[rm])
             if ki.n_obs_periods:
                 curve_of_obs = ki.obs_proj_curve[self.per_obs_period]
-                om = (curve_of_obs == ci) & (ki.obs_starts < as_of)
+                flow_of_obs = ki.obs_flow[self.per_obs_period]
+                om = (
+                    (curve_of_obs == ci)
+                    & (ki.pay_dates[flow_of_obs] >= origin)
+                    & (ki.obs_starts < origin)
+                )
                 if om.any():
+                    if path is None:
+                        raise ValueError(
+                            f"curve '{name}' requires historical fixings before {origin}."
+                        )
                     obs_mask[om] = True
                     obs_value[om] = path.get_value(ki.obs_starts[om])
         return _b1(reset_mask), _f64(reset_value), _b1(obs_mask), _f64(obs_value)
@@ -587,7 +623,13 @@ class NumbaProgram:
 
     @staticmethod
     def _primal(raw) -> KernelResult:
-        return KernelResult(instrument_pv=raw[0], leg_pv=raw[1], flow_pv=raw[2], rate=raw[3])
+        return KernelResult(
+            instrument_pv=raw[0],
+            leg_pv=raw[1],
+            flow_pv=raw[2],
+            rate=raw[3],
+            df=raw[8],
+        )
 
     def reprice(self, market) -> KernelResult:
         z = self.params_from_market(market)
@@ -596,6 +638,8 @@ class NumbaProgram:
 
     def reprice_params(self, z: np.ndarray) -> KernelResult:
         """Reprice raw zero parameters (no historical-fixing overlay)."""
+        if self._requires_historical_fixings:
+            raise ValueError("market is required to reprice parameters for a seasoned program")
         raw = _execute(
             *self._args(
                 z,
@@ -625,6 +669,8 @@ class NumbaProgram:
 
     def value_and_grad_params(self, z: np.ndarray, market=None) -> NumbaAdjointResult:
         """Price and differentiate raw parameters, optionally retaining market fixings."""
+        if market is None and self._requires_historical_fixings:
+            raise ValueError("market is required to differentiate a seasoned program")
         fixings = self._fixings_from_market(market) if market is not None else (
             self._false_reset_fixing,
             self._zero_reset_fixing,

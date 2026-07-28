@@ -65,10 +65,13 @@ class PricingProgram:
             leg_of_flow = np.repeat(
                 np.arange(ki.n_legs), np.diff(np.append(ki.leg_offsets, ki.n_flows))
             )
-            # df recovered from flow_pv = notional*rate*frac*df*sign (guard tiny cash)
-            cash = ki.notional * kr.rate * ki.period_frac
-            with np.errstate(divide="ignore", invalid="ignore"):
-                df = np.where(cash * ki.sign != 0.0, kr.flow_pv / (cash * ki.sign), np.nan)
+            if kr.df is None:
+                # Compatibility fallback for an engine that has not supplied payment DFs.
+                cash = ki.notional * kr.rate * ki.period_frac
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    df = np.where(cash * ki.sign != 0.0, kr.flow_pv / (cash * ki.sign), np.nan)
+            else:
+                df = kr.df
             cashflows = CashflowReport(
                 pay_dates=ki.pay_dates, leg=leg_of_flow, notional=ki.notional,
                 rate=kr.rate, period_frac=ki.period_frac, df=df, sign=ki.sign, flow_pv=kr.flow_pv,

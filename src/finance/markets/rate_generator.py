@@ -80,10 +80,15 @@ class RateGenerator:
         tau = period_fractions(basis, starts, ends)
         rates = np.zeros_like(tau, dtype=np.float64)
 
-        fixing_path = self.market.fixings.get(curve_name)
-        as_of = np.datetime64(self.market.as_of_date.to_str(), "D")
-        realized = starts < as_of if fixing_path is not None else np.zeros(starts.size, dtype=np.bool_)
+        fixing_path = yield_curve.historical_fixings
+        realized = starts < yield_curve.zero_curve.origin
         if realized.any():
+            if fixing_path is None:
+                earliest = starts[realized].min()
+                raise ValueError(
+                    f"curve '{curve_name}' requires historical fixings for dates before "
+                    f"{yield_curve.zero_curve.origin} (earliest requested: {earliest})."
+                )
             rates[realized] = fixing_path.get_value(starts[realized])
 
         projected = ~realized & (tau > 0.0)

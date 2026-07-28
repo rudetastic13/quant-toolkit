@@ -11,10 +11,10 @@ calibration quotes
        |
        | + USD SOFR conventions
        v
-   YieldCurve            named, convention-aware market object
+   YieldCurve            conventions + optional historical fixings
        |
        v
-   MarketContext         registry of yield curves, fixings, and vols
+   MarketContext         registry of yield curves and vols
        |
        v
    RateGenerator         forwards, compounded/averaged rates, and par rates
@@ -34,10 +34,10 @@ factors, interpolation/extrapolation configuration, and only these public numeri
 
 It has no currency, index, fixing, forward-rate, coupon, or par-rate behavior.
 
-`YieldCurve` composes one `ZeroCurve` with a `MarketConventions` definition. Its canonical
-name comes from that definition, for example `USD.SOFR`. It is the object stored by
-`CurveNamespace` and `MarketContext`. `with_zero_curve(...)` creates a scenario curve while
-preserving the index definition.
+`YieldCurve` composes one `ZeroCurve` with a `MarketConventions` definition and optional
+`HistoricalFixings`. Its canonical name comes from that definition, for example `USD.SOFR`.
+It is the object stored by `CurveNamespace` and `MarketContext`. `with_zero_curve(...)`
+creates a scenario curve while preserving both the index definition and fixing history.
 
 `MarketContext` owns registered market data. It resolves `yield_curve(name)` and
 `zero_curve(name)` and produces immutable curve scenarios through `with_curve(yield_curve)`.
@@ -47,6 +47,20 @@ It does not calculate rates.
 index rates (including historical-fixing overlays), continuous interval forwards,
 compounded and averaged observation rates, and par swap rates. Pricing and calibration
 helpers use this layer rather than asking the curve or market to project a rate.
+
+Historical/projected selection uses the curve origin as its only cutover:
+
+```text
+fixing date < ZeroCurve.origin   -> historical fixing (locked, zero index risk)
+fixing date >= ZeroCurve.origin  -> projected rate (curve-sensitive)
+payment date < ZeroCurve.origin  -> expired flow (DF = PV = all risk = 0)
+```
+
+`HistoricalFixings` is a date/value series backed by `Line1d` with flat interpolation and
+flat extrapolation. Daily compounded coupons may therefore contain both locked observations
+and projected observations. Their index delta is naturally the remaining, or "stubbed",
+projection risk. A fully historical but unpaid coupon retains funding risk because its future
+payment is discounted, while its index risk is zero.
 
 `YieldCurveGroup` is intentionally deferred. `MarketContext` already supports multiple
 registered yield curves, which is sufficient for SOFR discounting, Fed Funds projection,
@@ -60,6 +74,7 @@ Calibration returns mathematical state. Registration is explicit:
 ```python
 from finance.dates import Date
 from finance.markets.context import MarketContext
+from finance.markets import HistoricalFixings
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
 from finance.pricing.calibration import (
     CurveCalibrator,
@@ -89,6 +104,10 @@ sofr_curve = YieldCurve.from_registry(
     currency="USD",
     index_name="SOFR",
 )
+# Optional for a seasoned book:
+# sofr_curve = sofr_curve.with_historical_fixings(
+#     HistoricalFixings(fixing_dates, fixing_rates)
+# )
 market = base.with_curve(sofr_curve)
 ```
 

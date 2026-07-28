@@ -55,8 +55,11 @@ fixed / single-fixing float / daily-compounded / arithmetic-averaged, with sprea
 numpy's `_project_dedup` (evaluate `DF` once per unique fixing date, gather).
 
 **Status.** `NumbaProgram` implements the fused primal under `engines/numba/program.py` and
-returns instrument, leg, flow, and rate outputs. Narrow DCF/rate kernels are also registered
-under `Backend.Numba`; historical fixings are constants in the adjoint.
+returns instrument, leg, flow, rate, and payment-DF outputs. Narrow DCF/rate kernels are also
+registered under `Backend.Numba`; curve-owned historical fixings are constants in the
+adjoint. Observations before the curve origin have zero index derivative, while a coupon
+straddling the origin retains risk only to its projected observations. Payments before the
+origin have zero DF, PV, index risk, and funding risk.
 
 **Validation.** PV vs the numpy engine to ~1e-7 (tighten by dropping `fastmath` on a check
 build); cross-check against JAX `JaxProgram.pv`.

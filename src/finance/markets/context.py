@@ -1,4 +1,4 @@
-"""MarketContext — registered yield curves, fixings, vols, and conventions.
+"""MarketContext — registered yield curves, vols, and conventions.
 
 The market resolves market objects. Financial projection and par-rate logic deliberately
 lives in :class:`finance.markets.rate_generator.RateGenerator`, not on the market or the
@@ -6,12 +6,11 @@ underlying mathematical :class:`ZeroCurve`.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from finance.conventions import ConventionRegistry, default_registry
 from finance.dates import Date
 from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
-from finance.markets.paths.single_path import SinglePath
 
 
 @dataclass
@@ -19,12 +18,12 @@ class MarketContext:
     """The market-data container handed to rate generators and pricers.
 
     ``curves`` contains convention-aware ``YieldCurve`` objects. The context performs
-    lookup and immutable scenario rebinding only; it does not generate forward rates.
+    lookup and immutable scenario rebinding only. Historical fixings travel with their
+    associated yield curve; the context itself does not generate rates.
     """
 
     as_of_date: Date
     curves: CurveNamespace
-    fixings: dict[str, SinglePath] = field(default_factory=dict)
     vols: object | None = None
     conventions: ConventionRegistry = default_registry
 
@@ -39,7 +38,6 @@ class MarketContext:
         return MarketContext(
             as_of_date=self.as_of_date,
             curves=namespace,
-            fixings=self.fixings,
             vols=self.vols,
             conventions=self.conventions,
         )

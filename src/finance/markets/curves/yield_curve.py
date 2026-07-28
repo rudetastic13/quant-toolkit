@@ -1,9 +1,11 @@
+
 """Convention-aware market curve composed over a pure :class:`ZeroCurve`."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 
 from finance.conventions import ConventionRegistry, MarketConventions, RateIndex, default_registry
+from finance.markets.fixings import HistoricalFixings
 from finance.markets.curves._curve_impl.zero_curve import ZeroCurve
 
 
@@ -18,6 +20,7 @@ class YieldCurve:
 
     zero_curve: ZeroCurve
     conventions: MarketConventions
+    historical_fixings: HistoricalFixings | None = None
 
     @classmethod
     def from_registry(
@@ -27,11 +30,13 @@ class YieldCurve:
         currency: str,
         index_name: str,
         registry: ConventionRegistry = default_registry,
+        historical_fixings: HistoricalFixings | None = None,
     ) -> YieldCurve:
         """Compose a zero curve with the registered ``(currency, index)`` definition."""
         return cls(
             zero_curve=zero_curve,
             conventions=registry.get(currency, index_name),
+            historical_fixings=historical_fixings,
         )
 
     @property
@@ -44,7 +49,19 @@ class YieldCurve:
 
     def with_zero_curve(self, zero_curve: ZeroCurve) -> YieldCurve:
         """Return the same market definition with replacement mathematical curve state."""
-        return YieldCurve(zero_curve=zero_curve, conventions=self.conventions)
+        return YieldCurve(
+            zero_curve=zero_curve,
+            conventions=self.conventions,
+            historical_fixings=self.historical_fixings,
+        )
+
+    def with_historical_fixings(self, historical_fixings: HistoricalFixings | None) -> YieldCurve:
+        """Return the same curve state/definition with replacement fixing history."""
+        return YieldCurve(
+            zero_curve=self.zero_curve,
+            conventions=self.conventions,
+            historical_fixings=historical_fixings,
+        )
 
     def discount_factor(self, dates):
         return self.zero_curve.discount_factor(dates)

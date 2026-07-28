@@ -27,6 +27,7 @@ from finance.instruments.schedules.coupon_schedule import (
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.coupons.calculators import calculate_custom
 from finance.markets.context import MarketContext
+from finance.markets import HistoricalFixings
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.kernels import LegSpec, StaticNotional, compile_portfolio
 from finance.pricing.kernels.compiler import reprice
@@ -129,16 +130,17 @@ class TestReferenceVsKernel(UnitTest):
 
     def test_float_leg_advance_fixing(self):
         from finance.dates.enums import FixingType
-        from finance.markets.paths import FlatPath
-
         coupon = CouponSchedule(events=[FloatingCouponEvent(
             start_date=self.effective, rate_index=INDEX, spread=0.001,
         )])
         ps = _schedule(self.effective, self.maturity, fixing_type=FixingType.Advance)
         # the first period's governing window was set before as_of — a realized fixing
-        self.market = MarketContext(
-            as_of_date=self.as_of, curves=self.market.curves,
-            fixings={CURVE: FlatPath(name=CURVE, as_of_date=self.as_of, value=0.0345)},
+        history = HistoricalFixings(
+            dates=np.array(["2026-01-02", "2026-05-29"], dtype="datetime64[D]"),
+            values=np.array([0.0345, 0.0345]),
+        )
+        self.market = self.market.with_curve(
+            self.market.yield_curve(CURVE).with_historical_fixings(history)
         )
         self._cross_check(ps, coupon)
 

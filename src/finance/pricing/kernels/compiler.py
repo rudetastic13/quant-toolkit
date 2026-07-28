@@ -212,18 +212,20 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
     rate_generator = RateGenerator(market)
 
     # -- discount factors, one curve.discount_factor call per discount curve --
-    df = np.ones(F, dtype=np.float64)
+    df = np.zeros(F, dtype=np.float64)
     for ci, name in enumerate(ki.curve_names):
-        mask = ki.discount_curve == ci
+        curve = market.zero_curve(name)
+        mask = (ki.discount_curve == ci) & (ki.pay_dates >= curve.origin)
         if mask.any():
-            df[mask] = market.zero_curve(name).discount_factor(ki.pay_dates[mask])
+            df[mask] = curve.discount_factor(ki.pay_dates[mask])
+    active_flow = df > 0.0
 
     # -- fixed (incl. step-ups: just a varying fixed_rate column) --
     fx = ki.rate_kind == RateKind.Fixed
     rate[fx] = ki.fixed_rate[fx]
 
     # -- simple float: project over the accrual window, then shape --
-    fl = ki.rate_kind == RateKind.Float
+    fl = (ki.rate_kind == RateKind.Float) & active_flow
     if fl.any():
         idx = np.zeros(int(fl.sum()), dtype=np.float64)
         proj_fl = ki.proj_curve[fl]
@@ -242,11 +244,12 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
         per_obs_period = np.repeat(np.arange(P), np.diff(np.append(ki.obs_offsets, M)))
         flow_of_period = ki.obs_flow                       # (P,)
         flow_of_obs = flow_of_period[per_obs_period]        # (M,)
+        active_obs = active_flow[flow_of_obs]
 
         obs_rate = np.zeros(M, dtype=np.float64)
         obs_proj_of_obs = ki.obs_proj_curve[per_obs_period]
         for ci, name in enumerate(ki.curve_names):
-            mm = obs_proj_of_obs == ci
+            mm = (obs_proj_of_obs == ci) & active_obs
             if mm.any():
                 # dedup the rate lookup across the whole portfolio's fixing grid
                 obs_rate[mm] = rate_generator.simple_rate(
@@ -285,7 +288,13 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
     instrument_pv = np.bincount(ki.leg_instrument, weights=leg_pv, minlength=ki.n_instruments)
     flow_pv = cash * df * ki.sign
 
-    return KernelResult(instrument_pv=instrument_pv, leg_pv=leg_pv, flow_pv=flow_pv, rate=rate)
+    return KernelResult(
+        instrument_pv=instrument_pv,
+        leg_pv=leg_pv,
+        flow_pv=flow_pv,
+        rate=rate,
+        df=df,
+    )
 
 
 __all__ = ["LegSpec", "compile_portfolio", "reprice"]

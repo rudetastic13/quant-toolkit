@@ -37,6 +37,7 @@ platform must be able to price a calibration instrument off an injected curve.
 | `ZeroCurve` | `_curve_impl/zero_curve.py` | interpolators, `finance.dates.Term` | `Term` is only used for the dual-segment cutover convenience; either vendor `Term` or restrict the ported API to `datetime64` cutovers to drop the dependency. |
 | `CurveInterpolator` / `RateExtrapolator` enums | `markets/curves/types.py` | `common.containers.enums.SupportedIntEnum` | Trivial; vendor the enum base or replace with `IntEnum`. |
 | `YieldCurve` + `CurveNamespace` | `markets/curves/yield_curve.py`, `namespace.py` | conventions | Composes pure curve state with an index definition; the namespace binds these named market objects. |
+| `HistoricalFixings` | `markets/fixings.py` | `Line1d` | Optional curve-owned date/value history with flat interpolation/extrapolation. |
 | `RateGenerator` | `markets/rate_generator.py` | market context, day counts | Owns simple/continuous/compounded/averaged rates and par-rate generation; these do not belong on `ZeroCurve`. |
 | Solvers | `pricing/calibration/solvers.py` | numpy, scipy | Deliberately domain-blind: residual closure + `x0` in, solution out. Copy verbatim. |
 | `CurveCalibrator` + `CurveDefinition` | `pricing/calibration/calibrator.py` | curves, solvers, market shim | Returns a `ZeroCurve`; the optional exact quote Jacobian uses the Numba adjoint by default. |
@@ -55,7 +56,7 @@ platform must be able to price a calibration instrument off an injected curve.
 - `pricing/kernels/` (columnar IR + compiler), `pricing/pricers/`, `pricing/engines/`
   (numpy/jax/numba/rust), `pricing/risk/` (bump + autodiff)
 - This repo's instrument layer (`instruments/`, schedules, `Priceable`)
-- Fixings overlay (`SinglePath`), vols, and the full conventions bundle (see §5)
+- Generic generated/static paths (`SinglePath`), vols, and the full conventions bundle (see §5)
 
 ---
 
@@ -281,7 +282,7 @@ class MarketShim:                               # ← src: context.py::MarketCon
     def with_curve(self, curve: YieldCurve) -> "MarketShim": ...  # fresh rebind
     def yield_curve(self, name) -> YieldCurve: ...
     def zero_curve(self, name) -> ZeroCurve: ...
-    # NOT ported: fixings (SinglePath), vols, product conventions bundle
+    # NOT ported: generic paths (SinglePath), vols, product conventions bundle
 
 class RateGenerator:                           # ← src: markets/rate_generator.py
     def simple_rate(self, name, starts, ends, day_count=None) -> FloatArray: ...

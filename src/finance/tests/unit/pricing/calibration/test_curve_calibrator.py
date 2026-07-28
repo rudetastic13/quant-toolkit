@@ -149,9 +149,8 @@ class TestWithCurve(UnitTest):
         out = self.mkt.with_curve(replacement)
         self.assertIs(out.zero_curve(CURVE), self.c2)
         self.assertIs(self.mkt.zero_curve(CURVE), self.c1)  # original unchanged
-        # fixings/vols shared by reference
+        # vols remain shared by reference; curve composition preserves curve-owned fixings.
         self.assertIs(out.vols, self.mkt.vols)
-        self.assertIs(out.fixings, self.mkt.fixings)
 
     def test_with_curve_binds_new_name(self):
         fedfund = YieldCurve.from_registry(self.c2, currency="USD", index_name="FEDFUND")

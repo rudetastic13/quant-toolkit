@@ -48,11 +48,16 @@ class CurveDefinition:
 
     def compose(self, zero_curve: ZeroCurve, market: MarketContext) -> YieldCurve:
         """Build the temporary convention-aware curve needed to price calibration quotes."""
+        try:
+            historical_fixings = market.yield_curve(self.name).historical_fixings
+        except KeyError:
+            historical_fixings = None
         return YieldCurve.from_registry(
             zero_curve,
             currency=self.currency,
             index_name=self.index_name,
             registry=market.conventions,
+            historical_fixings=historical_fixings,
         )
 
 

@@ -146,6 +146,7 @@ class KernelResult:
     leg_pv: FloatArray | None = None     # (L,)
     flow_pv: FloatArray | None = None    # (F,)
     rate: FloatArray | None = None       # (F,) realized per-period rate (handy for reports)
+    df: FloatArray | None = None         # (F,) payment discount factors; expired flows are zero
 
 
 __all__ = [
