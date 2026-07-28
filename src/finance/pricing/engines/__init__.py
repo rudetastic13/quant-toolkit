@@ -30,5 +30,15 @@ def has_engine(kernel_id: str, backend) -> bool:
 # Import implementations for their registration side effects.
 from finance.pricing.engines.numpy import rates as _rates  # noqa: E402,F401
 from finance.pricing.engines.numpy import dcf as _dcf      # noqa: E402,F401
+from finance.pricing.engines.numpy import option as _option  # noqa: E402,F401
+
+# Numba is an optional accelerator.  Register it when installed without making the base
+# package depend on it; the actual machine-code compile is lazy on first use.
+try:  # pragma: no cover - the no-numba branch is exercised only in minimal installations
+    import numba as _numba_runtime  # noqa: E402,F401
+except ImportError:
+    _numba = None
+else:
+    from finance.pricing.engines.numba import kernels as _numba  # noqa: E402,F401
 
 __all__ = ["engine_registry", "engine", "has_engine"]

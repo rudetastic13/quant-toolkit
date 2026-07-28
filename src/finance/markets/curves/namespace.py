@@ -1,5 +1,5 @@
 
-"""CurveNamespace — name -> ZeroCurve store with a version counter.
+"""CurveNamespace — registered :class:`YieldCurve` objects with version counters.
 
 Lives with the curves it holds (``finance.markets.curves``), so market-data containers like
 ``MarketContext`` depend only on ``finance.markets`` — not on ``finance.pricing``.
@@ -10,29 +10,31 @@ namespaces can coexist (e.g. one per scenario). This is not a singleton.
 """
 from __future__ import annotations
 
-from finance.markets.curves._curve_impl.zero_curve import ZeroCurve
+from finance.markets.curves.yield_curve import YieldCurve
 
 
 class CurveNamespace:
-    """Key-value store mapping string names to ZeroCurve objects."""
+    """Key-value store mapping canonical names to convention-aware yield curves."""
 
     def __init__(self) -> None:
-        self._curves: dict[str, ZeroCurve] = {}
+        self._curves: dict[str, YieldCurve] = {}
         self._versions: dict[str, int] = {}
 
-    def bind(self, name: str, curve: ZeroCurve) -> None:
-        """Register a curve under name. Raises if name is already bound."""
+    def bind(self, curve: YieldCurve) -> None:
+        """Register a yield curve under its canonical name."""
+        name = curve.name
         if name in self._curves:
             raise KeyError(f"'{name}' is already bound. Use rebind() to overwrite.")
         self._curves[name] = curve
         self._versions[name] = 0
 
-    def rebind(self, name: str, curve: ZeroCurve) -> None:
-        """Overwrite an existing binding and increment its version counter."""
+    def rebind(self, curve: YieldCurve) -> None:
+        """Overwrite the yield curve's binding and increment its version counter."""
+        name = curve.name
         self._curves[name] = curve
         self._versions[name] = self._versions.get(name, -1) + 1
 
-    def resolve(self, name: str) -> ZeroCurve:
+    def resolve(self, name: str) -> YieldCurve:
         """Return the curve bound to name. Raises KeyError if absent."""
         try:
             return self._curves[name]
@@ -46,7 +48,7 @@ class CurveNamespace:
         except KeyError:
             raise KeyError(f"No curve bound under '{name}'") from None
 
-    def snapshot(self) -> dict[str, tuple[ZeroCurve, int]]:
+    def snapshot(self) -> dict[str, tuple[YieldCurve, int]]:
         """Return a shallow copy of {name: (curve, version)} for caching / scenario use."""
         return {name: (curve, self._versions[name]) for name, curve in self._curves.items()}
 

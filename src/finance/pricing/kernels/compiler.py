@@ -16,10 +16,10 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.dates import DayCountMethod, period_fractions
 from finance.instruments.enums import CouponType, MarginTreatment
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
 from finance.instruments.schedules.payment_schedule import PaymentSchedule
+from finance.markets.rate_generator import RateGenerator
 from finance.pricing.engines.numpy.rates import compounded, averaged
 from finance.pricing.engines.numpy.dcf import dcf
 from finance.pricing.kernels.inputs import (
@@ -65,47 +65,6 @@ class LegSpec:
     projection_curve: str | None
     notional: NotionalProvider
     instrument: int = 0
-
-
-def _project_dedup(market, name: str, starts, ends, day_count=DayCountMethod.Actual360):
-    """Simple index rate over each [start, end], evaluating the curve once per unique date.
-
-    Across a portfolio every SOFR instrument shares the same daily fixing dates, and within
-    a leg consecutive windows share a boundary — so we dedup all window endpoints, hit the
-    curve once per unique date, and scatter back via the dedup inverse indices.  Weights are
-    NOT deduped (they stay attached to their original sub-periods); only the rate lookup is.
-    """
-    k = starts.shape[0]
-    if k == 0:
-        return np.zeros(0, dtype=np.float64)
-    all_dates = np.concatenate([starts, ends])   # already datetime64[D] (cat_dt at compile)
-
-    # Dedup the curve lookup: evaluate DF once per unique date.  The dates are day-resolution
-    # integers over a bounded span (~11k business days across 30y), so a bucket factorization
-    # is O(M + span) with no sort — versus np.unique's argsort over all M (~millions) dates,
-    # which dominated reprice.  Falls back to np.unique if the span is pathologically wide.
-    ints = all_dates.view(np.int64)              # zero-copy reinterpret of datetime64[D]
-    lo = int(ints.min())
-    span = int(ints.max()) - lo + 1
-    if span <= 4 * ints.size:
-        offsets = ints - lo
-        seen = np.zeros(span, dtype=bool)
-        seen[offsets] = True
-        uniq_off = np.flatnonzero(seen)
-        uniq = (uniq_off + lo).view("datetime64[D]")
-        code = np.empty(span, dtype=np.intp)
-        code[uniq_off] = np.arange(uniq_off.size)
-        inverse = code[offsets]
-    else:
-        uniq, inverse = np.unique(all_dates, return_inverse=True)
-    df_uniq = market.discount_factor(name, uniq)
-    df_all = df_uniq[inverse]
-    df_s, df_e = df_all[:k], df_all[k:]
-    tau = period_fractions(day_count, starts, ends)
-    out = np.zeros(k, dtype=np.float64)
-    nz = tau > 0
-    out[nz] = (df_s[nz] / df_e[nz] - 1.0) / tau[nz]
-    return out
 
 
 def _bound(value, sentinel: float) -> float:
@@ -250,20 +209,23 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
     """Reprice a compiled portfolio against a market (the per-scenario hot path)."""
     F = ki.n_flows
     rate = np.zeros(F, dtype=np.float64)
+    rate_generator = RateGenerator(market)
 
     # -- discount factors, one curve.discount_factor call per discount curve --
-    df = np.ones(F, dtype=np.float64)
+    df = np.zeros(F, dtype=np.float64)
     for ci, name in enumerate(ki.curve_names):
-        mask = ki.discount_curve == ci
+        curve = market.zero_curve(name)
+        mask = (ki.discount_curve == ci) & (ki.pay_dates >= curve.origin)
         if mask.any():
-            df[mask] = market.discount_factor(name, ki.pay_dates[mask])
+            df[mask] = curve.discount_factor(ki.pay_dates[mask])
+    active_flow = df > 0.0
 
     # -- fixed (incl. step-ups: just a varying fixed_rate column) --
     fx = ki.rate_kind == RateKind.Fixed
     rate[fx] = ki.fixed_rate[fx]
 
     # -- simple float: project over the accrual window, then shape --
-    fl = ki.rate_kind == RateKind.Float
+    fl = (ki.rate_kind == RateKind.Float) & active_flow
     if fl.any():
         idx = np.zeros(int(fl.sum()), dtype=np.float64)
         proj_fl = ki.proj_curve[fl]
@@ -271,7 +233,7 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
         for ci, name in enumerate(ki.curve_names):
             mm = proj_fl == ci
             if mm.any():
-                idx[mm] = market.project(name, rs_fl[mm], re_fl[mm])
+                idx[mm] = rate_generator.simple_rate(name, rs_fl[mm], re_fl[mm])
         rate[fl] = shape_float(idx, ki.index_floor[fl], ki.spread[fl], ki.floor[fl], ki.cap[fl])
 
     # -- compounded / averaged via the global observation grid --
@@ -282,14 +244,19 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
         per_obs_period = np.repeat(np.arange(P), np.diff(np.append(ki.obs_offsets, M)))
         flow_of_period = ki.obs_flow                       # (P,)
         flow_of_obs = flow_of_period[per_obs_period]        # (M,)
+        active_obs = active_flow[flow_of_obs]
 
         obs_rate = np.zeros(M, dtype=np.float64)
         obs_proj_of_obs = ki.obs_proj_curve[per_obs_period]
         for ci, name in enumerate(ki.curve_names):
-            mm = obs_proj_of_obs == ci
+            mm = (obs_proj_of_obs == ci) & active_obs
             if mm.any():
                 # dedup the rate lookup across the whole portfolio's fixing grid
-                obs_rate[mm] = _project_dedup(market, name, ki.obs_starts[mm], ki.obs_ends[mm])
+                obs_rate[mm] = rate_generator.simple_rate(
+                    name,
+                    ki.obs_starts[mm],
+                    ki.obs_ends[mm],
+                )
 
         # input prep: per-fixing index_floor, then inclusive spread (broadcast from the period)
         incl = ki.margin[flow_of_obs] == int(MarginTreatment.Inclusive)
@@ -321,7 +288,13 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
     instrument_pv = np.bincount(ki.leg_instrument, weights=leg_pv, minlength=ki.n_instruments)
     flow_pv = cash * df * ki.sign
 
-    return KernelResult(instrument_pv=instrument_pv, leg_pv=leg_pv, flow_pv=flow_pv, rate=rate)
+    return KernelResult(
+        instrument_pv=instrument_pv,
+        leg_pv=leg_pv,
+        flow_pv=flow_pv,
+        rate=rate,
+        df=df,
+    )
 
 
 __all__ = ["LegSpec", "compile_portfolio", "reprice"]

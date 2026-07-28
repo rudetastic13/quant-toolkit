@@ -29,7 +29,7 @@ jax.config.update("jax_enable_x64", True)
 from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveNamespace, CurveInterpolator  # noqa: E402
+from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve  # noqa: E402
 from finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator, CurveDefinition, GlobalSolver, deposit_helper, fra_helper, swap_helper,
 )
@@ -66,9 +66,13 @@ def build_market(as_of: Date):
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
     base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
-    return CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition(cn, CurveInterpolator.LogLinearDF)
-    ).calibrate(base), cn
+    result = CurveCalibrator(
+        helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+    ).calibrate(base)
+    market = base.with_curve(
+        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+    )
+    return market, cn
 
 
 def build_book(as_of: Date, n: int) -> list:
@@ -77,8 +81,15 @@ def build_book(as_of: Date, n: int) -> list:
     book = []
     for i in range(n):
         notl = float(rng.choice([1, -1]) * rng.integers(10, 200) * 1e6)
-        book.append(Swap(notional=notl, rate_index="SOFR", fixed_rate=0.040 + 0.001 * (i % 5),
-                         tenor=tenors[i % len(tenors)], as_of=as_of))
+        book.append(
+            Swap.fixed_float_swap(
+                notional=notl,
+                rate_index="SOFR",
+                fixed_rate=0.040 + 0.001 * (i % 5),
+                tenor=tenors[i % len(tenors)],
+                as_of=as_of,
+            )
+        )
     return book
 
 
@@ -86,13 +97,16 @@ def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
     program = SwapPricer().compile(build_book(as_of, n_swaps))
     P = program.inputs.n_flows
     n_pillars = int(np.count_nonzero(
-        (market.discount(cn).node_dates.astype("int64") - market.discount(cn).origin.astype("int64")) > 0
+        (
+            market.zero_curve(cn).node_dates.astype("int64")
+            - market.zero_curve(cn).origin.astype("int64")
+        ) > 0
     ))
     print(f"\n{'='*78}\nBOOK: {n_swaps} swaps  ({P} flows, {n_pillars} curve pillars)\n{'='*78}")
 
     sens = Sensitivities(program, market)
     ad = AutodiffRisk(program, market)
-    base = market.discount(cn)
+    base = market.zero_curve(cn)
 
     # cross-check first (perf is meaningless if the numbers disagree)
     eng_krd = sens.key_rate_durations(cn).krd
@@ -129,7 +143,8 @@ def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
             for b in range(a, pil.size):
                 cu = bumped_curve(base, bp, pillar=int(pil[a]))
                 cu = bumped_curve(cu, bp, pillar=int(pil[b]))
-                pvpp = program.reprice(market.with_curve(cn, cu)).instrument_pv.sum()
+                scenario_curve = market.yield_curve(cn).with_zero_curve(cu)
+                pvpp = program.reprice(market.with_curve(scenario_curve)).instrument_pv.sum()
                 g[a, b] = g[b, a] = pvpp - pv0.sum()
         return g
 
@@ -143,8 +158,7 @@ def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
 
 def main() -> None:
     as_of = Date(2026, 6, 1)
-    result, cn = build_market(as_of)
-    market = result.market
+    market, cn = build_market(as_of)
     for n in (1, 20, 200):
         bench(n, as_of, market, cn)
     print("\nnote: numpy wins tiny books (no XLA dispatch overhead, no compile); JAX pulls ahead")

@@ -23,7 +23,7 @@ import numpy as np
 from finance.dates import Date
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, CurveInterpolator
+from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve
 from finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
@@ -56,10 +56,12 @@ def build_market() -> MarketContext:
         swap_helper(rate=0.0430, tenor="30Y", as_of=AS_OF),
     ]
     base = MarketContext(as_of_date=AS_OF, curves=CurveNamespace())
-    target = CurveDefinition(curve_name("USD", "SOFR"), CurveInterpolator.LogLinearDF)
+    target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration did not converge"
-    return result.market
+    return base.with_curve(
+        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+    )
 
 
 def build_population(n: int) -> list[Swap]:
@@ -70,7 +72,7 @@ def build_population(n: int) -> list[Swap]:
     signs = rng.choice([1.0, -1.0], size=n)            # receive (+) / pay (-) fixed
     fixed = rng.uniform(0.035, 0.045, size=n)          # struck around par
     return [
-        Swap(
+        Swap.fixed_float_swap(
             notional=float(sign * notion),
             rate_index="SOFR",
             fixed_rate=float(rate),

@@ -3,9 +3,9 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date
-from finance.instruments.resolution import Swap, curve_name
+from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.pricers import SwapPricer
 
 
@@ -16,7 +16,13 @@ def _market(as_of: Date, level: float = 0.04) -> MarketContext:
     dfs = np.exp(-level * t)
     dfs[0] = 1.0
     ns = CurveNamespace()
-    ns.bind(curve_name("USD", "SOFR"), ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF))
+    ns.bind(
+        YieldCurve.from_registry(
+            ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF),
+            currency="USD",
+            index_name="SOFR",
+        )
+    )
     return MarketContext(as_of_date=as_of, curves=ns)
 
 

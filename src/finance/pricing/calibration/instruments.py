@@ -6,7 +6,7 @@ the solver drives to zero.  Crucially the measure lives on the instrument, not t
 calibrator: a deposit quotes a simple money-market rate, a swap quotes a par rate, and a
 future bond helper would quote a yield — each slots into the same calibrator unchanged.
 
-Deposits/FRAs are closed-form (one ``MarketContext.project`` call); swaps go through the
+Deposits/FRAs are closed-form (one ``RateGenerator.simple_rate`` call); swaps go through the
 pricing kernel (compile once, reprice per solver iteration) and read the par rate off the
 leg PVs by *classifying legs*, never by positional index.
 """
@@ -21,13 +21,17 @@ import numpy as np
 from finance.instruments.resolution import (
     Deposit,
     Fra,
+    SofrFuture,
     Swap,
     curve_name,
 )
 from finance.markets.context import MarketContext
+from finance.markets.rate_generator import RateGenerator
 from finance.conventions import ConventionRegistry, default_registry
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
+from finance.pricing.pricers.futures import FuturesPricer
+from finance.pricing.types import Backend
 
 
 class QuoteKind(IntEnum):
@@ -36,6 +40,7 @@ class QuoteKind(IntEnum):
     ParRate = 1      # swaps
     SimpleRate = 2   # deposits / FRAs (money-market simple rate)
     Yield = 3        # bonds — designed seam, no helper yet
+    FuturesRate = 4  # (100 - quoted price) / 100
 
 
 @dataclass(frozen=True)
@@ -81,7 +86,14 @@ class DepositHelper:
     def implied(self, market: MarketContext) -> float:
         starts = _as_date_array(self.deposit.effective)
         ends = _as_date_array(self.deposit.maturity)
-        return float(market.project(self.curve, starts, ends, self.deposit.day_count_method)[0])
+        return float(
+            RateGenerator(market).simple_rate(
+                self.curve,
+                starts,
+                ends,
+                self.deposit.day_count_method,
+            )[0]
+        )
 
     def residual(self, market: MarketContext) -> float:
         return self.implied(market) - self.quote.value
@@ -102,7 +114,14 @@ class FraHelper:
     def implied(self, market: MarketContext) -> float:
         starts = _as_date_array(self.fra.effective)
         ends = _as_date_array(self.fra.maturity)
-        return float(market.project(self.curve, starts, ends, self.fra.day_count_method)[0])
+        return float(
+            RateGenerator(market).simple_rate(
+                self.curve,
+                starts,
+                ends,
+                self.fra.day_count_method,
+            )[0]
+        )
 
     def residual(self, market: MarketContext) -> float:
         return self.implied(market) - self.quote.value
@@ -144,13 +163,48 @@ class SwapHelper:
         return np.datetime64(last, "D")
 
     def implied(self, market: MarketContext) -> float:
-        leg_pv = self._program.reprice(market).leg_pv
-        fixed_pv = float(sum(leg_pv[i] for i in self._fixed_idx))
-        float_pv = float(sum(leg_pv[i] for i in self._float_idx))
-        return -float_pv / fixed_pv
+        return RateGenerator(market).par_rate_from_program(
+            self._program,
+            fixed_legs=self._fixed_idx,
+            floating_legs=self._float_idx,
+        )
 
     def residual(self, market: MarketContext) -> float:
         return self.implied(market) - self.quote.value
+
+
+@dataclass
+class FuturesHelper:
+    """SOFR future helper targeting the convexity-adjusted curve forward."""
+
+    future: SofrFuture
+    quote: Quote
+    curve: str
+    convexity: float | object = 0.0
+    _program: object = field(init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        self._program = FuturesPricer().compile([self.future], backend=Backend.Numpy)
+
+    @property
+    def pillar_date(self) -> np.datetime64:
+        return np.datetime64(self.future.ref_end.to_numpy(), "D")
+
+    def _convexity(self, market: MarketContext) -> float:
+        if callable(self.convexity):
+            return float(self.convexity(market))
+        return float(self.convexity)
+
+    def implied(self, market: MarketContext) -> float:
+        # Read the unadjusted curve period rate directly; FuturesProgram.reprice adds the
+        # contract's display convexity, while calibration consumes CA on the quote side.
+        return float(self._program.program.reprice(market).rate[0])
+
+    def residual(self, market: MarketContext) -> float:
+        return self.implied(market) - (self.quote.value - self._convexity(market))
+
+    def numba_gradient(self, market: MarketContext) -> np.ndarray:
+        return self._program.risk(market, self.curve).rate_gradient[0]
 
 
 # -- trader-facing factories (minimal input; conventions do the work) -----------------------
@@ -198,6 +252,33 @@ def swap_helper(
     )
 
 
+def futures_helper(
+    *,
+    price: float,
+    contract: str,
+    month: str | tuple[int, int],
+    as_of,
+    convexity: float | object = 0.0,
+    rate_index: str = "SOFR",
+    currency: str = "USD",
+    funding_id: str = "STDCSA",
+) -> FuturesHelper:
+    future = SofrFuture.from_contract_month(
+        contract=contract,
+        month=month,
+        as_of=as_of,
+        currency=currency,
+        rate_index=rate_index,
+        funding_id=funding_id,
+    )
+    return FuturesHelper(
+        future=future,
+        quote=Quote((100.0 - float(price)) / 100.0, QuoteKind.FuturesRate),
+        curve=curve_name(currency, rate_index),
+        convexity=convexity,
+    )
+
+
 __all__ = [
     "QuoteKind",
     "Quote",
@@ -205,7 +286,9 @@ __all__ = [
     "DepositHelper",
     "FraHelper",
     "SwapHelper",
+    "FuturesHelper",
     "deposit_helper",
     "fra_helper",
     "swap_helper",
+    "futures_helper",
 ]

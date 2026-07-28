@@ -16,8 +16,9 @@ The calibration layer was built around two deliberate seams:
    and never reaches into instrument internals. Anything that can compute "the model
    value of my quoted measure off a trial curve" plugs in, regardless of which
    instrument library sits underneath.
-2. **Trial evaluation is a market rebind, not a rebuild.** The solver loop is
-   `market.with_curve(name, trial_curve)` → re-evaluate residuals. The curve is
+2. **Trial evaluation is a market rebind, not a rebuild.** The solver loop composes the
+   trial `ZeroCurve` with index conventions, calls `market.with_curve(yield_curve)`, and
+   re-evaluates residuals. The curve is
    *injected* per iteration; no instrument object is ever reconstructed.
 
 Because of (1), the target platform's instruments do not need to be re-implemented to
@@ -35,16 +36,18 @@ platform must be able to price a calibration instrument off an injected curve.
 | Line / interpolator layer | `finance/markets/curves/_curve_impl/interpolators.py` | numpy, scipy (`PPoly`) | The real engine: `Interpolator` hierarchy (log-linear/log-cubic DF, rate linear/quadratic/cubic) + `InterpolatedSegment`, all in float day-space. **This must flow through** — `ZeroCurve` is a thin date wrapper over it. |
 | `ZeroCurve` | `_curve_impl/zero_curve.py` | interpolators, `finance.dates.Term` | `Term` is only used for the dual-segment cutover convenience; either vendor `Term` or restrict the ported API to `datetime64` cutovers to drop the dependency. |
 | `CurveInterpolator` / `RateExtrapolator` enums | `markets/curves/types.py` | `common.containers.enums.SupportedIntEnum` | Trivial; vendor the enum base or replace with `IntEnum`. |
-| `CurveNamespace` | `markets/curves/namespace.py` | none beyond curves | Optional but cheap; gives versioned name→curve binding. |
+| `YieldCurve` + `CurveNamespace` | `markets/curves/yield_curve.py`, `namespace.py` | conventions | Composes pure curve state with an index definition; the namespace binds these named market objects. |
+| `HistoricalFixings` | `markets/fixings.py` | `Line1d` | Optional curve-owned date/value history with flat interpolation/extrapolation. |
+| `RateGenerator` | `markets/rate_generator.py` | market context, day counts | Owns simple/continuous/compounded/averaged rates and par-rate generation; these do not belong on `ZeroCurve`. |
 | Solvers | `pricing/calibration/solvers.py` | numpy, scipy | Deliberately domain-blind: residual closure + `x0` in, solution out. Copy verbatim. |
-| `CurveCalibrator` + `CurveDefinition` | `pricing/calibration/calibrator.py` | curves, solvers, market shim | Strip the `vol_shim` / `FlatVolSurface` block and the `jacobian=True` hook (JAX-coupled, see §7) for the first cut. |
+| `CurveCalibrator` + `CurveDefinition` | `pricing/calibration/calibrator.py` | curves, solvers, market shim | Returns a `ZeroCurve`; the optional exact quote Jacobian uses the Numba adjoint by default. |
 | `CalibrationInstrument` protocol + `Quote`/`QuoteKind` | `pricing/calibration/instruments.py` (top ~60 lines) | none | The seam itself. Port the protocol and quote types only — **not** the concrete helpers below them. |
 
 ### Re-implemented as thin adapters (against the platform's instruments)
 
 | Piece | Effort | How |
 |---|---|---|
-| Market context shim | small | The calibrator needs an object answering `as_of_date`, `with_curve(name, curve)`, `discount_factor(name, dates)`, and simple projection (`(DF_s/DF_e − 1)/τ`). Either port `MarketContext` minus fixings/vols/conventions, or make the platform's market object satisfy that interface. |
+| Market context shim | small | The calibrator needs `as_of_date`, registered convention-aware curves, and `with_curve(yield_curve)`. Projection is supplied separately by `RateGenerator`. |
 | Deposit / FRA helpers | trivial | Closed-form: one DF-ratio projection over the accrual window. Rewrite against the platform's deposit/FRA objects (they only need to supply effective, maturity, day count). |
 | Swap (OIS) helper | the real work | Two options, in order of preference: **(a) closed-form par**: with projection = discount, the compounded float leg telescopes, so `par = (DF_eff − DF_mat) / Σ τᵢ·DF_payᵢ` — needs only the fixed-leg schedule from the platform's instrument, no pricer at all (this is effectively QuantLib's `OISRateHelper`); **(b) pricer adapter**: `implied(market)` calls the platform's own swap pricer for annuity and float PV off the trial curve. |
 
@@ -53,7 +56,7 @@ platform must be able to price a calibration instrument off an injected curve.
 - `pricing/kernels/` (columnar IR + compiler), `pricing/pricers/`, `pricing/engines/`
   (numpy/jax/numba/rust), `pricing/risk/` (bump + autodiff)
 - This repo's instrument layer (`instruments/`, schedules, `Priceable`)
-- Fixings overlay (`SinglePath`), vols, and the full conventions bundle (see §5)
+- Generic generated/static paths (`SinglePath`), vols, and the full conventions bundle (see §5)
 
 ---
 
@@ -62,9 +65,9 @@ platform must be able to price a calibration instrument off an injected curve.
 **Phase 0 — carve the port set.**
 Extract the table-1 modules into the platform's tree (or a shared package). Resolve the
 three small dependencies: `Term` (vendor or drop the Term-cutover API), `SupportedIntEnum`
-(vendor), `finance.dates` day-count fractions for the market shim's `project`
+(vendor), and `finance.dates` day-count fractions for `RateGenerator.simple_rate`
 (the platform already has day-count utilities — use theirs).
-*Acceptance: curves construct and round-trip DF/rate/forward against saved fixtures from
+*Acceptance: curves construct and round-trip DF/log-DF/zero against saved fixtures from
 this repo.*
 
 **Phase 1 — curves behind the platform's curve interface.**
@@ -84,7 +87,7 @@ platform regardless of this port.
 answer as constructing fresh.*
 
 **Phase 3 — solvers + calibrator.**
-Port verbatim (minus vol shim / jacobian hook). Wire the calibrator's `build_curve`
+Port verbatim (omit the optional Jacobian hook if the target does not port Numba AAD). Wire the calibrator's `build_curve`
 closure to the ported `ZeroCurve`.
 *Acceptance: the synthetic round-trip test from
 `finance/tests/unit/pricing/calibration/test_curve_calibrator.py` — generate quotes from
@@ -125,9 +128,10 @@ platform to add its own interpolation schemes later without touching the calibra
 
 Agreed — with one refinement.
 
-This repo's `MarketConventions` is currently a monolithic bundle per `(currency, index)`:
-`RateIndex` (index day count, fixing calendar, fixing style) **plus** swap/deposit/FRA
-leg conventions. Two consequences for the port:
+This repo uses an explicit composition: `ZeroCurve` owns mathematical state and
+`YieldCurve` attaches the `MarketConventions` bundle for one `(currency, index)`. The
+`YieldCurve`, not the `ZeroCurve`, is registered in `MarketContext`. Two consequences for
+the port remain:
 
 1. You cannot register an index without supplying full product conventions.
 2. The bundle imports `CouponType` from `finance.instruments.enums` (via
@@ -145,20 +149,9 @@ The right split is **two tiers**:
   frequencies, BDCs, spot lags, payment delays. On the platform side, *their*
   instrument builders own this; this repo's product conventions never cross the seam.
 
-One refinement worth holding to: link conventions to curves **at the market layer, not
-inside the curve object**. `ZeroCurve` today is pure math — node dates, values,
-interpolation — and that purity is what makes it portable and what keeps a calibration
-trial a cheap rebind. The index association belongs beside the name binding (the
-namespace / market context maps `name → (curve, index metadata)`), not as a field on the
-curve. Same end result — a curve reachable with its index conventions and no product
-conventions in sight — without giving the curve container a reason to know about
-markets. (This mirrors Strata: `Curve` is dumb, `RatesProvider` owns the
-index→curve association; and rateslib similarly keeps `Curve` free of instrument
-knowledge.)
-
-Applying the same split back in *this* repo (registry accepts an index-tier-only
-registration; product tier layered on top) would be a small, worthwhile PR on its own —
-it makes the port set a clean subtree instead of a surgical extraction.
+Hold the same boundary on the target platform: `ZeroCurve` remains pure math, while a thin
+market object such as `YieldCurve` owns the association to index metadata. This mirrors the
+implemented architecture and keeps a calibration trial cheap to compose and rebind.
 
 ---
 
@@ -174,8 +167,11 @@ platform_curverisk/
   curves/
     interpolators.py    [port]     ← src: finance/markets/curves/_curve_impl/interpolators.py
     zero_curve.py       [port]     ← src: finance/markets/curves/_curve_impl/zero_curve.py
+    yield_curve.py      [port]     ← src: finance/markets/curves/yield_curve.py
     enums.py            [port]     ← src: finance/markets/curves/types.py
     namespace.py        [port]     ← src: finance/markets/curves/namespace.py
+  market/
+    rate_generator.py   [port]     ← src: finance/markets/rate_generator.py
   calibration/
     protocol.py         [port]     ← src: pricing/calibration/instruments.py  (top ~60 lines)
     solvers.py          [port]     ← src: pricing/calibration/solvers.py
@@ -213,16 +209,23 @@ class ZeroCurve:                              # ← src: zero_curve.py::ZeroCurv
                  *, interpolation_long=None, interpolation_cutover=None): ...
     # properties: origin, node_dates, node_dfs, max_date, interpolation
     def discount_factor(self, dates) -> FloatArray: ...   # ← discount_factor
-    def rate(self, dates) -> FloatArray: ...              # ← rate (cont-comp, Act/365)
-    def forward_rate(self, starts, ends) -> FloatArray: ...
+    def log_discount_factor(self, dates) -> FloatArray: ...
+    def zero_rate(self, dates) -> FloatArray: ...         # cont-comp, Act/365
 ```
 
 ### curves/namespace.py  `[port]`
 ```python
+@dataclass(frozen=True)
+class YieldCurve:
+    zero_curve: ZeroCurve; conventions: MarketConventions
+    @property
+    def name(self) -> str: ...
+    def with_zero_curve(self, zero_curve) -> "YieldCurve": ...
+
 class CurveNamespace:                         # ← src: namespace.py::CurveNamespace
-    def bind(self, name, curve): ...          # bind (raises if present) / rebind (overwrite+version)
-    def rebind(self, name, curve): ...
-    def resolve(self, name) -> ZeroCurve: ...
+    def bind(self, curve: YieldCurve): ...    # canonical name comes from the market definition
+    def rebind(self, curve: YieldCurve): ...
+    def resolve(self, name) -> YieldCurve: ...
     def version(self, name) -> int: ...        # snapshot(), __contains__ also ported
 ```
 
@@ -255,18 +258,20 @@ class Bootstrapper: ...                         # ← Bootstrapper   (sequential
 ```python
 @dataclass(frozen=True)
 class CurveDefinition:                          # ← src: calibrator.py::CurveDefinition
-    name: str; interpolation: CurveInterpolator = CurveInterpolator.LogLinearDF
+    currency: str; index_name: str
+    interpolation: CurveInterpolator = CurveInterpolator.LogLinearDF
 @dataclass
 class CalibrationResult:                        # ← calibrator.py::CalibrationResult
-    curve: ZeroCurve; market; solver_result: SolverResult
-    pillar_dates; residuals; jacobian=None       # jacobian stays behind (JAX-coupled, §7)
+    zero_curve: ZeroCurve; solver_result: SolverResult
+    pillar_dates; residuals; jacobian=None       # optional; requires the Numba adjoint (§7)
 @dataclass
 class CurveCalibrator:                          # ← calibrator.py::CurveCalibrator
     instruments: Sequence[CalibrationInstrument]; solver: Solver; target: CurveDefinition
     def calibrate(self, market, *, jacobian=False) -> CalibrationResult:
         # node dates = sorted instrument pillar_dates; residual_fn rebinds trial curve:
         #   trial = ZeroCurve(pillars, x_to_dfs(x), target.interpolation)
-        #   resid = [inst.implied(market.with_curve(target.name, trial)) - inst.quote.value ...]
+        #   yc = target.compose(trial, market)
+        #   resid = [inst.implied(market.with_curve(yc)) - inst.quote.value ...]
         # solver.solve(residual_fn, x0) -> node DFs
 ```
 
@@ -274,12 +279,14 @@ class CurveCalibrator:                          # ← calibrator.py::CurveCalibr
 ```python
 class MarketShim:                               # ← src: context.py::MarketContext (subset only)
     as_of_date: Date
-    def with_curve(self, name, curve) -> "MarketShim": ...   # fresh rebind, never mutate self
-    def discount_factor(self, name, dates) -> FloatArray: ...
-    def project(self, name, starts, ends, day_count) -> FloatArray:
-        # simple forward off the curve:  (DF(starts)/DF(ends) - 1) / tau
-    def discount(self, name) -> ZeroCurve: ...
-    # NOT ported: fixings (SinglePath), vols, product conventions bundle
+    def with_curve(self, curve: YieldCurve) -> "MarketShim": ...  # fresh rebind
+    def yield_curve(self, name) -> YieldCurve: ...
+    def zero_curve(self, name) -> ZeroCurve: ...
+    # NOT ported: generic paths (SinglePath), vols, product conventions bundle
+
+class RateGenerator:                           # ← src: markets/rate_generator.py
+    def simple_rate(self, name, starts, ends, day_count=None) -> FloatArray: ...
+    def continuous_forward_rate(self, name, starts, ends) -> FloatArray: ...
 ```
 
 ### adapters/helpers.py  `[adapter]` — re-implement against platform instruments
@@ -289,7 +296,7 @@ class DepositHelper / FraHelper:                # each implements the Calibratio
     quote: Quote; curve: str
     def pillar_date(self): return self.instrument.maturity
     def implied(self, market):                  # one DF-ratio projection over the accrual window
-        return market.project(self.curve, [start], [end], day_count)[0]
+        return RateGenerator(market).simple_rate(self.curve, [start], [end], day_count)[0]
 class SwapHelper:                               # OIS: closed-form par (projection == discount)
     def implied(self, market):                  #   par = (DF_eff - DF_mat) / Σ τᵢ·DF_payᵢ
         ...                                      #   fall back to platform swap pricer only if telescoping breaks
@@ -299,18 +306,19 @@ class SwapHelper:                               # OIS: closed-form par (projecti
 ```python
 helpers = [DepositHelper(...), SwapHelper(...), ...]            # one node per pillar, increasing dates
 calibrator = CurveCalibrator(instruments=helpers, solver=GlobalSolver(),
-                             target=CurveDefinition("USD.SOFR", CurveInterpolator.LogLinearDF))
-result = calibrator.calibrate(MarketShim(as_of_date=AS_OF, curves=CurveNamespace()))
-curve = result.curve                                            # bind into the platform's RatesProvider
+                             target=CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF))
+base = MarketShim(as_of_date=AS_OF, curves=CurveNamespace())
+result = calibrator.calibrate(base)
+yield_curve = YieldCurve(result.zero_curve, sofr_conventions)
+market = base.with_curve(yield_curve)
 ```
 
 ---
 
 ## 7. Known losses and caveats
 
-- **`calibrate(jacobian=True)` does not port.** The exact quote-Jacobian rides on the
-  JAX twin of the pricing kernel. Bump-based par DV01 against the calibrated curve works
-  without it; revisit only if the platform wants algorithmic partial DV01s.
+- **`calibrate(jacobian=True)` requires an adjoint port.** The default exact quote-Jacobian
+  rides on the Numba pricing adjoint. Omit it if the target only needs bump-based curve risk.
 - **Closed-form OIS telescoping is an approximation** under payment delay (pay date ≠
   observation end) and lookback/lockout. Sub-bp for standard USD SOFR conventions, but
   bound it explicitly in Phase 4 acceptance rather than assuming.

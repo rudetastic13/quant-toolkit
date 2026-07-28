@@ -11,7 +11,7 @@ import numpy as np
 
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.pricers import SwapPricer
 
 from quant_toolkit_xl import cache, marshalling
@@ -41,7 +41,7 @@ def discount_factor(curve_handle: object, dates: object) -> np.ndarray:
 def zero_rate(curve_handle: object, dates: object) -> np.ndarray:
     """Continuously-compounded zero rates off a cached curve for an array of dates."""
     curve: ZeroCurve = cache.load(curve_handle, "Curve")  # type: ignore[assignment]
-    return curve.rate(marshalling.to_datetime64_array(dates))
+    return curve.zero_rate(marshalling.to_datetime64_array(dates))
 
 
 def make_swap(
@@ -83,9 +83,16 @@ def make_market(as_of: object, currency: object, rate_index: object, curve_handl
     """Bind a cached curve into a ``MarketContext`` under (ccy, index); return a Market handle."""
     as_of_date = marshalling.to_date(as_of)
     curve: ZeroCurve = cache.load(curve_handle, "Curve")  # type: ignore[assignment]
-    name = curve_name(str(currency), str(rate_index))
+    currency_name = str(currency)
+    index_name = str(rate_index)
+    name = curve_name(currency_name, index_name)
+    yield_curve = YieldCurve.from_registry(
+        curve,
+        currency=currency_name,
+        index_name=index_name,
+    )
     namespace = CurveNamespace()
-    namespace.bind(name, curve)
+    namespace.bind(yield_curve)
     market = MarketContext(as_of_date=as_of_date, curves=namespace)
     return cache.store("Market", market, str(as_of_date), name, str(curve_handle))
 

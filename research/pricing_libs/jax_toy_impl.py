@@ -59,7 +59,12 @@ import jax.numpy as jnp  # noqa: E402  (must follow the x64 config flip)
 from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveNamespace, CurveInterpolator, ZeroCurve  # noqa: E402
+from finance.markets.curves import (  # noqa: E402
+    CurveNamespace,
+    CurveInterpolator,
+    YieldCurve,
+    ZeroCurve,
+)
 from finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator,
     CurveDefinition,
@@ -93,10 +98,13 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
     base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
-    target = CurveDefinition(cn, CurveInterpolator.LogLinearDF)
+    target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"
-    return result.market, result.curve, cn
+    market = base.with_curve(
+        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+    )
+    return market, result.zero_curve, cn
 
 
 # ---------------------------------------------------------------------------
@@ -219,7 +227,13 @@ def main() -> None:
     as_of = Date(2026, 6, 1)
     market, curve, cn = build_market(as_of)
 
-    swap = Swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=as_of)
+    swap = Swap.fixed_float_swap(
+        notional=100e6,
+        rate_index="SOFR",
+        fixed_rate=0.041,
+        tenor="5Y",
+        as_of=as_of,
+    )
     program = SwapPricer().compile([swap])  # compile once
 
     # ----- STANDARD PATH ---------------------------------------------------
@@ -271,8 +285,9 @@ def main() -> None:
     gamma_1bp = 0.5 * np.diag(hess) * BP**2
     # parallel convexity: ½·(1bp)²·Σ Hₚ_q ; validate against a full parallel 2nd difference.
     parallel_gamma_jax = 0.5 * hess.sum() * BP**2
-    up = program.reprice(market.with_curve(cn, _bump(curve, +BP))).instrument_pv[0]
-    dn = program.reprice(market.with_curve(cn, _bump(curve, -BP))).instrument_pv[0]
+    yield_curve = market.yield_curve(cn)
+    up = program.reprice(market.with_curve(yield_curve.with_zero_curve(_bump(curve, +BP)))).instrument_pv[0]
+    dn = program.reprice(market.with_curve(yield_curve.with_zero_curve(_bump(curve, -BP)))).instrument_pv[0]
     parallel_gamma_engine = 0.5 * (up + dn - 2.0 * priced.pv)
 
     print()
@@ -286,8 +301,20 @@ def main() -> None:
 
     # ----- A BOOK: per-instrument KRD matrix via one Jacobian ------------
     book = [
-        Swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=as_of),
-        Swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.040, tenor="10Y", as_of=as_of),
+        Swap.fixed_float_swap(
+            notional=100e6,
+            rate_index="SOFR",
+            fixed_rate=0.041,
+            tenor="5Y",
+            as_of=as_of,
+        ),
+        Swap.fixed_float_swap(
+            notional=-25e6,
+            rate_index="SOFR",
+            fixed_rate=0.040,
+            tenor="10Y",
+            as_of=as_of,
+        ),
     ]
     book_prog = SwapPricer().compile(book)
     book_flows = CompiledFlows(book_prog, curve.origin)

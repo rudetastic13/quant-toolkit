@@ -2,7 +2,7 @@
 
 The slow, explicit twin of the kernel path (``pricing.kernels.compiler.reprice``): each
 calculator prices one coupon flavour for one leg directly against a ``MarketContext``,
-using the same shared pieces — ``MarketContext.project`` for index rates, the tight
+using the same shared pieces — ``RateGenerator`` for index rates, the tight
 ``compounded``/``averaged`` reductions, and the single-source shaping algebra (via
 ``coupons.rates``).  It exists as a per-event cross-check of the compiler lowering, not as
 a production path: the engine never calls it.
@@ -18,6 +18,7 @@ from finance.instruments.resolution.resolver import curve_name
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
 from finance.coupons.rates import averaged_coupon, compounded_coupon, floating_coupon
 from finance.markets.context import MarketContext
+from finance.markets.rate_generator import RateGenerator
 
 
 def _projection_curve(market: MarketContext, rate_index: str) -> str:
@@ -62,7 +63,11 @@ def calculate_floating(
     ``reset_starts``/``reset_ends`` are the per-period projection windows (for the aligned
     reset==payment case these are the accrual windows, matching the kernel).
     """
-    idx = market.project(_projection_curve(market, rate_index), reset_starts, reset_ends)
+    idx = RateGenerator(market).simple_rate(
+        _projection_curve(market, rate_index),
+        reset_starts,
+        reset_ends,
+    )
     out[:] = floating_coupon(idx, spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor)
     return out
 
@@ -88,7 +93,11 @@ def calculate_geometric_average(
     read windows, accrual weights, per-period ``reduceat`` offsets) — the same arrays the
     compiler lowers, so lookback/lockout shifts flow through identically.
     """
-    obs_rate = market.project(_projection_curve(market, rate_index), obs_starts, obs_ends)
+    obs_rate = RateGenerator(market).simple_rate(
+        _projection_curve(market, rate_index),
+        obs_starts,
+        obs_ends,
+    )
     out[:] = compounded_coupon(
         obs_rate, obs_weights, obs_offsets,
         spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor, margin=margin_treatment,
@@ -112,7 +121,11 @@ def calculate_arithmetic_average(
     out: np.ndarray,
 ) -> np.ndarray:
     """Arithmetic-average coupon over the observation grid (see calculate_geometric_average)."""
-    obs_rate = market.project(_projection_curve(market, rate_index), obs_starts, obs_ends)
+    obs_rate = RateGenerator(market).simple_rate(
+        _projection_curve(market, rate_index),
+        obs_starts,
+        obs_ends,
+    )
     out[:] = averaged_coupon(
         obs_rate, obs_weights, obs_offsets,
         spread=spread or 0.0, index_floor=index_floor, cap=cap, floor=floor, margin=margin_treatment,

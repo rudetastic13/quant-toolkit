@@ -57,7 +57,7 @@ flowchart LR
     BOX["container<br/>(list of instruments)"]
     COMP["SwapPricer.compile(...)"]
     PP["PricingProgram<br/>(columnar KernelInputs)"]
-    MKT["MarketContext<br/>(curves / fixings / vols)"]
+    MKT["MarketContext<br/>(yield curves / vols)"]
     RES["PricingResult<br/>(PV, leg PVs, cashflows)"]
 
     T --> ROW --> FACT --> SWAP --> RS
@@ -90,7 +90,8 @@ flowchart TB
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
-        CN["CurveNamespace -> ZeroCurve"]
+        CN["CurveNamespace -> YieldCurve<br/>(history + conventions + ZeroCurve)"]
+        RG["RateGenerator"]
         VN["VolNamespace -> VolSurface (seam)"]
     end
     subgraph COMPILE["Compile / IR"]
@@ -107,7 +108,7 @@ flowchart TB
     CONV --> RS2
     CI --> RS2
     RS2 --> CMP --> KI --> PP2
-    MC --> PP2
+    MC --> RG --> PP2
     PP2 -- "reprice" --> RK
     PP2 -- "reprice" --> DCF
     RK -. "registered under" .-> REG
@@ -254,15 +255,15 @@ single-fixing floats.
 
 `finance.pricing.calibration` builds market curves from quotes. It wires three things — a
 list of **calibration instruments**, a **solver**, and a **target curve definition** — into
-one residual closure and hands it to the solver. Output is a calibrated `ZeroCurve` bound
-into a *fresh* `MarketContext` (via `MarketContext.with_curve`, the same rebind primitive
-sensitivities use); the input market is never mutated.
+one residual closure and hands it to the solver. Output is a mathematical `ZeroCurve`.
+The caller explicitly composes it with index conventions to form a `YieldCurve`, then binds
+that object into a `MarketContext`; the input market is never mutated.
 
 - **Instruments are single-quote pricers.** A `CalibrationInstrument` exposes one `quote`
   and `implied(market)` — the model value of *that same measure*. The **residual measure
   lives on the instrument**, not the calibrator: `SwapHelper` → par rate, `DepositHelper` /
   `FraHelper` → simple money-market rate, and a future bond helper → yield, all slotting into
-  the same calibrator unchanged. Deposits/FRAs are closed-form (`MarketContext.project`);
+  the same calibrator unchanged. Deposits/FRAs use `RateGenerator.simple_rate`;
   swaps compile once and reprice, reading par off the leg PVs by **iterating** the
   instrument's legs (fixed vs floating), never by positional index.
 - **Residuals are quote-space, not PV.** `PV = 0` is the underlying concept (a par swap is
@@ -345,8 +346,7 @@ solves for the curve that reprices every quote.
 
 ```python
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, CurveInterpolator
-from finance.instruments.resolution import curve_name
+from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve
 from finance.pricing.calibration import (
     CurveCalibrator, CurveDefinition, GlobalSolver,
     deposit_helper, fra_helper, swap_helper,
@@ -364,9 +364,9 @@ helpers = [
 ]
 
 base   = MarketContext(as_of_date=as_of, curves=CurveNamespace())   # empty starting market
-target = CurveDefinition(curve_name("USD", "SOFR"), CurveInterpolator.LogLinearDF)
+target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
 
-result = CurveCalibrator(helpers, GlobalSolver(), target, vol_shim=0.20).calibrate(base)
+result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base, jacobian=True)
 result.solver_result.converged          # True
 abs(result.residuals).max()             # ~1.9e-15  (every quote repriced)
 ```
@@ -376,30 +376,39 @@ both agree to ~1e-9.
 
 ### 9.3 Tying into a market
 
-`calibrate` returns a fresh `MarketContext` with the curve bound (input `base` untouched) —
-plus the flat vol shim if requested. It's a normal market you can query directly.
+`calibrate` returns mathematical curve state. Compose that state with SOFR's index
+definition, then register the resulting `YieldCurve` in the market. This boundary is
+deliberately explicit.
 
 ```python
-market = result.market
-CN = curve_name("USD", "SOFR")
+from finance.markets import RateGenerator
+
+zero_curve = result.zero_curve
+sofr_curve = YieldCurve.from_registry(
+    zero_curve,
+    currency="USD",
+    index_name="SOFR",
+)
+market = base.with_curve(sofr_curve)
+CN = "USD.SOFR"
 
 # zero rates (continuously-compounded) at each pillar
-result.curve.rate(result.pillar_dates) * 100
+zero_curve.zero_rate(result.pillar_dates) * 100
 # [4.300, 4.320, 4.350, 4.390, 4.197, 4.097, 4.017, 4.103]  (%, 1M … 10Y)
-# 5Y zero ~ 4.017%;   market.vols.resolve("USD.SOFR") -> FlatVolSurface(0.20)
 
 # discount factors at the same pillars
-market.discount_factor(CN, result.pillar_dates)
+market.zero_curve(CN).discount_factor(result.pillar_dates)
 # [0.99643, 0.98919, 0.97832, 0.95654, 0.91894, 0.88424, 0.81672, 0.66487]
 
-# forward rate between two pillars (continuously-compounded)
+# rate generation is separate from curve storage and market lookup
+rates = RateGenerator(market)
 t_6m = result.pillar_dates[[2]]   # index 2 = ~6M pillar
 t_5y = result.pillar_dates[[6]]   # index 6 = ~5Y pillar
-market.forward_rate(CN, t_6m, t_5y)   # [0.03980...]  (6M→5Y cc forward)
+rates.continuous_forward_rate(CN, t_6m, t_5y)   # 6M→5Y cc forward
 
 # simple (money-market) projection rate over the same window — Act/360
 # this is exactly what the rate kernels project per observation period
-market.project(CN, t_6m, t_5y)        # [0.03902...]  (6M→5Y simple, Act/360)
+rates.simple_rate(CN, t_6m, t_5y)     # 6M→5Y simple, SOFR's Act/360 convention
 ```
 
 ### 9.4 Tying to a pricer

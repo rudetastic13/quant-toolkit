@@ -1,6 +1,6 @@
 """End-to-end proof: a par compounded-SOFR swap prices to ~0 using only real components.
 
-Chain exercised: ZeroCurve -> MarketContext.project (overnight simple rates) ->
+Chain exercised: ZeroCurve -> YieldCurve -> RateGenerator (overnight simple rates) ->
 compounded_rate kernel (flatten-and-reduceat) -> dcf kernel (portfolio reduceat).
 
 No resolution/schedule plumbing here — this validates the numeric core. The schedule
@@ -10,9 +10,10 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod
-from finance.markets.curves import ZeroCurve
+from finance.markets.curves import YieldCurve, ZeroCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
+from finance.markets.rate_generator import RateGenerator
 from finance.pricing.engines.numpy.rates import compounded
 from finance.pricing.engines.numpy.dcf import dcf
 
@@ -52,9 +53,16 @@ class TestParSwapPricesToZero(UnitTest):
     def setUp(self):
         self.origin = "2026-06-01"
         ns = CurveNamespace()
-        ns.bind(CURVE, _curve(self.origin))
+        ns.bind(
+            YieldCurve.from_registry(
+                _curve(self.origin),
+                currency="USD",
+                index_name="SOFR",
+            )
+        )
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
-        self.curve = ns.resolve(CURVE)
+        self.curve = self.mkt.zero_curve(CURVE)
+        self.rates = RateGenerator(self.mkt)
         # 2y annual swap, effective = curve origin
         self.boundaries = np.array([self.origin, "2027-06-01", "2028-06-01"], dtype="datetime64[D]")
         self.notional = 100.0
@@ -67,7 +75,7 @@ class TestParSwapPricesToZero(UnitTest):
         for ps, pe in zip(starts, ends):
             obs_s, obs_e = _obs_windows(ps, pe)
             w = (obs_e.astype(np.int64) - obs_s.astype(np.int64)) / 360.0
-            r = self.mkt.project(CURVE, obs_s, obs_e, ACT360)
+            r = self.rates.simple_rate(CURVE, obs_s, obs_e, ACT360)
             rate = compounded(r, w, np.array([0]))[0]
             period_frac = w.sum()  # Act/360 of the whole period = sum of sub-windows
             cashflows.append(self.notional * rate * period_frac)

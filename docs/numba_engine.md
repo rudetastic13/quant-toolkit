@@ -1,14 +1,14 @@
-# Numba pricing & risk engine — implementation plan
+# Numba pricing & analytic-adjoint engine
 
 > Companion to [engine_selection.md](engine_selection.md) (which products bind to this engine)
 > and [pricing_architecture.md](pricing_architecture.md) (the columnar `KernelInputs` ABI this
-> engine consumes). Prototype lives in `research/pricing_libs/numba_kernel.py` /
-> `numba_perf.py`.
+> engine consumes). Production code lives in `finance.pricing.engines.numba`; the research
+> scripts now exercise that implementation directly.
 
 The Numba engine is the production fast path for **linear rates** and **European optionality**
 (see the [selection table](engine_selection.md#3-selection-table)). It delivers the same risk
 outputs the JAX backend produces — key-rate ladder, index/funding split, calibration Jacobian,
-per-cashflow deltas, gamma — but via **hand-rolled analytic sensitivities** (first order) and a
+per-cashflow deltas, gamma — but via a **hand-written reverse adjoint** (first order) and a
 **finite-difference of that analytic gradient** (second order), rather than autodiff.
 
 The work below is decomposed into **independent features** (F1–F6). They can be built
@@ -21,7 +21,7 @@ sequentially or in parallel; dependencies are called out per feature.
 | Property | Consequence |
 |---|---|
 | **Specialises on dtype, not shape** | One `@njit(float64[::1], …)` compile serves *any* book length — the recompile-per-book / shape-bucketing problem of the JAX backend does not exist. |
-| **Eager compile at import** (explicit signatures) | No first-call latency in the hot path; the signature is a machine-checked ABI + contiguity contract (`[::1]`). |
+| **Lazy first compile, then cache** | The first Numba call builds one dtype/layout signature; later calls of any portfolio length reuse it. |
 | **`cache=True` disk cache** | Cold import compiles (~1.5 s), warm import loads from disk (~0.4 s) — robust, content-keyed, no JAX-persistent-cache hygiene caveats. |
 | **Native loops / gather / branches** | A natural fit for ragged segment reductions and cap/floor branches — no branchless `where` rewrites. |
 
@@ -47,23 +47,26 @@ interpolation dispatch.
 
 ---
 
-## 2. Feature F1 — Forward primal kernel (linear rates) **[prototype done]**
+## 2. Feature F1 — Forward primal kernel (linear rates) **[implemented]**
 
 **Goal.** `numba_reprice(...) -> instrument_pv`, the `@njit` twin of `compiler.reprice`:
 fixed / single-fixing float / daily-compounded / arithmetic-averaged, with spread, per-fixing
 `index_floor`, and final-period `cap`/`floor` + margin treatment. Static obs-date dedup mirrors
 numpy's `_project_dedup` (evaluate `DF` once per unique fixing date, gather).
 
-**Status.** Implemented and benchmarked in `research/pricing_libs/numba_kernel.py`. Work to
-productionize: move under `engines/numba/`, register `(KERNEL_DCF + rate kernels, Backend.Numba)`,
-return `leg_pv`/`flow_pv`/`rate` as well (not just `instrument_pv`).
+**Status.** `NumbaProgram` implements the fused primal under `engines/numba/program.py` and
+returns instrument, leg, flow, rate, and payment-DF outputs. Narrow DCF/rate kernels are also
+registered under `Backend.Numba`; curve-owned historical fixings are constants in the
+adjoint. Observations before the curve origin have zero index derivative, while a coupon
+straddling the origin retains risk only to its projected observations. Payments before the
+origin have zero DF, PV, index risk, and funding risk.
 
 **Validation.** PV vs the numpy engine to ~1e-7 (tighten by dropping `fastmath` on a check
 build); cross-check against JAX `JaxProgram.pv`.
 
 ---
 
-## 3. Feature F2 — Analytic first-order sensitivities (linear rates)
+## 3. Feature F2 — Analytic first-order sensitivities (linear rates) **[implemented]**
 
 This is the role JAX's `grad`/`jacobian` play, done analytically. It produces: the **key-rate
 ladder**, the **index/funding split**, **per-cashflow deltas**, and the **calibration
@@ -116,14 +119,14 @@ the partial-DV01 transform `(∂V/∂z)·J⁻¹` is unchanged.
 
 ### 3.4 Implementation & validation
 
-Extend the F1 loop to accumulate `dPV_dz_disc[p]` and `dPV_dz_proj[p]` per flow (sparse scatter
-into ≤2 pillars). Output `(n_inst, P)` index and funding ladders + `(F, P)` per-cashflow
-matrices. **Validate against JAX** `AutodiffRisk.index_ladder`/`funding_ladder`/
-`cashflow_*_delta` and `CalibrationResult.jacobian` to ~1e-9.
+`NumbaProgram.value_and_grad` accumulates `dPV_dz_disc[p]` and `dPV_dz_proj[p]` per flow
+(sparse scatter into ≤2 pillars), then reduces them to instrument ladders. `NumbaRisk`
+exposes both roles and per-cashflow matrices. The calibration Jacobian uses this adjoint by
+default; `Backend.Jax` remains an explicit validation oracle.
 
 ---
 
-## 4. Feature F3 — Vanilla option pricers (European optionality)
+## 4. Feature F3 — Vanilla option pricers (European optionality) **[implemented]**
 
 European swaptions, caps, floors under **Black** and **Bachelier**. *Depends on F1 for the
 underlying forward/annuity; independent of F2's curve-delta details otherwise.*
@@ -141,9 +144,13 @@ underlying forward/annuity; independent of F2's curve-delta details otherwise.*
 
 **Validation.** Greeks vs analytic Black/Bachelier references and vs JAX AD of the same primal.
 
+`FuturesPricer` lowers SR1/SR3 reference periods into one-flow averaged/compounded programs.
+`SwaptionPricer` obtains forward and annuity from compiled unit-fixed swaps, then applies the
+Numba Black/Bachelier value and greek kernels.
+
 ---
 
-## 5. Feature F4 — Approximating second-order derivatives
+## 5. Feature F4 — Approximating second-order derivatives **[implemented]**
 
 The cheap, accurate route to **gamma** (and the option cross-greeks) without hand-rolling any
 second derivatives. *Depends on F2 (and F3 for vol cross-greeks).*
@@ -173,6 +180,9 @@ H       ← ½ (H + Hᵀ)                                  # enforce symmetry
 - **volga** `∂²V/∂σ²` ≈ FD of analytic vega w.r.t. `σ`.
 
 One FD layer on an exact first-order greek — same accuracy/cost argument as §5.1.
+
+`NumbaRisk.gamma` implements the central FD of the exact total gradient and symmetrizes the
+result. It preserves historical-fixing masks while varying curve parameters.
 
 ### 5.3 Validation
 

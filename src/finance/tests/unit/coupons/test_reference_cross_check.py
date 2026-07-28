@@ -27,7 +27,8 @@ from finance.instruments.schedules.coupon_schedule import (
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.coupons.calculators import calculate_custom
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, ZeroCurve
+from finance.markets import HistoricalFixings
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.kernels import LegSpec, StaticNotional, compile_portfolio
 from finance.pricing.kernels.compiler import reprice
 
@@ -43,7 +44,8 @@ def _market(as_of: Date) -> MarketContext:
     dfs = np.exp(-z * t)
     dfs[0] = 1.0
     ns = CurveNamespace()
-    ns.bind(CURVE, ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF))
+    zero_curve = ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF)
+    ns.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
     return MarketContext(as_of_date=as_of, curves=ns)
 
 
@@ -68,7 +70,7 @@ def _reference_leg_pv(ps, coupon: CouponSchedule, sign: float, notional: float, 
         obs_weights=ps.obs_weights, obs_offsets=ps.obs_offsets,
     )
     cash = notional * rate * ps.period_fracs
-    df = market.discount_factor(CURVE, ps.payment_dates)
+    df = market.zero_curve(CURVE).discount_factor(ps.payment_dates)
     return rate, sign * float(np.sum(cash * df))
 
 
@@ -128,16 +130,17 @@ class TestReferenceVsKernel(UnitTest):
 
     def test_float_leg_advance_fixing(self):
         from finance.dates.enums import FixingType
-        from finance.markets.paths import FlatPath
-
         coupon = CouponSchedule(events=[FloatingCouponEvent(
             start_date=self.effective, rate_index=INDEX, spread=0.001,
         )])
         ps = _schedule(self.effective, self.maturity, fixing_type=FixingType.Advance)
         # the first period's governing window was set before as_of — a realized fixing
-        self.market = MarketContext(
-            as_of_date=self.as_of, curves=self.market.curves,
-            fixings={CURVE: FlatPath(name=CURVE, as_of_date=self.as_of, value=0.0345)},
+        history = HistoricalFixings(
+            dates=np.array(["2026-01-02", "2026-05-29"], dtype="datetime64[D]"),
+            values=np.array([0.0345, 0.0345]),
+        )
+        self.market = self.market.with_curve(
+            self.market.yield_curve(CURVE).with_historical_fixings(history)
         )
         self._cross_check(ps, coupon)
 
