@@ -20,7 +20,8 @@ from finance.dates import (
 from .helpers import CalendarLike, BdcLike
 from .helpers import (
     calendar as clean_calendar,
-    bdc as clean_bdc
+    bdc as clean_bdc,
+    imm_month_step,
 )
 _1D_OFFSET = Term(1, TermType.Days)
 
@@ -265,3 +266,78 @@ def subtract_frequency(dt: Date, frequency: Frequency, bdc: BdcLike, calendar: C
     """
     term = Term.from_frequency(frequency)
     return add_term(dt, -term, bdc, calendar)
+
+def _third_wednesday_ordinal(mi: int) -> int:
+    fom = Date(mi // 12, mi % 12 + 1, 1).toordinal()
+    dow = (fom + 3) % 7  # Monday=0; ordinal 0 (1970-01-01) is a Thursday
+    return fom + (2 - dow) % 7 + 14
+
+
+def next_imm_date(dt: Date, frequency: Frequency = Frequency.Quarterly) -> Date:
+    """
+    First IMM date (third Wednesday) strictly after ``dt``.
+
+    Parameters
+    ----------
+    dt : Date
+        Reference date.
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    Date
+        Next on-cycle third Wednesday, strictly after ``dt``.
+
+    Examples
+    --------
+    >>> next_imm_date(Date(2025, 6, 17))
+    Date(2025, 6, 18)
+
+    >>> next_imm_date(Date(2025, 6, 18))
+    Date(2025, 9, 17)
+    """
+    step = imm_month_step(frequency)
+    ordinal = dt.toordinal()
+    mi = dt.year * 12 + dt.month - 1
+    mi += (11 - mi) % step
+    imm = _third_wednesday_ordinal(mi)
+    if imm <= ordinal:
+        imm = _third_wednesday_ordinal(mi + step)
+    return Date.fromordinal(imm)
+
+
+def prior_imm_date(dt: Date, frequency: Frequency = Frequency.Quarterly) -> Date:
+    """
+    Last IMM date (third Wednesday) strictly before ``dt``.
+
+    Parameters
+    ----------
+    dt : Date
+        Reference date.
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    Date
+        Prior on-cycle third Wednesday, strictly before ``dt``.
+
+    Examples
+    --------
+    >>> prior_imm_date(Date(2025, 6, 19))
+    Date(2025, 6, 18)
+
+    >>> prior_imm_date(Date(2025, 6, 18))
+    Date(2025, 3, 19)
+    """
+    step = imm_month_step(frequency)
+    ordinal = dt.toordinal()
+    mi = dt.year * 12 + dt.month - 1
+    mi -= (mi - 11) % step
+    imm = _third_wednesday_ordinal(mi)
+    if imm >= ordinal:
+        imm = _third_wednesday_ordinal(mi - step)
+    return Date.fromordinal(imm)

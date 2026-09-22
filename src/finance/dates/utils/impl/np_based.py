@@ -9,7 +9,7 @@ arrays, backed by vectorized NumPy operations.
 from typing import overload, Literal
 import numpy as np
 from .helpers import CalendarLike, BdcLike
-from .helpers import calendar as clean_calendar, bdc as clean_bdc
+from .helpers import calendar as clean_calendar, bdc as clean_bdc, imm_month_step
 from finance.dates import BDC, Term, TermType, Frequency
 from finance.dates.types import DateNpType, BoolNpType
 
@@ -281,3 +281,93 @@ def subtract_frequency(dt: DateNpType, frequency: Frequency, bdc: BdcLike, calen
     """
     term = Term.from_frequency(frequency)
     return subtract_term(dt, term, bdc, calendar)
+
+def _third_wednesday_ordinal(month_index):
+    # month_index is int64 months since 1970-01; fom is the first-of-month day ordinal
+    fom = month_index.astype("datetime64[M]").astype("datetime64[D]").view(np.int64)
+    dow = (fom + 3) % 7  # Monday=0; ordinal 0 (1970-01-01) is a Thursday
+    return fom + (2 - dow) % 7 + 14
+
+
+@overload
+def next_imm_date(dt: np.datetime64, frequency: Frequency = ...) -> np.datetime64:
+    ...
+
+@overload
+def next_imm_date(dt: np.ndarray, frequency: Frequency = ...) -> np.ndarray:
+    ...
+
+def next_imm_date(dt: DateNpType, frequency: Frequency = Frequency.Quarterly) -> DateNpType:
+    """
+    First IMM date (third Wednesday) strictly after each element of ``dt``.
+
+    Parameters
+    ----------
+    dt : np.datetime64 or np.ndarray[datetime64[D]]
+        Reference date(s).
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    np.datetime64 or np.ndarray[datetime64[D]]
+        Next on-cycle third Wednesday, strictly after each input date.
+
+    Examples
+    --------
+    >>> next_imm_date(np.datetime64("2025-06-18"))
+    numpy.datetime64('2025-09-17')
+
+    >>> dates = np.array(["2025-06-17", "2025-06-18"], dtype="datetime64[D]")
+    >>> next_imm_date(dates)
+    array(['2025-06-18', '2025-09-17'], dtype='datetime64[D]')
+    """
+    step = imm_month_step(frequency)
+    ordinal = dt.view(np.int64)
+    mi = dt.astype("datetime64[M]").view(np.int64)
+    mi = mi + (11 - mi) % step
+    mi = mi + step * (_third_wednesday_ordinal(mi) <= ordinal)
+    return _third_wednesday_ordinal(mi).view("datetime64[D]")
+
+
+@overload
+def prior_imm_date(dt: np.datetime64, frequency: Frequency = ...) -> np.datetime64:
+    ...
+
+@overload
+def prior_imm_date(dt: np.ndarray, frequency: Frequency = ...) -> np.ndarray:
+    ...
+
+def prior_imm_date(dt: DateNpType, frequency: Frequency = Frequency.Quarterly) -> DateNpType:
+    """
+    Last IMM date (third Wednesday) strictly before each element of ``dt``.
+
+    Parameters
+    ----------
+    dt : np.datetime64 or np.ndarray[datetime64[D]]
+        Reference date(s).
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    np.datetime64 or np.ndarray[datetime64[D]]
+        Prior on-cycle third Wednesday, strictly before each input date.
+
+    Examples
+    --------
+    >>> prior_imm_date(np.datetime64("2025-06-18"))
+    numpy.datetime64('2025-03-19')
+
+    >>> dates = np.array(["2025-06-18", "2025-06-19"], dtype="datetime64[D]")
+    >>> prior_imm_date(dates)
+    array(['2025-03-19', '2025-06-18'], dtype='datetime64[D]')
+    """
+    step = imm_month_step(frequency)
+    ordinal = dt.view(np.int64)
+    mi = dt.astype("datetime64[M]").view(np.int64)
+    mi = mi - (mi - 11) % step
+    mi = mi - step * (_third_wednesday_ordinal(mi) >= ordinal)
+    return _third_wednesday_ordinal(mi).view("datetime64[D]")

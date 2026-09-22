@@ -48,7 +48,15 @@ def align_eom_day(days: int) -> int:
     dom = _DAYS_IN_MONTH_YEAR[y, m]
     return days + (dom - d)
 
+def third_wednesday(y: int, m: int) -> int:
+    fom = days_from_ymd(y, m, 1)
+    dow = (fom + 3) % 7  # Monday=0; ordinal 0 (1970-01-01) is a Thursday
+    return fom + (2 - dow) % 7 + 14
+
 def roll_day(days:int, roll_convention: int) -> int:
+    if roll_convention == -2:
+        y, m, _ = ymd_from_days(days)
+        return third_wednesday(y, m)
     if roll_convention == -1:
         return align_eom_day(days)
     if roll_convention == 0:

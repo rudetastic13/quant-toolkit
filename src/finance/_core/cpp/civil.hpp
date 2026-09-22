@@ -67,11 +67,18 @@ inline constexpr YMD ymd_from_days(std::int64_t days) noexcept {
 }
 
 // month index (y*12 + m-1) plus a signed month delta, resolved to a day count
-// under the effective roll day (-1 EOM, 1..31 clamped to the month length)
+// under the effective roll day (-2 IMM third Wednesday, -1 EOM, 1..31 clamped
+// to the month length)
 inline std::int64_t month_step(std::int64_t month_index, std::int64_t delta, int roll_day) noexcept {
     const std::int64_t mi = month_index + delta;
     const int y = static_cast<int>(floor_div(mi, 12));
     const int m = static_cast<int>(floor_mod(mi, 12)) + 1;
+    if (roll_day == -2) {
+        // IMM third Wednesday (ordinal 0 is a Thursday, Monday=0)
+        const std::int64_t fom = days_from_ymd(y, m, 1);
+        const std::int64_t dow = floor_mod(fom + 3, 7);
+        return fom + floor_mod(2 - dow, 7) + 14;
+    }
     int d;
     if (1 <= roll_day && roll_day <= 28) {
         d = roll_day;
@@ -101,7 +108,8 @@ inline std::size_t schedule_capacity(std::int64_t start, std::int64_t end,
 // Generate an ascending schedule of day counts into out, returning the count.
 // Mirrors finance.dates.schedules.vectorized.generate_schedule semantics:
 //   freq_type: -1 Once (returns {start, end}) | 1 month-based | 2 day-based
-//   roll: Roll.value (-1 EOM, 0 infer from the anchor, 1..31 clamped)
+//   roll: Roll.value (-2 IMM third Wednesday, -1 EOM, 0 infer from the anchor,
+//         1..31 clamped)
 //   direction: 0 forward (anchor = first_regular, positive step),
 //              else backward (anchor = last_regular, negative step)
 // Stub periods come from endpoint injection: start/end are prepended/appended
