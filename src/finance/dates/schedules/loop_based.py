@@ -7,7 +7,13 @@ import numpy as np
 
 from finance.dates.date import Date
 from finance.dates.enums import Frequency, Roll, Direction
-from finance.dates.schedules.helpers import days_from_ymd, days_in_month, days_to_month_index, is_eom_days
+from finance.dates.schedules.helpers import (
+    days_from_ymd,
+    days_in_month,
+    days_to_month_index,
+    is_eom_days,
+    third_wednesday,
+)
 
 
 def generate_schedule_loop(
@@ -47,6 +53,8 @@ def generate_schedule_loop(
         def date_at(k: int) -> int:
             mi = anchor_mi + k * step
             y, m = mi // 12, mi % 12 + 1
+            if roll_day == -2:
+                return third_wednesday(y, m)
             eom = int(days_in_month(y, m))
             d = roll_day if 1 <= roll_day <= 28 else (eom if roll_day == -1 else min(roll_day, eom))
             return days_from_ymd(y, m, d)

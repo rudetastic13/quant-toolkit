@@ -75,7 +75,15 @@ def generate_schedule(
 
         # branching for direct cacls
         d = _Allocated_Cache.get_slice(arr_size)
-        if 1 <= roll_day <= 28:
+        if roll_day == -2:
+            # IMM third Wednesday: day-of-month from the weekday of the 1st (ordinal 0 is a Thursday, Monday=0)
+            d[:] = _MONTH_TO_DAYS_OFFSET[arr]
+            np.add(d, 3, out=d)
+            np.mod(d, 7, out=d)
+            np.subtract(2, d, out=d)
+            np.mod(d, 7, out=d)
+            np.add(d, 15, out=d)
+        elif 1 <= roll_day <= 28:
             d[:] = roll_day
         else:
             if roll_day == -1:

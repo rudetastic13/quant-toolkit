@@ -62,6 +62,11 @@ if njit is not None:
         mi = month_index + delta
         y = mi // 12
         m = mi % 12 + 1
+        if roll_day == -2:
+            # IMM third Wednesday (ordinal 0 is a Thursday, Monday=0)
+            fom = _days_from_ymd(y, m, 1)
+            dow = (fom + 3) % 7
+            return fom + (2 - dow) % 7 + 14
         if 1 <= roll_day <= 28:
             d = roll_day
         elif roll_day == -1:

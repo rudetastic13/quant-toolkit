@@ -253,3 +253,61 @@ def subtract_frequency(dt: DateType, frequency: Frequency, bdc: str | BDC, calen
     numpy.datetime64('2025-03-31')
     """
     return type_map[type(dt)]().subtract_frequency(dt, frequency, bdc, calendar)
+
+
+def next_imm_date(dt: DateType, frequency: Frequency = Frequency.Quarterly) -> DateType:
+    """
+    First IMM date (third Wednesday) strictly after each element of ``dt``.
+
+    Parameters
+    ----------
+    dt : Date, np.datetime64, or np.ndarray[datetime64[D]]
+        Reference date(s).
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    Date, np.datetime64, or np.ndarray[datetime64[D]]
+        Next on-cycle third Wednesday, strictly after each input date.
+
+    Examples
+    --------
+    >>> next_imm_date(Date(2025, 6, 17))
+    Date(2025, 6, 18)
+
+    >>> dates = np.array(["2025-06-17", "2025-06-18"], dtype="datetime64[D]")
+    >>> next_imm_date(dates)
+    array(['2025-06-18', '2025-09-17'], dtype='datetime64[D]')
+    """
+    return type_map[type(dt)]().next_imm_date(dt, frequency)
+
+
+def prior_imm_date(dt: DateType, frequency: Frequency = Frequency.Quarterly) -> DateType:
+    """
+    Last IMM date (third Wednesday) strictly before each element of ``dt``.
+
+    Parameters
+    ----------
+    dt : Date, np.datetime64, or np.ndarray[datetime64[D]]
+        Reference date(s).
+    frequency : Frequency
+        IMM cycle, anchored so December is on-cycle: ``Quarterly`` (default)
+        gives the Mar/Jun/Sep/Dec futures months, ``Monthly`` all serial months.
+
+    Returns
+    -------
+    Date, np.datetime64, or np.ndarray[datetime64[D]]
+        Prior on-cycle third Wednesday, strictly before each input date.
+
+    Examples
+    --------
+    >>> prior_imm_date(Date(2025, 6, 19))
+    Date(2025, 6, 18)
+
+    >>> dates = np.array(["2025-06-18", "2025-06-19"], dtype="datetime64[D]")
+    >>> prior_imm_date(dates)
+    array(['2025-03-19', '2025-06-18'], dtype='datetime64[D]')
+    """
+    return type_map[type(dt)]().prior_imm_date(dt, frequency)

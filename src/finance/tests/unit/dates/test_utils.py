@@ -21,6 +21,8 @@ from finance.dates.utils import (
     subtract_term,
     add_frequency,
     subtract_frequency,
+    next_imm_date,
+    prior_imm_date,
     date_based_utils_module,
     np_date_based_utils_module,
 )
@@ -471,6 +473,76 @@ class TestSubtractFrequencyNp(_NpBase, _TestSubtractFrequency):
 
 class TestSubtractFrequencyDt(_DtBase, _TestSubtractFrequency):
     __test__ = True
+
+
+# ---------------------------------------------------------------------------
+# next_imm_date / prior_imm_date
+# ---------------------------------------------------------------------------
+
+@pytest.mark.datemath
+class _TestImmDates(_BaseUtilsTest):
+    __test__ = False
+
+    # 2025 quarterly IMM dates: Mar 19, Jun 18, Sep 17, Dec 17
+
+    def test_next_quarterly(self):
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 1, 2))), Date(2025, 3, 19))
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 6, 17))), Date(2025, 6, 18))
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 6, 19))), Date(2025, 9, 17))
+
+    def test_next_is_strict_on_imm_date(self):
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 6, 18))), Date(2025, 9, 17))
+
+    def test_prior_quarterly(self):
+        self._assert_dt_equal(prior_imm_date(self._dt(Date(2025, 6, 19))), Date(2025, 6, 18))
+        self._assert_dt_equal(prior_imm_date(self._dt(Date(2025, 6, 17))), Date(2025, 3, 19))
+
+    def test_prior_is_strict_on_imm_date(self):
+        self._assert_dt_equal(prior_imm_date(self._dt(Date(2025, 6, 18))), Date(2025, 3, 19))
+
+    def test_year_boundary(self):
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 12, 18))), Date(2026, 3, 18))
+        self._assert_dt_equal(prior_imm_date(self._dt(Date(2026, 1, 5))), Date(2025, 12, 17))
+
+    def test_serial_monthly(self):
+        self._assert_dt_equal(next_imm_date(self._dt(Date(2025, 1, 16)), Frequency.Monthly), Date(2025, 2, 19))
+        self._assert_dt_equal(prior_imm_date(self._dt(Date(2025, 1, 16)), Frequency.Monthly), Date(2025, 1, 15))
+
+    def test_rejects_non_month_frequency(self):
+        for frequency in (Frequency.Weekly, Frequency.Daily, Frequency.Once, Frequency.TwoYearly):
+            with self.assertRaises(ValueError):
+                next_imm_date(self._dt(Date(2025, 1, 16)), frequency)
+            with self.assertRaises(ValueError):
+                prior_imm_date(self._dt(Date(2025, 1, 16)), frequency)
+
+
+class TestImmDatesNp(_NpBase, _TestImmDates):
+    __test__ = True
+
+    def test_array_input(self):
+        dts = self._dts([Date(2025, 6, 17), Date(2025, 6, 18), Date(2025, 6, 19)])
+        self._assert_dts_equal(next_imm_date(dts), [Date(2025, 6, 18), Date(2025, 9, 17), Date(2025, 9, 17)])
+        self._assert_dts_equal(prior_imm_date(dts), [Date(2025, 3, 19), Date(2025, 3, 19), Date(2025, 6, 18)])
+
+    def test_sweep_matches_dt_backend(self):
+        # every day across 2024-2026: the vectorized results agree with the scalar Date backend
+        days = np.arange(np.datetime64("2024-01-01"), np.datetime64("2027-01-01"), dtype="datetime64[D]")
+        dt_mod = date_based_utils_module()
+        for frequency in (Frequency.Quarterly, Frequency.Monthly):
+            nxt = next_imm_date(days, frequency).view(np.int64)
+            pri = prior_imm_date(days, frequency).view(np.int64)
+            for ordinal, expected_next, expected_prior in zip(days.view(np.int64), nxt, pri):
+                d = Date.fromordinal(int(ordinal))
+                self.assertEqual(dt_mod.next_imm_date(d, frequency).toordinal(), expected_next, msg=f"next {d}")
+                self.assertEqual(dt_mod.prior_imm_date(d, frequency).toordinal(), expected_prior, msg=f"prior {d}")
+
+
+class TestImmDatesDt(_DtBase, _TestImmDates):
+    __test__ = True
+
+    def test_returns_date_type(self):
+        self.assertIsInstance(next_imm_date(Date(2025, 6, 17)), Date)
+        self.assertIsInstance(prior_imm_date(Date(2025, 6, 17)), Date)
 
 
 # ---------------------------------------------------------------------------

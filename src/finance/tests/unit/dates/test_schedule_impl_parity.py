@@ -76,7 +76,7 @@ class TestScheduleImplParity(UnitTest):
         Frequency.SemiAnnually,
         Frequency.Annually,
     ]
-    rolls = [Roll.Empty, Roll.EOM, Roll.RollDay1, Roll.RollDay15, Roll.RollDay28, Roll.RollDay29, Roll.RollDay31]
+    rolls = [Roll.Empty, Roll.EOM, Roll.IMM, Roll.RollDay1, Roll.RollDay15, Roll.RollDay28, Roll.RollDay29, Roll.RollDay31]
     directions = [Direction.Forward, Direction.Backward]
     # (first_regular_date, last_regular_date): no stub, front, back, both
     stub_configs = [
@@ -107,6 +107,52 @@ class TestScheduleImplParity(UnitTest):
                     expected = generate_schedule(anchor_start, anchor_end, frequency, direction=direction)
                     actual = impl(anchor_start, anchor_end, frequency, direction=direction)
                     np.testing.assert_array_equal(expected, actual)
+
+    # CME quarterly IMM dates (third Wednesday of Mar/Jun/Sep/Dec), Dec 2024 - Dec 2026
+    imm_quarterly = np.array(
+        [
+            "2024-12-18", "2025-03-19", "2025-06-18", "2025-09-17", "2025-12-17",
+            "2026-03-18", "2026-06-17", "2026-09-16", "2026-12-16",
+        ],
+        dtype="datetime64[D]",
+    )
+    # serial (monthly) IMM dates, Jan-Jun 2025
+    imm_serial = np.array(
+        ["2025-01-15", "2025-02-19", "2025-03-19", "2025-04-16", "2025-05-21", "2025-06-18"],
+        dtype="datetime64[D]",
+    )
+
+    def _imm_impls(self):
+        impls = [generate_schedule, generate_schedule_loop]
+        if numba_available():
+            impls.append(generate_schedule_numba)
+        if core_available():
+            impls.append(generate_schedule_cpp)
+        return impls
+
+    def test_imm_known_cme_dates(self):
+        # absolute anchor: parity alone would propagate a shared bug, so pin real CME dates
+        for impl in self._imm_impls():
+            with self.subTest(msg=f"quarterly/{impl.__module__}"):
+                actual = impl(Date(2024, 12, 18), Date(2026, 12, 16), Frequency.Quarterly, roll_convention=Roll.IMM)
+                np.testing.assert_array_equal(actual, self.imm_quarterly)
+            with self.subTest(msg=f"serial/{impl.__module__}"):
+                actual = impl(Date(2025, 1, 15), Date(2025, 6, 18), Frequency.Monthly, roll_convention=Roll.IMM)
+                np.testing.assert_array_equal(actual, self.imm_serial)
+
+    def test_imm_front_stub(self):
+        # spot-starting swap rolling on IMM: non-IMM start snaps in as a front stub
+        expected = np.concatenate([np.array(["2024-12-02"], dtype="datetime64[D]"), self.imm_quarterly[:5]])
+        for impl in self._imm_impls():
+            with self.subTest(msg=impl.__module__):
+                actual = impl(
+                    Date(2024, 12, 2),
+                    Date(2025, 12, 17),
+                    Frequency.Quarterly,
+                    first_regular_date=Date(2024, 12, 18),
+                    roll_convention=Roll.IMM,
+                )
+                np.testing.assert_array_equal(actual, expected)
 
     def _assert_rejects_bad_order(self, impl):
         with self.assertRaises(ValueError):

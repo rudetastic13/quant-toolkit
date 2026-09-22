@@ -46,6 +46,8 @@ from finance.dates.utils import (
     subtract_term,
     add_frequency,
     subtract_frequency,
+    next_imm_date,
+    prior_imm_date,
 )
 from common.object.serializer import register_type
 
@@ -76,4 +78,6 @@ __all__ = [
     "subtract_term",
     "add_frequency",
     "subtract_frequency",
+    "next_imm_date",
+    "prior_imm_date",
 ]

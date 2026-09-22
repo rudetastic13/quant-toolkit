@@ -1,6 +1,7 @@
 from enum import IntEnum
 
 class Roll(IntEnum):
+    IMM = -2  # third Wednesday of the month
     EOM = -1
     Empty = 0
     RollDay1 = 1
