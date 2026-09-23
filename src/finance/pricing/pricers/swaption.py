@@ -8,14 +8,23 @@ import numpy as np
 
 from finance.instruments.resolution.swaption import Swaption, SwaptionModel
 from finance.instruments.resolution.resolver import curve_name
+from finance.markets.vols import VolUnits
 from finance.pricing.engines.numpy.option import OptionGreeks
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
 from finance.pricing.types import Backend
 
+# Quoting convention each model consumes; enforced against VolSurface.units at lookup.
+_SURFACE_UNITS = {
+    SwaptionModel.Black: VolUnits.Lognormal,
+    SwaptionModel.Bachelier: VolUnits.Normal,
+}
+
 
 @dataclass(frozen=True)
 class SwaptionPricingResult:
+    """Reprice output; ``greeks`` are monetary — every unit (per-annuity) greek scaled by ``annuity``."""
+
     pv: np.ndarray
     forward: np.ndarray
     annuity: np.ndarray
@@ -78,7 +87,14 @@ class SwaptionProgram:
             tenor[i] = (fixed_leg.maturity.to_numpy() - fixed_leg.effective.to_numpy()).astype(int) / 365.0
             strike[i] = float(fixed_leg.coupon_rate)
             name = option.vol_name or curve_name(option.underlying.currency, option.underlying.index_name)
-            vol[i] = float(market.vols.resolve(name).vol(expiry[i], tenor[i], strike[i]))
+            surface = market.vols.resolve(name)
+            required = _SURFACE_UNITS[option.model]
+            if surface.units != required:
+                raise ValueError(
+                    f"swaption model {option.model.name} requires a {required.name} vol surface; "
+                    f"'{name}' is quoted {surface.units.name}"
+                )
+            vol[i] = float(surface.vol(expiry[i], tenor[i], strike[i], forward[i]))
         return strike, expiry, vol
 
     def _unit_greeks(self, forward, strike, expiry, vol) -> OptionGreeks:
@@ -118,10 +134,13 @@ class SwaptionProgram:
         )
 
     def risk(self, market, curve: str, *, bp: float = 1e-4) -> SwaptionRiskResult:
-        """Chain option delta through the underlying forward and annuity adjoints."""
-        from finance.pricing.engines.numba import NumbaProgram
+        """Chain option delta through the underlying forward and annuity adjoints.
 
-        numba_program = NumbaProgram(self.program.inputs, market)
+        Always runs on the Numba adjoint regardless of the reprice backend (numpy has no
+        analytic adjoint), and holds the quoted vol fixed under curve moves (sticky
+        strike) — there is no dvol/dforward cross term.
+        """
+        numba_program = self.program.prepare(market, backend=Backend.Numba)
         adjoint = numba_program.value_and_grad(market)
         flow_gradient = adjoint.cashflow_gradient(curve, role="total")
         leg_gradient = np.add.reduceat(flow_gradient, self.program.inputs.leg_offsets, axis=0)
@@ -143,7 +162,9 @@ class SwaptionProgram:
 
 
 class SwaptionPricer:
-    default_backend = Backend.Numba
+    # Numpy is the always-available reference (numba is optional and LogLinearDF-only);
+    # pass Backend.Numba for the fused hot path.  risk() uses the Numba adjoint either way.
+    default_backend = Backend.Numpy
 
     def compile(self, swaptions: list[Swaption], *, backend: Backend | None = None) -> SwaptionProgram:
         selected = self.default_backend if backend is None else Backend(backend)

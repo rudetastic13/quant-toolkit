@@ -70,11 +70,11 @@ class SwapPricer:
             backend=self.default_backend if backend is None else Backend(backend),
         )
 
-    def price(self, swaps: list[Swap], market, *, backend: Backend = Backend.Numpy) -> PricingResult:
-        backend = Backend(backend)
-        if backend not in (Backend.Numpy, Backend.Numba):
-            raise NotImplementedError(f"backend {backend.name} is not implemented by SwapPricer")
-        return self.compile(swaps, backend=backend).price(market)
+    def price(self, swaps: list[Swap], market, *, backend: Backend | None = None) -> PricingResult:
+        selected = self.default_backend if backend is None else Backend(backend)
+        if selected not in (Backend.Numpy, Backend.Numba):
+            raise NotImplementedError(f"backend {selected.name} is not implemented by SwapPricer")
+        return self.compile(swaps, backend=selected).price(market)
 
     def _leg_spec(
         self, leg: CommonInstrument, sign: float, discount_curve: str, projection_curve: str, inst: int

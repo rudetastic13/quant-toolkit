@@ -519,10 +519,6 @@ class NumbaProgram:
             historical_reset.any() or historical_observation.any()
         )
 
-    @classmethod
-    def from_program(cls, program, market) -> "NumbaProgram":
-        return cls(program.inputs, market)
-
     def params_from_market(self, market) -> np.ndarray:
         """Flatten non-origin zero rates after validating the prepared curve geometry."""
         if np.datetime64(market.as_of_date.to_str(), "D") != self.origin:

@@ -6,7 +6,7 @@ from finance.dates import Date
 from finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace
+from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
@@ -17,6 +17,7 @@ from finance.pricing.calibration import (
 )
 from finance.pricing.pricers import FuturesPricer, SwaptionPricer
 from finance.pricing.risk.sensitivities import bumped_curve
+from finance.pricing.types import Backend
 
 CURVE = "USD.SOFR"
 
@@ -30,7 +31,7 @@ def _market(as_of, *, vol=0.01):
     zero_curve = ZeroCurve(dates, np.exp(-z * t), CurveInterpolator.LogLinearDF)
     curves.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
     vols = VolNamespace()
-    vols.bind(CURVE, FlatVolSurface(vol))
+    vols.bind(CURVE, FlatVolSurface(vol, VolUnits.Normal))
     return MarketContext(as_of, curves, vols=vols)
 
 
@@ -95,7 +96,7 @@ class TestSwaptions(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
 
-    def _option(self, payer=True):
+    def _option(self, payer=True, model=SwaptionModel.Bachelier, vol_name=None):
         return Swaption.european(
             notional=1e6,
             strike=0.04,
@@ -103,7 +104,8 @@ class TestSwaptions(UnitTest):
             swap_tenor="5Y",
             as_of=self.as_of,
             payer=payer,
-            model=SwaptionModel.Bachelier,
+            model=model,
+            vol_name=vol_name,
         )
 
     def test_payer_receiver_parity(self):
@@ -127,3 +129,25 @@ class TestSwaptions(UnitTest):
     def test_monetary_vega_is_positive(self):
         result = SwaptionPricer().price([self._option(True)], self.market)
         self.assertGreater(result.greeks.vega[0], 0.0)
+
+    def test_numpy_and_numba_backends_agree(self):
+        options = [self._option(True), self._option(False)]
+        via_numpy = SwaptionPricer().price(options, self.market, backend=Backend.Numpy)
+        via_numba = SwaptionPricer().price(options, self.market, backend=Backend.Numba)
+        np.testing.assert_allclose(via_numba.pv, via_numpy.pv, rtol=1e-12)
+        for field in ("value", "delta", "gamma", "vega", "vanna", "volga"):
+            np.testing.assert_allclose(
+                getattr(via_numba.greeks, field), getattr(via_numpy.greeks, field), rtol=1e-9
+            )
+
+    def test_black_model_payer_receiver_parity(self):
+        self.market.vols.bind("USD.SOFR.LN", FlatVolSurface(0.25, VolUnits.Lognormal))
+        payer = SwaptionPricer().price([self._option(True, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
+        receiver = SwaptionPricer().price([self._option(False, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
+        expected = payer.annuity[0] * (payer.forward[0] - 0.04)
+        self.assertAlmostEqual(payer.pv[0] - receiver.pv[0], expected, places=7)
+
+    def test_vol_units_mismatch_raises(self):
+        # default vol name resolves the Normal surface; Black requires Lognormal
+        with self.assertRaisesRegex(ValueError, "Lognormal"):
+            SwaptionPricer().price([self._option(True, SwaptionModel.Black)], self.market)

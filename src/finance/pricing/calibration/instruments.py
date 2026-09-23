@@ -31,7 +31,6 @@ from finance.conventions import ConventionRegistry, default_registry
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
 from finance.pricing.pricers.futures import FuturesPricer
-from finance.pricing.types import Backend
 
 
 class QuoteKind(IntEnum):
@@ -184,7 +183,7 @@ class FuturesHelper:
     _program: object = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._program = FuturesPricer().compile([self.future], backend=Backend.Numpy)
+        self._program = FuturesPricer().compile([self.future])
 
     @property
     def pillar_date(self) -> np.datetime64:

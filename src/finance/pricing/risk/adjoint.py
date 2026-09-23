@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from finance.pricing.engines.numba import NumbaProgram
+from finance.pricing.types import Backend
 
 FloatArray = np.ndarray
 BP = 1e-4
@@ -19,7 +19,7 @@ class NumbaRisk:
     """
 
     def __init__(self, program, market, bp: float = BP):
-        self.program = NumbaProgram.from_program(program, market)
+        self.program = program.prepare(market, backend=Backend.Numba)
         self.market = market
         self.bp = float(bp)
         self.z0 = self.program.params_from_market(market)

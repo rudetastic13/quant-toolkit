@@ -7,7 +7,8 @@ rebuild.  This is the structural fix for the legacy approach that rebuilt the wh
 shocked curve.  The future Sensitivities layer bumps the market and calls ``reprice`` here.
 
 It is intentionally NOT called "Portfolio" — it has no positions, P&L, or book identity;
-that word is reserved for a future book abstraction that would sit on top of this.
+that word is reserved for the book abstraction designed in docs/portfolio_and_scenarios.md,
+which sits on top of this.
 """
 from __future__ import annotations
 

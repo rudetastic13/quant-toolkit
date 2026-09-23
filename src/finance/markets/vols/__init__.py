@@ -11,6 +11,7 @@ pricers resolve a surface by name exactly as linear pricers resolve a curve.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import IntEnum
 from typing import Protocol, runtime_checkable
 
 import numpy as np
@@ -18,16 +19,29 @@ import numpy as np
 FloatArray = np.ndarray  # NDArray[float64]
 
 
+class VolUnits(IntEnum):
+    """Quoting convention of a surface: Normal (Bachelier) or Lognormal (Black)."""
+
+    Normal = 1
+    Lognormal = 2
+
+
 @runtime_checkable
 class VolSurface(Protocol):
     """Contract every vol surface must satisfy.
 
-    ``expiry`` and ``tenor`` are year-fractions; ``strike`` and the return are
-    in the surface's own units (normal vol for Bachelier, lognormal for Black).
-    All arguments broadcast as numpy arrays.
+    ``expiry`` and ``tenor`` are year-fractions; ``strike`` and ``forward`` are in rate
+    units.  ``units`` declares the quoting convention so a pricer can refuse a surface
+    quoted for the wrong model.  ``forward`` lets a smile surface interpolate in
+    moneyness; strike-only surfaces may ignore it.  All arguments broadcast as numpy
+    arrays.
     """
 
-    def vol(self, expiry: FloatArray, tenor: FloatArray, strike: FloatArray) -> FloatArray: ...
+    units: VolUnits
+
+    def vol(
+        self, expiry: FloatArray, tenor: FloatArray, strike: FloatArray, forward: FloatArray
+    ) -> FloatArray: ...
 
 
 @dataclass
@@ -35,8 +49,9 @@ class FlatVolSurface:
     """A single constant vol for all (expiry, tenor, strike). Stub only."""
 
     level: float
+    units: VolUnits
 
-    def vol(self, expiry, tenor, strike) -> FloatArray:
+    def vol(self, expiry, tenor, strike, forward) -> FloatArray:
         return np.full(np.broadcast(expiry, tenor, strike).shape, self.level, dtype=np.float64)
 
 
@@ -77,4 +92,4 @@ class VolNamespace:
         return name in self._surfaces
 
 
-__all__ = ["VolSurface", "FlatVolSurface", "VolNamespace"]
+__all__ = ["VolSurface", "VolUnits", "FlatVolSurface", "VolNamespace"]

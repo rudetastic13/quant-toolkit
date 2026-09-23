@@ -11,6 +11,8 @@ the design decisions, and the patterns in play.
 > approximation for second order.
 > [sofr_futures.md](sofr_futures.md) — adding SOFR futures: instrument layer, contract-month
 > dating, and convexity-adjusted calibration.
+> [portfolio_and_scenarios.md](portfolio_and_scenarios.md) — DESIGN: the book-level layer
+> (Portfolio, Scenario, measures, `portfolio @ scenario`) that sits on top of everything here.
 
 ---
 
@@ -72,7 +74,8 @@ Reading it:
   record into an instrument. For a swap, `Swap.fixed_float_swap(...)` resolves market conventions
   from `(currency, index)` so the trader supplies ~4 fields, not ~25.
 - **Resolve, or push to a container.** A `Swap` is a pure-data contract. Many of
-  them collect into a plain container (a list — *not* a "Portfolio"; that word is reserved).
+  them collect into a plain container (a list — *not* a "Portfolio"; that word is reserved
+  for the book layer designed in [portfolio_and_scenarios.md](portfolio_and_scenarios.md)).
 - **Compile -> PricingProgram.** `SwapPricer.compile` lowers the instruments into one
   columnar `KernelInputs` and wraps it as a `PricingProgram`.
 - **Reprice with market.** `PricingProgram.reprice(market)` is the cheap, repeatable step.
@@ -240,14 +243,25 @@ single-fixing floats.
 
 - **Backends.** Register `(kernel_id, Backend.Numba)` / `Backend.Rust` kernels with the same
   `KernelInputs`/`KernelResult` contract — no pricer changes.
-- **Options / vols.** `VolNamespace` + `VolSurface` are designed seams; an option model
-  (Black/Bachelier) registers alongside the rate kernels.
-- **Sensitivities.** A `KeyRateDuration` layer takes a `PricingProgram` + curve and
-  bump-reprices — the clean replacement for the legacy rebuild-per-pillar KRD.
+- **Options / vols.** Implemented for European swaptions: Black-76 / Bachelier kernels with
+  full analytic greeks (value/delta/gamma/vega/vanna/volga) registered under
+  `(KERNEL_BLACK|KERNEL_BACHELIER, Numpy|Numba)`, and `SwaptionPricer` pricing off the
+  compiled unit-coupon swap program (forward and annuity read from leg PVs; option greeks
+  chained through the curve adjoint in `risk()`). The `VolSurface` protocol is
+  **units-typed** — `VolUnits.Normal` (Bachelier) vs `VolUnits.Lognormal` (Black), enforced
+  against the swaption's model at lookup — and **forward-aware** (`vol(expiry, tenor, strike,
+  forward)`) so a smile surface can interpolate in moneyness without a protocol break.
+  `FlatVolSurface` is the stub; calibrated surfaces remain future work.
+- **Sensitivities.** Implemented as three layers: `Sensitivities` (universal
+  bump-and-reprice), `NumbaRisk` (exact adjoint ladders + FD-of-gradient gamma), and the
+  `RiskEngine` front door that dispatches between them per
+  [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
+  rebuild-per-pillar KRD.
 - **Dynamic notionals.** `RateDependentNotional` is a designed seam for amortizing / MSR
   exposures (time-step across periods, vectorized across the population).
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
-  on top of `PricingProgram`.
+  on top of `PricingProgram` — designed in
+  [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
 
 ---
 

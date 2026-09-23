@@ -97,10 +97,12 @@ class FuturesProgram:
         return FuturesPricingResult(model_rate=rate, model_price=price, pnl=pnl)
 
     def risk(self, market, curve: str) -> FuturesRiskResult:
-        """Analytic rate, price, and P&L gradients from the Numba projection adjoint."""
-        from finance.pricing.engines.numba import NumbaProgram
+        """Analytic rate, price, and P&L gradients from the Numba projection adjoint.
 
-        numba_program = NumbaProgram(self.program.inputs, market)
+        Always runs on the Numba adjoint regardless of the reprice backend (numpy has no
+        analytic adjoint).
+        """
+        numba_program = self.program.prepare(market, backend=Backend.Numba)
         adjoint = numba_program.value_and_grad(market)
         flow_grad = adjoint.cashflow_gradient(curve, role="index")
         ki = self.program.inputs
@@ -117,7 +119,9 @@ class FuturesProgram:
 
 
 class FuturesPricer:
-    default_backend = Backend.Numba
+    # Numpy is the always-available reference (numba is optional and LogLinearDF-only);
+    # pass Backend.Numba for the fused hot path.  risk() uses the Numba adjoint either way.
+    default_backend = Backend.Numpy
 
     def compile(self, futures: list[SofrFuture], *, backend: Backend | None = None) -> FuturesProgram:
         selected = self.default_backend if backend is None else Backend(backend)
