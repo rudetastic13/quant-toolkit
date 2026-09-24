@@ -102,7 +102,7 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"
     market = base.with_curve(
-        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
     )
     return market, result.zero_curve, cn
 
@@ -162,11 +162,9 @@ def zero_rates_from_curve(curve: ZeroCurve) -> tuple[np.ndarray, np.ndarray, np.
     pillar — *exactly* what ``Sensitivities.bumped_curve`` shifts, so JAX gradients in ``z``
     are directly comparable to the engine's key-rate ladder.
     """
-    o = curve.origin.astype(np.int64)
-    x_nodes = (curve.node_dates.astype(np.int64) - o).astype(np.float64)  # incl. origin (0.0)
+    x_nodes = curve.x  # incl. origin (0.0)
     t = x_nodes[1:] / 365.0  # Act/365 year fraction at each non-origin pillar
-    z0 = -np.log(curve.node_dfs[1:]) / t
-    return x_nodes, t, z0
+    return x_nodes, t, curve.node_zero_rates
 
 
 def make_df(x_nodes: np.ndarray, t_nodes: np.ndarray):
@@ -253,7 +251,7 @@ def main() -> None:
 
     # ----- JAX PATH --------------------------------------------------------
     x_nodes, t_nodes, z0 = zero_rates_from_curve(curve)
-    flows = CompiledFlows(program, curve.origin)
+    flows = CompiledFlows(program, market.yield_curve(cn).origin)
     df = make_df(x_nodes, t_nodes)
     flow_pv = make_pricer(flows, df)
 
@@ -317,7 +315,7 @@ def main() -> None:
         ),
     ]
     book_prog = SwapPricer().compile(book)
-    book_flows = CompiledFlows(book_prog, curve.origin)
+    book_flows = CompiledFlows(book_prog, market.yield_curve(cn).origin)
     book_inst_pv = make_instrument_pv(book_flows, make_pricer(book_flows, df))
     jac = np.asarray(jax.jit(jax.jacobian(book_inst_pv))(z)) * BP  # (n_inst, P) KRD matrix
 

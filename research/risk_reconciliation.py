@@ -136,7 +136,8 @@ def report(labels, engines, maps) -> None:
 
 if __name__ == "__main__":
     res = S.calibrate(S.GlobalSolver(), jacobian=True)
-    market, curve, J_swap = S.register_sofr_curve(res), res.zero_curve, res.jacobian
+    market, J_swap = S.register_sofr_curve(res), res.jacobian
+    curve = market.yield_curve(S.CURVE)  # origin + ZeroCurve, what the Jacobian needs
 
     swaps, labels = build_book(market)
     program = SwapPricer().compile(swaps)

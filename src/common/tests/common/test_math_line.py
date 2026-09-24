@@ -170,9 +170,16 @@ class TestLine1dValidation(UnitTest):
         with self.assertRaises(ValueError):
             Line1d(np.zeros((2, 2)), np.zeros((2, 2)))
 
-    def test_single_node_rejected(self):
+    def test_single_node_only_with_flat(self):
+        line = Line1d(np.array([0.0]), np.array([1.0]), Flat(), left=Extrapolation.Flat, right=Extrapolation.Flat)
+        np.testing.assert_array_equal(line(np.array([-1.0, 0.0, 1.0])), [1.0, 1.0, 1.0])
+        for interpolator in (Linear(), Cubic(), Quadratic()):
+            with self.subTest(interpolator=interpolator), self.assertRaises(ValueError):
+                Line1d(np.array([0.0]), np.array([1.0]), interpolator)
+
+    def test_empty_rejected(self):
         with self.assertRaises(ValueError):
-            Line1d(np.array([0.0]), np.array([1.0]))
+            Line1d(np.array([]), np.array([]), Flat())
 
     def test_repr_names_configuration(self):
         text = repr(_line(Cubic(), right=Extrapolation.Linear))

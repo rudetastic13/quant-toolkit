@@ -25,7 +25,7 @@ import jax
 import jax.numpy as jnp
 
 from finance.dates import period_fractions
-from finance.markets.curves import ZeroCurve
+from finance.markets.curves import YieldCurve
 from finance.pricing.calibration.instruments import DepositHelper, FraHelper, SwapHelper
 from finance.pricing.engines.jax.curves import curve_geometry, make_df
 from finance.pricing.engines.jax.program import JaxProgram
@@ -70,9 +70,9 @@ def _swap_fn(helper: SwapHelper, market, curve_name: str):
     return implied
 
 
-def implied_vector_fn(helpers, target_name: str, market, curve: ZeroCurve):
+def implied_vector_fn(helpers, target_name: str, market, curve: YieldCurve):
     """Build ``z -> (implied measure per helper)`` as one differentiable ``jnp`` function."""
-    geom = curve_geometry(curve)
+    geom = curve_geometry(curve.zero_curve)
     df = make_df(geom)
     origin = curve.origin.astype(np.int64)
 
@@ -91,7 +91,7 @@ def implied_vector_fn(helpers, target_name: str, market, curve: ZeroCurve):
     return implied_vector, jnp.asarray(geom.z0)
 
 
-def calibration_jacobian(helpers, target_name: str, market, curve: ZeroCurve) -> np.ndarray:
+def calibration_jacobian(helpers, target_name: str, market, curve: YieldCurve) -> np.ndarray:
     """Exact ``J_ij = ∂impliedᵢ/∂zⱼ`` at the calibrated curve (shape ``(n_helpers, n_pillars)``)."""
     implied_vector, z0 = implied_vector_fn(helpers, target_name, market, curve)
     return np.asarray(jax.jacobian(implied_vector)(z0))

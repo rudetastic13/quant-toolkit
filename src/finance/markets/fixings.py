@@ -22,7 +22,7 @@ class HistoricalFixings:
 
     The object deliberately carries no valuation-date or projection behavior. ``YieldCurve``
     owns the history and ``RateGenerator`` decides whether a requested fixing is historical
-    by comparing its date with the associated ``ZeroCurve.origin``.
+    by comparing its date with the associated ``YieldCurve.origin``.
     """
 
     dates: DateArray

@@ -27,7 +27,7 @@ from numpy.typing import NDArray
 from finance.dates import Date, Term, TermType
 from finance.markets import RateGenerator
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve, CurveInterpolator
+from finance.markets.curves import CurveInterpolator, CurveNamespace, Mixed, YieldCurve, ZeroCurve
 
 # ---------------------------------------------------------------------------
 # Shared node inputs  (np.ndarray[datetime64[D]] + np.ndarray[float64])
@@ -61,6 +61,32 @@ CUTOVER_TERM = Term(2, TermType.Years)   # always 2-year cutover
 CUTOVER_PAIRS: list[tuple[CurveInterpolator, CurveInterpolator]] = [
     (CurveInterpolator.LogLinearDF, CurveInterpolator.LogCubicDF),
 ]
+
+# ---------------------------------------------------------------------------
+# Curve construction
+# ---------------------------------------------------------------------------
+
+def _build(scheme: CurveInterpolator) -> YieldCurve:
+    """Dates-in construction: the named scheme resolves to (space, interpolator)."""
+    space, interpolator = scheme.resolve()
+    return YieldCurve.build(
+        NODE_DATES, NODE_VALUES, currency="USD", index_name="SOFR", space=space, interpolator=interpolator,
+    )
+
+
+def _build_mixed(short: CurveInterpolator, long: CurveInterpolator) -> YieldCurve:
+    """``short`` up to the 2Y node, ``long`` after it.  Both schemes must share a space."""
+    space, short_interp = short.resolve()
+    long_space, long_interp = long.resolve()
+    if space is not long_space:
+        raise ValueError("Mixed interpolation needs both schemes in the same space")
+    base = _build(short)
+    switch = base.node_index(CUTOVER_TERM)
+    zero = ZeroCurve(
+        base.zero_curve.x, base.zero_curve.dfs, space=space, interpolator=Mixed(short_interp, long_interp, switch),
+    )
+    return base.with_zero_curve(zero)
+
 
 # ---------------------------------------------------------------------------
 # Styling
@@ -100,22 +126,22 @@ def _to_years(dates: NDArray[np.datetime64]) -> NDArray[np.float64]:
 
 
 def _eval_curve(
-    curve: ZeroCurve,
+    curve: YieldCurve,
     dates: NDArray[np.datetime64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
     """Return (discount_factors, zero_rates_pct) for a smooth date grid."""
     return curve.discount_factor(dates), curve.zero_rate(dates) * 100.0
 
 
-def _rate_generator(curve: ZeroCurve) -> RateGenerator:
+def _rate_generator(curve: YieldCurve) -> RateGenerator:
     namespace = CurveNamespace()
-    namespace.bind(YieldCurve.from_registry(curve, currency="USD", index_name="SOFR"))
+    namespace.bind(curve)
     market = MarketContext(as_of_date=Date.from_numpy(curve.origin), curves=namespace)
     return RateGenerator(market)
 
 
 def _eval_fwd(
-    curve: ZeroCurve,
+    curve: YieldCurve,
     fwd_grid: NDArray[np.datetime64],
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """
@@ -135,7 +161,7 @@ def _eval_fwd(
 
 
 def _pillar_values(
-    curve: ZeroCurve,
+    curve: YieldCurve,
 ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
     """Pillar times-in-years, DF values, and zero-rate-pct values."""
     t_yr = _to_years(PILLAR_DATES)
@@ -202,11 +228,11 @@ def plot_single_interpolations(save_path: str | None = None) -> plt.Figure:
         fontsize=13, fontweight="bold",
     )
 
-    ref_curve = ZeroCurve(NODE_DATES, NODE_VALUES, CurveInterpolator.LogLinearDF)
+    ref_curve = _build(CurveInterpolator.LogLinearDF)
     t_pil, df_pil, r_pil = _pillar_values(ref_curve)
 
     for idx, itype in enumerate(CurveInterpolator):
-        curve = ZeroCurve(NODE_DATES, NODE_VALUES, itype)
+        curve = _build(itype)
         dfs, rates = _eval_curve(curve, dates)
         t_mid, fwd_1d, fwd_1m = _eval_fwd(curve, fwd_grid)
         lbl   = _label(itype)
@@ -288,13 +314,7 @@ def plot_cutover_interpolations(save_path: str | None = None) -> plt.Figure:
     )
 
     for idx, (short, long) in enumerate(CUTOVER_PAIRS):
-        curve = ZeroCurve(
-            NODE_DATES,
-            NODE_VALUES,
-            interpolation=short,
-            interpolation_long=long,
-            interpolation_cutover=CUTOVER_TERM,
-        )
+        curve = _build_mixed(short, long)
         dfs, rates = _eval_curve(curve, dates)
         t_mid, fwd_1d, fwd_1m = _eval_fwd(curve, fwd_grid)
         lbl   = _cutover_label(short, long)
@@ -305,7 +325,7 @@ def plot_cutover_interpolations(save_path: str | None = None) -> plt.Figure:
         ax_1d.plot(t_mid, fwd_1d,   color=color, lw=1.4, label=lbl)
         ax_1m.plot(t_mid, fwd_1m,   color=color, lw=1.4, label=lbl)
 
-    ref_curve = ZeroCurve(NODE_DATES, NODE_VALUES, CurveInterpolator.LogLinearDF)
+    ref_curve = _build(CurveInterpolator.LogLinearDF)
     t_pil, df_pil, r_pil = _pillar_values(ref_curve)
     ax_df.scatter(t_pil, df_pil, color="black", zorder=6, s=45, label="Pillar nodes")
     ax_rate.scatter(t_pil, r_pil, color="black", zorder=6, s=45)

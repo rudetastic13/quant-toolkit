@@ -64,7 +64,7 @@ def build_market(as_of):
         helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
-        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
     )
     return market, cn
 

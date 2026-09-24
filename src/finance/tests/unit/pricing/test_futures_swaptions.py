@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.calibration import (
     CurveCalibrator,
@@ -28,8 +28,7 @@ def _market(as_of, *, vol=0.01):
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     curves = CurveNamespace()
-    zero_curve = ZeroCurve(dates, np.exp(-z * t), CurveInterpolator.LogLinearDF)
-    curves.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
+    curves.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR"))
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(vol, VolUnits.Normal))
     return MarketContext(as_of, curves, vols=vols)
@@ -64,7 +63,7 @@ class TestSofrFutures(UnitTest):
         analytic = program.risk(self.market, CURVE).rate_gradient[0]
         base = self.market.zero_curve(CURVE)
         h = 1e-6
-        for pillar in range(1, base.node_dates.size):
+        for pillar in range(1, base.x.size):
             yc = self.market.yield_curve(CURVE)
             up = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, h, pillar=pillar)))
             down = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, -h, pillar=pillar)))
@@ -119,7 +118,7 @@ class TestSwaptions(UnitTest):
         analytic = program.risk(self.market, CURVE).curve_gradient[0]
         base = self.market.zero_curve(CURVE)
         h = 1e-6
-        for pillar in range(1, base.node_dates.size):
+        for pillar in range(1, base.x.size):
             yc = self.market.yield_curve(CURVE)
             up = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, h, pillar=pillar)))
             down = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, -h, pillar=pillar)))

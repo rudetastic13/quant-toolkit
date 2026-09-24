@@ -18,7 +18,6 @@ import numpy as np
 from numba import njit
 
 from finance.instruments.enums import MarginTreatment
-from finance.markets.curves import CurveInterpolator
 from finance.pricing.kernels.inputs import KernelInputs, KernelResult
 from finance.pricing.types import RateKind
 
@@ -410,7 +409,7 @@ class NumbaProgram:
         if not self.curve_names:
             raise ValueError("NumbaProgram requires at least one curve")
 
-        origins = [np.datetime64(market.zero_curve(name).origin, "D") for name in self.curve_names]
+        origins = [np.datetime64(market.yield_curve(name).origin, "D") for name in self.curve_names]
         if any(origin != origins[0] for origin in origins[1:]):
             raise ValueError("all curves in a NumbaProgram must share the same origin")
         self.origin = origins[0]
@@ -478,12 +477,12 @@ class NumbaProgram:
         param_off = [0]
         self._node_dates: list[np.ndarray] = []
         for name in self.curve_names:
-            curve = market.zero_curve(name)
-            if curve.interpolation is not CurveInterpolator.LogLinearDF:
+            yield_curve = market.yield_curve(name)
+            if not yield_curve.zero_curve.is_log_linear:
                 raise NotImplementedError(
-                    f"NumbaProgram supports LogLinearDF; curve '{name}' uses {curve.interpolation.name}"
+                    f"NumbaProgram supports log-linear DF curves; curve '{name}' is {yield_curve.zero_curve!r}"
                 )
-            dates = curve.node_dates.astype("datetime64[D]")
+            dates = yield_curve.node_dates
             if dates.size < 2:
                 raise ValueError(f"curve '{name}' needs at least an origin and one pillar")
             x = offs(dates)
@@ -525,14 +524,12 @@ class NumbaProgram:
             raise ValueError("market as-of date differs from the prepared NumbaProgram origin")
         params: list[np.ndarray] = []
         for name, expected_dates in zip(self.curve_names, self._node_dates):
-            curve = market.zero_curve(name)
-            if curve.interpolation is not CurveInterpolator.LogLinearDF:
+            yield_curve = market.yield_curve(name)
+            if not yield_curve.zero_curve.is_log_linear:
                 raise ValueError(f"curve '{name}' interpolation changed after preparation")
-            dates = curve.node_dates.astype("datetime64[D]")
-            if not np.array_equal(dates, expected_dates):
+            if not np.array_equal(yield_curve.node_dates, expected_dates):
                 raise ValueError(f"curve '{name}' pillar geometry changed after preparation")
-            x = (dates[1:].astype(np.int64) - self._origin_ord) / 365.0
-            params.append(-np.log(curve.node_dfs[1:]) / x)
+            params.append(yield_curve.zero_curve.node_zero_rates)
         return _f64(np.concatenate(params))
 
     def _fixings_from_market(self, market):
@@ -543,7 +540,7 @@ class NumbaProgram:
         obs_value = np.zeros(ki.obs_w.size, dtype=np.float64)
         for ci, name in enumerate(self.curve_names):
             yield_curve = market.yield_curve(name)
-            origin = yield_curve.zero_curve.origin
+            origin = yield_curve.origin
             path = yield_curve.historical_fixings
             rm = (
                 (ki.proj_curve == ci)

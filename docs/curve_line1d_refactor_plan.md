@@ -1,6 +1,6 @@
 # Curve refactor: `Line1d` as the foundation of `ZeroCurve`
 
-Status: PR 1 in progress. This document is the working plan; tick items as they land and
+Status: PR 1 merged; PR 2 implemented on `feature/carlos/line_curve_refactor`. This document is the working plan; tick items as they land and
 keep the "Deferred" section current so design notes are not lost between sessions.
 
 ## Why
@@ -69,32 +69,40 @@ Decisions and their reasons:
 
 ## PR 2: `ZeroCurve` on `Line1d`; origin to `YieldCurve`
 
-- [ ] `ZeroCurve(x, dfs, *, space=CurveSpace.LogDF, interpolator=Linear(), extrapolation=RateExtrapolator.FlatForward)`.
+- [x] `ZeroCurve(x, dfs, *, space=CurveSpace.LogDF, interpolator=Linear(), extrapolation=RateExtrapolator.FlatForward)`.
       `space` owns the transform to/from DF. Left is always rejected. Flat-forward uses the
       interpolant's end derivative, not a one-day finite difference.
-- [ ] `with_dfs(dfs)` delegates to `Line1d.with_y`. `geometry` exports x, values-in-space,
-      space, coefficients for the engines.
-- [ ] Remove `interpolation_long` / `interpolation_cutover` / `alpha*` / `beta*`; `Mixed`
+- [x] `with_dfs(dfs)` delegates to `Line1d.with_y`. Engines read `x`, `node_zero_rates`,
+      `is_log_linear` and `line.coefficients` (no separate geometry dataclass was needed).
+- [x] Remove `interpolation_long` / `interpolation_cutover` / `alpha*` / `beta*`; `Mixed`
       covers the use case. Delete `_curve_impl/interpolators.py`.
-- [ ] `YieldCurve` gains `origin`; `discount_factor(dates)`, `log_discount_factor(dates)`,
+- [x] `YieldCurve` gains `origin`; `discount_factor(dates)`, `log_discount_factor(dates)`,
       `zero_rate(dates)` convert dates -> x here. `node_index(Term | date)` for `Mixed`.
       `YieldCurve.build(...)` convenience for dates-in construction.
-- [ ] Consumers: `pricing/kernels/compiler.py`, `pricers/futures.py`, `engines/numba/program.py`,
+- [x] Consumers: `pricing/kernels/compiler.py`, `pricers/futures.py`, `engines/numba/program.py`,
       `engines/numba/calibration.py`, `engines/jax/{program,curves,calibration}.py`,
       `risk/{sensitivities,engine}.py`, `calibration/calibrator.py` (`build_curve`),
       `quant_toolkit_xl` UDFs that construct curves, `research/` scripts.
-- [ ] Regression expects captured from the current implementation before the rewrite
-      (`common/testing/expects_loader.py`) so DF/zero/forward numbers are pinned.
+- [x] Regression expects captured from the legacy implementation before the rewrite
+      (`tests/unit/markets/expects/zero_curve_legacy.py`, loaded via `expects_loader`; needed
+      `tabulate`, now pinned in the env). Interior matches to 1e-10; the extrapolated region of
+      the non-linear schemes differs by up to ~4e-5 because the legacy terminal forward was a
+      one-day finite difference and the new one is the exact end derivative.
 
 ## PR 3: cleanup and docs
 
-- [ ] `CurveInterpolator` enum kept only as a parse table for Excel/config ->
+- [x] `CurveInterpolator` enum kept only as a parse table for Excel/config ->
       `(CurveSpace, Interpolator)`. Negative values dropped; `SupportedIntEnum` unused here.
 - [ ] `CLAUDE.md` (currently describes a log-DF-storing `ZeroCurve` on `common/containers/curve1d.py`,
       neither exists) and `docs/pricing_architecture.md`, `docs/curve_architecture.md`.
 - [ ] Performance tests: curve construction (calibration hot path) and bulk query.
 
 ## Deferred — design notes to re-examine
+
+**Dated curve without conventions.** The Excel adapter and `CalibrationResult` both carry an
+`(origin, ZeroCurve)` pair because a curve with dates but no index has no class of its own
+(Strata's `DiscountFactors`). If the pair keeps recurring, introduce `DiscountCurve(origin,
+zero_curve)` and make `YieldCurve` compose it. Not worth a fourth layer yet.
 
 **Composite curves (turns, basis spreads).** Both are the same mechanism: `ln DF_total(x) =
 sum of components`, each component a `Line1d` in log-DF space (or rate space with a

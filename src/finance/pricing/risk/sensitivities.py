@@ -24,9 +24,8 @@ FloatArray = np.ndarray
 
 def _zero_rates(curve: ZeroCurve) -> tuple[FloatArray, FloatArray]:
     """Return (year-fractions, continuously-compounded zero rates) at the curve's pillars."""
-    nd = curve.node_dates
-    t = (nd.astype(np.int64) - curve.origin.astype(np.int64)) / 365.0
-    dfs = curve.node_dfs
+    t = curve.x / 365.0
+    dfs = curve.dfs
     z = np.zeros_like(dfs)
     m = t > 0
     z[m] = -np.log(dfs[m]) / t[m]
@@ -45,9 +44,9 @@ def bumped_curve(curve: ZeroCurve, bp: float, pillar: int | None = None) -> Zero
         z2[m] += bp
     elif t[pillar] > 0:
         z2[pillar] += bp
-    new_dfs = curve.node_dfs.copy()
+    new_dfs = curve.dfs.copy()
     new_dfs[m] = np.exp(-z2[m] * t[m])
-    return curve.with_node_dfs(new_dfs)
+    return curve.with_dfs(new_dfs)
 
 
 @dataclass
@@ -98,7 +97,8 @@ class Sensitivities:
             up = self._reprice_with(curve_name, bumped_curve(base, self.bp, pillar=int(i)))
             dn = self._reprice_with(curve_name, bumped_curve(base, -self.bp, pillar=int(i)))
             krd[:, j] = (up - dn) / 2.0
-        return KeyRateLadder(pillar_dates=base.node_dates[pillars], pillar_years=t[pillars], krd=krd)
+        pillar_dates = self.market.yield_curve(curve_name).node_dates[pillars]
+        return KeyRateLadder(pillar_dates=pillar_dates, pillar_years=t[pillars], krd=krd)
 
 
 __all__ = ["Sensitivities", "KeyRateLadder", "bumped_curve"]

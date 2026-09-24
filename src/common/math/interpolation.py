@@ -108,6 +108,11 @@ class BoundFlat:
 
 
 # region, schemes
+def _require_two_nodes(x: FloatArray, scheme: str) -> None:
+    if x.size < 2:
+        raise ValueError(f"{scheme} interpolation needs at least 2 nodes; got {x.size}.")
+
+
 @dataclass(frozen=True)
 class Flat:
     """Hold the previous node's value: ``y[i]`` on ``[x[i], x[i+1])``, ``y[-1]`` at ``x[-1]``.
@@ -124,6 +129,7 @@ class Linear:
     """Piecewise linear in ``y``.  Local: a node moves only its two adjacent intervals."""
 
     def fit(self, x: FloatArray, y: FloatArray) -> BoundInterpolator:
+        _require_two_nodes(x, "Linear")
         slopes = np.diff(y) / np.diff(x)
         return BoundPPoly(PPoly(np.vstack([slopes, y[:-1]]), x))
 
@@ -141,6 +147,7 @@ class Cubic:
     bc_type: str | tuple = "natural"
 
     def fit(self, x: FloatArray, y: FloatArray) -> BoundInterpolator:
+        _require_two_nodes(x, "Cubic")
         return BoundPPoly(CubicSpline(x, y, bc_type=self.bc_type))
 
 
@@ -158,6 +165,7 @@ class Quadratic:
     right_slope: float = 0.0
 
     def fit(self, x: FloatArray, y: FloatArray) -> BoundInterpolator:
+        _require_two_nodes(x, "Quadratic")
         h = np.diff(x)
         d = np.diff(y) / h
         m = _blended_slopes(d, self.left_slope, self.right_slope)

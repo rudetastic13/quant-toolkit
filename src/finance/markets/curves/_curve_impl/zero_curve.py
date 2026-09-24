@@ -1,372 +1,212 @@
-"""Pure discount-function curve with support for dual-segment interpolation.
+"""Pure discount curve on day offsets: a :class:`Line1d` in log-DF or zero-rate space plus the
+discount-factor invariants.
 
-``ZeroCurve`` deliberately has no index, fixing, coupon, or market-forward semantics.  It
-owns only mathematical curve state and exposes discount factors, log discount factors, and
-continuously-compounded zero rates.  Market conventions are composed by ``YieldCurve``;
-rate generation lives in ``RateGenerator``.
+``ZeroCurve`` knows nothing about dates, indices, fixings or coupons.  Its ``x`` axis is
+float days from the origin (``x[0] == 0``, ``dfs[0] == 1``); :class:`YieldCurve` owns the
+origin date and converts dates to ``x``.  Queries before the origin are rejected.  Beyond the
+last pillar the terminal instantaneous forward is continued (or the query is rejected).
 """
+
 from __future__ import annotations
 
-import warnings
 import numpy as np
-from finance.dates import Term
-from finance.markets.curves._curve_impl.interpolators import (
-    _dates_to_floats,
-    DateArray,
-    FloatArray,
-    InterpolatedSegment,
-)
-from finance.markets.curves.types import CurveInterpolator, RateExtrapolator
+from numpy.typing import NDArray
+
+from common.math.interpolation import Interpolator, Linear
+from common.math.line import Extrapolation, Line1d
+from finance.markets.curves.types import CurveSpace, RateExtrapolator
+
+FloatArray = NDArray[np.float64]
+
+DAYS_PER_YEAR = 365.0
+
+
+def _to_space(space: CurveSpace, x: FloatArray, dfs: FloatArray) -> FloatArray:
+    """Node values in the interpolation space."""
+    if space is CurveSpace.LogDF:
+        return np.log(dfs)
+    rates = np.empty_like(dfs)
+    rates[1:] = -np.log(dfs[1:]) / (x[1:] / DAYS_PER_YEAR)
+    # r(0) is the limit of -ln DF / t, i.e. the instantaneous forward at the origin: take it
+    # by linear extrapolation from the first two pillars (or the first pillar when there is one).
+    if x.size >= 3:
+        rates[0] = rates[1] - x[1] * (rates[2] - rates[1]) / (x[2] - x[1])
+    else:
+        rates[0] = rates[1]
+    return rates
+
+
+def _check_dfs(x: FloatArray, dfs: FloatArray) -> None:
+    if dfs.shape != x.shape:
+        raise ValueError(f"x and dfs must have the same shape; got {x.shape} and {dfs.shape}.")
+    if not np.isfinite(dfs).all() or np.any(dfs <= 0.0):
+        raise ValueError("dfs must be finite, strictly positive discount factors.")
+    if abs(dfs[0] - 1.0) > 1e-12:
+        raise ValueError("the first node (the origin) must have DF = 1.0.")
 
 
 class ZeroCurve:
-    """
-    A discount-factor curve composed of one or two interpolated segments.
+    """Discount factors on a day-offset axis, interpolated in a declared space.
 
     Parameters
     ----------
-    node_dates : np.ndarray[datetime64[D]]
-        Strictly increasing pillar dates.  The first entry is the curve origin.
-    node_values : np.ndarray[float64]
-        Discount factors corresponding to each pillar date.  The value
-        at the origin date must be exactly 1.0.
-    interpolation : CurveInterpolator
-        Primary interpolation method.
-    interpolation_long : CurveInterpolator | None
-        If provided, the interpolation method used *after* the cutover.
-        If ``None``, a single interpolation is used for the whole curve.
-    interpolation_cutover : Term | np.datetime64 | None
-        The point at which the interpolation switches from ``interpolation``
-        to ``interpolation_long``.  Can be expressed as:
-          - a ``Term`` (relative to the curve's origin date), or
-          - an absolute ``np.datetime64`` (any precision; cast to Day).
-        Ignored when ``interpolation_long`` is ``None``.
-    alpha : float
-        Left boundary parameter passed to both segments unless overridden.
-    beta : float
-        Right boundary parameter passed to both segments unless overridden.
-    alpha_long : float | None
-        Override alpha for the long segment.  Falls back to ``alpha``.
-    beta_long : float | None
-        Override beta for the long segment.  Falls back to ``beta``.
+    x : float64 array, strictly increasing, ``x[0] == 0.0``
+        Day offsets of the pillars from the origin.
+    dfs : float64 array
+        Discount factors at the pillars; ``dfs[0]`` must be 1.
+    space : CurveSpace
+        Interpolate ``ln DF`` (default) or the Act/365 continuously compounded zero rate.
+    interpolator : Interpolator
+        Any :mod:`common.math.interpolation` scheme; parameters travel with it.
     extrapolation : RateExtrapolator
-        Behaviour after the final pillar. ``Flat`` continues the terminal instantaneous
-        forward; ``NotAllowed`` rejects the query. Pre-origin queries are always rejected.
-
-    Public query methods
-    --------------------
-    All accept ``np.ndarray[datetime64[D]]`` and return ``np.ndarray[float64]``.
-
-    discount_factor(dates)  →  DF values
-    log_discount_factor(dates) → natural logarithm of DF values
-    zero_rate(dates)        → continuously compounded zero rates (Act/365 annualised)
+        ``FlatForward`` continues the terminal instantaneous forward; ``NotAllowed`` rejects.
     """
+
+    __slots__ = ("_x", "_dfs", "_space", "_interpolator", "_extrapolation", "_line", "_terminal_forward")
 
     def __init__(
         self,
-        node_dates: DateArray,
-        node_values: FloatArray,
-        interpolation: CurveInterpolator = CurveInterpolator.LogLinearDF,
+        x: FloatArray,
+        dfs: FloatArray,
         *,
-        interpolation_long: CurveInterpolator | None = None,
-        interpolation_cutover: Term | np.datetime64 | None = None,
-        alpha: float = 0.0,
-        beta: float = 0.0,
-        alpha_long: float | None = None,
-        beta_long: float | None = None,
-        extrapolation: RateExtrapolator = RateExtrapolator.Flat,
+        space: CurveSpace = CurveSpace.LogDF,
+        interpolator: Interpolator = Linear(),
+        extrapolation: RateExtrapolator = RateExtrapolator.FlatForward,
     ) -> None:
-        dates = np.asarray(node_dates).astype("datetime64[D]").copy()
-        dfs = np.asarray(node_values, dtype=np.float64).copy()
-        if dates.ndim != 1 or len(dates) < 2:
-            raise ValueError("node_dates must be a 1-D array with at least 2 elements.")
-        if dfs.shape != dates.shape:
-            raise ValueError("node_dates and node_values must have the same length.")
-        if np.isnat(dates).any():
-            raise ValueError("node_dates cannot contain NaT.")
-        if np.any(dates[:-1] >= dates[1:]):
-            raise ValueError("node_dates must be strictly increasing with no duplicates.")
-        if not np.isfinite(dfs).all() or np.any(dfs <= 0.0):
-            raise ValueError("node_values must be finite, strictly positive discount factors.")
-        if not np.isfinite([alpha, beta]).all():
-            raise ValueError("alpha and beta must be finite.")
-        if alpha_long is not None and not np.isfinite(alpha_long):
-            raise ValueError("alpha_long must be finite when supplied.")
-        if beta_long is not None and not np.isfinite(beta_long):
-            raise ValueError("beta_long must be finite when supplied.")
-
-        self._origin: np.datetime64 = dates[0]
-        self._origin_ord = self._origin.astype(np.int64)
-        self._node_dates: DateArray = dates
-        self._node_dfs: FloatArray = dfs
-
-        if abs(self._node_dfs[0] - 1.0) > 1e-12:
-            raise ValueError(
-                "The first node (origin / today) must have DF = 1.0."
-            )
-
-        self._x_all: FloatArray = _dates_to_floats(self._node_dates, self._origin_ord)
-        self._interp_type = CurveInterpolator(interpolation)
-        self._interp_type_long = (
-            None if interpolation_long is None else CurveInterpolator(interpolation_long)
-        )
-        self._alpha = float(alpha)
-        self._beta = float(beta)
-        self._alpha_long = float(alpha_long) if alpha_long is not None else self._alpha
-        self._beta_long = float(beta_long) if beta_long is not None else self._beta
-        self._extrapolation = RateExtrapolator(extrapolation)
-
-        # Resolve cutover
-        self._cutover_x: float | None = None
-        if interpolation_long is not None:
-            warnings.warn(
-                "Cutover interpolation (interpolation_long) is experimental. "
-                "The two segments are fit independently, so discount factors are "
-                "continuous at the cutover but the forward rate is NOT — a "
-                "derivative discontinuity is expected at the join.",
-                UserWarning,
-                stacklevel=2,
-            )
-            if interpolation_cutover is None:
-                raise ValueError(
-                    "interpolation_cutover is required when "
-                    "interpolation_long is specified."
-                )
-            if isinstance(interpolation_cutover, Term):
-                cutover_date = self._origin + interpolation_cutover
-            else:
-                cutover_date = interpolation_cutover
-            cutover_date = np.datetime64(cutover_date, "D")
-            if cutover_date not in self._node_dates:
-                raise ValueError(
-                    "interpolation_cutover must coincide with a curve node so both "
-                    "segments share the same discount factor."
-                )
-            self._cutover_x = float(cutover_date.astype(np.int64) - self._origin_ord)
-        elif interpolation_cutover is not None:
-            raise ValueError("interpolation_cutover requires interpolation_long.")
-
-        # Build segments
-        self._segments: list[InterpolatedSegment] = []
-        self._build_segments()
-
-        # Cache for flat-forward extrapolation beyond last pillar
-        self._last_x = float(self._x_all[-1])
-        self._last_df = float(self._node_dfs[-1])
-        self._last_fwd = self._compute_terminal_forward()
-
-    # -- segment construction ------------------------------------------------
-
-    def _build_segments(self) -> None:
-        if self._cutover_x is None:
-            seg = InterpolatedSegment(
-                interp_type=self._interp_type,
-                x=self._x_all,
-                df=self._node_dfs,
-                alpha=self._alpha,
-                beta=self._beta,
-                origin=self._origin,
-            )
-            self._segments = [seg]
+        if x.ndim != 1 or x.size < 2:
+            raise ValueError("x must be a 1-D array with at least 2 nodes (origin + one pillar).")
+        if x[0] != 0.0:
+            raise ValueError(f"x[0] must be 0.0 (the origin); got {x[0]}.")
+        _check_dfs(x, dfs)
+        space = CurveSpace(space)
+        extrapolation = RateExtrapolator(extrapolation)
+        if extrapolation is RateExtrapolator.NotAllowed:
+            right = Extrapolation.NotAllowed
+        elif space is CurveSpace.LogDF:
+            right = Extrapolation.Linear  # linear ln DF == constant forward
         else:
-            cutover = self._cutover_x
-            short_mask = self._x_all <= cutover + 1e-10
-            long_mask = self._x_all >= cutover - 1e-10
+            right = Extrapolation.Flat  # placeholder: flat-forward is applied in the DF transform
+        line = Line1d(x, _to_space(space, x, dfs), interpolator, left=Extrapolation.NotAllowed, right=right)
+        self._init(x, dfs, space, interpolator, extrapolation, line)
 
-            x_short = self._x_all[short_mask]
-            df_short = self._node_dfs[short_mask]
+    def _init(self, x, dfs, space, interpolator, extrapolation, line) -> None:
+        self._x = x
+        self._dfs = dfs
+        self._space = space
+        self._interpolator = interpolator
+        self._extrapolation = extrapolation
+        self._line = line
+        self._terminal_forward = float(self._forward_interior(x[-1:])[0])
 
-            x_long = self._x_all[long_mask]
-            df_long = self._node_dfs[long_mask]
-
-            if len(x_short) < 2 or len(x_long) < 2:
-                raise ValueError(
-                    "Cutover point must leave at least 2 nodes in each segment. "
-                    f"Short segment has {len(x_short)} nodes, "
-                    f"long segment has {len(x_long)} nodes."
-                )
-
-            seg_short = InterpolatedSegment(
-                interp_type=self._interp_type,
-                x=x_short,
-                df=df_short,
-                alpha=self._alpha,
-                beta=self._beta,
-                origin=self._origin,
-            )
-            seg_long = InterpolatedSegment(
-                interp_type=self._interp_type_long,  # type: ignore[arg-type]
-                x=x_long,
-                df=df_long,
-                alpha=self._alpha_long,
-                beta=self._beta_long,
-                origin=self._origin,
-            )
-            self._segments = [seg_short, seg_long]
-
-    # -- terminal forward for flat extrapolation ----------------------------
-
-    def _compute_terminal_forward(self) -> float:
-        """
-        Estimate the instantaneous forward rate at the last pillar.
-        f(T) ≈ -[ln DF(T) - ln DF(T - 1day)] / 1day
-        """
-        eps = 1.0
-        df_T = self._last_df
-        df_T_minus = float(self._interpolate_interior(np.array([self._last_x - eps]))[0])
-        if df_T_minus <= 0 or df_T <= 0:
-            return 0.0
-        return -(np.log(df_T) - np.log(df_T_minus)) / eps
-
-    # -- vectorized interpolation dispatch (internal) -----------------------
-
-    def _interpolate_interior(self, xs: FloatArray) -> FloatArray:
-        """Vectorized DF interpolation within the curve's defined node range."""
-        if len(self._segments) == 1:
-            return self._segments[0].discount_factor(xs)
-
-        cutover = self._cutover_x
-        assert cutover is not None
-        short_mask = xs <= cutover + 1e-10
-        result = np.empty(len(xs), dtype=np.float64)
-        if np.any(short_mask):
-            result[short_mask] = self._segments[0].discount_factor(xs[short_mask])
-        if np.any(~short_mask):
-            result[~short_mask] = self._segments[1].discount_factor(xs[~short_mask])
-        return result
-
-    def _discount_factor_xs(self, xs: FloatArray) -> FloatArray:
-        """Fully vectorized DF from float day offsets (no date-conversion overhead)."""
-        result = np.ones(len(xs), dtype=np.float64)
-        interior_mask = (xs > 1e-10) & (xs <= self._last_x + 1e-10)
-        extrap_mask = xs > self._last_x + 1e-10
-        if np.any(interior_mask):
-            result[interior_mask] = self._interpolate_interior(xs[interior_mask])
-        if np.any(extrap_mask):
-            if self._extrapolation is RateExtrapolator.NotAllowed:
-                raise ValueError("query after the final curve pillar is not allowed.")
-            result[extrap_mask] = self._last_df * np.exp(
-                -self._last_fwd * (xs[extrap_mask] - self._last_x)
-            )
-        return result
-
-    def _zero_rate_xs(self, xs: FloatArray) -> FloatArray:
-        """Fully vectorized zero rates from float day offsets."""
-        result = np.empty(len(xs), dtype=np.float64)
-        origin_mask = xs <= 1e-10
-        nonorigin_mask = ~origin_mask
-        if np.any(origin_mask):
-            df_1d = float(self._discount_factor_xs(np.array([1.0]))[0])
-            result[origin_mask] = -np.log(df_1d) * 365.0
-        if np.any(nonorigin_mask):
-            dfs = self._discount_factor_xs(xs[nonorigin_mask])
-            result[nonorigin_mask] = -np.log(dfs) / (xs[nonorigin_mask] / 365.0)
-        return result
-
-    # -- public API ----------------------------------------------------------
+    # -- state ------------------------------------------------------------------------
 
     @property
-    def origin(self) -> np.datetime64:
-        """The curve's valuation / construction date."""
-        return self._origin
+    def x(self) -> FloatArray:
+        """Pillar day offsets, origin-inclusive (``x[0] == 0``)."""
+        return self._x
 
     @property
-    def node_dates(self) -> DateArray:
-        return self._node_dates.copy()
+    def dfs(self) -> FloatArray:
+        return self._dfs
 
     @property
-    def node_dfs(self) -> FloatArray:
-        return self._node_dfs.copy()
+    def max_x(self) -> float:
+        return float(self._x[-1])
 
     @property
-    def max_date(self) -> np.datetime64:
-        return self._node_dates[-1]
+    def space(self) -> CurveSpace:
+        return self._space
 
     @property
-    def interpolation(self) -> CurveInterpolator:
-        """The curve's (short-segment) interpolation scheme."""
-        return self._interp_type
+    def interpolator(self) -> Interpolator:
+        return self._interpolator
 
     @property
     def extrapolation(self) -> RateExtrapolator:
         return self._extrapolation
 
-    def _query_xs(self, dates: DateArray) -> FloatArray:
-        dates = np.asarray(dates).astype("datetime64[D]")
-        if dates.ndim != 1:
-            raise ValueError("curve queries require a 1-D date array.")
-        if np.isnat(dates).any():
-            raise ValueError("curve query dates cannot contain NaT.")
-        xs = _dates_to_floats(dates, self._origin_ord)
-        if np.any(xs < -1e-10):
-            bad = dates[xs < -1e-10]
-            raise ValueError(
-                f"{len(bad)} date(s) before the curve origin (earliest: {bad[0]}). "
-                "Pre-origin extrapolation is not supported at the Curve level."
-            )
-        return xs
+    @property
+    def line(self) -> Line1d:
+        """The interpolated line in ``space``; ``line.coefficients`` is the engine hand-off."""
+        return self._line
 
-    def discount_factor(self, dates: DateArray) -> FloatArray:
-        """
-        Discount factors for an array of dates.
+    @property
+    def node_zero_rates(self) -> FloatArray:
+        """Act/365 continuously compounded zero rates at the non-origin pillars (the calibration parameters)."""
+        return -np.log(self._dfs[1:]) / (self._x[1:] / DAYS_PER_YEAR)
 
-        Parameters
-        ----------
-        dates : np.ndarray[datetime64[D]]
+    @property
+    def is_log_linear(self) -> bool:
+        """Log-linear DF: the one scheme the Numba/JAX engines model analytically today."""
+        return self._space is CurveSpace.LogDF and self._interpolator == Linear()
 
-        Returns
-        -------
-        np.ndarray[float64]
-
-        Raises
-        ------
-        ValueError
-            If any date is before the curve origin.
-        """
-        return self._discount_factor_xs(self._query_xs(dates))
-
-    def log_discount_factor(self, dates: DateArray) -> FloatArray:
-        """Natural logarithm of the discount factor at each date."""
-        return np.log(self._discount_factor_xs(self._query_xs(dates)))
-
-    def zero_rate(self, dates: DateArray) -> FloatArray:
-        """
-        Continuously compounded zero rates to each date.
-        r(t) = -ln(DF(t)) / t   (annualised, Act/365)
-
-        Parameters
-        ----------
-        dates : np.ndarray[datetime64[D]]
-
-        Returns
-        -------
-        np.ndarray[float64]
-        """
-        return self._zero_rate_xs(self._query_xs(dates))
-
-    def with_node_dfs(self, node_dfs: FloatArray) -> ZeroCurve:
-        """Return the same curve geometry/configuration with new discount-factor state."""
-        cutover = None
-        if self._cutover_x is not None:
-            cutover = self._origin + np.timedelta64(int(self._cutover_x), "D")
-        return ZeroCurve(
-            self._node_dates,
-            node_dfs,
-            interpolation=self._interp_type,
-            interpolation_long=self._interp_type_long,
-            interpolation_cutover=cutover,
-            alpha=self._alpha,
-            beta=self._beta,
-            alpha_long=self._alpha_long,
-            beta_long=self._beta_long,
-            extrapolation=self._extrapolation,
+    def with_dfs(self, dfs: FloatArray) -> ZeroCurve:
+        """Same pillars, space, interpolator and extrapolation with new discount factors."""
+        _check_dfs(self._x, dfs)
+        curve = object.__new__(ZeroCurve)
+        curve._init(
+            self._x,
+            dfs,
+            self._space,
+            self._interpolator,
+            self._extrapolation,
+            self._line.with_y(_to_space(self._space, self._x, dfs)),
         )
+        return curve
+
+    # -- queries (xq: float64 day offsets) ---------------------------------------------
+
+    def log_discount_factor(self, xq: FloatArray) -> FloatArray:
+        y = self._line(xq)
+        if self._space is CurveSpace.LogDF:
+            return y
+        log_df = -y * xq / DAYS_PER_YEAR
+        beyond = xq > self._x[-1]
+        if beyond.any():  # the line held r flat; replace with the flat-forward continuation
+            log_df[beyond] = (
+                self._log_df_terminal() - self._terminal_forward * (xq[beyond] - self._x[-1]) / DAYS_PER_YEAR
+            )
+        return log_df
+
+    def discount_factor(self, xq: FloatArray) -> FloatArray:
+        return np.exp(self.log_discount_factor(xq))
+
+    def zero_rate(self, xq: FloatArray) -> FloatArray:
+        """Act/365 continuously compounded zero rate; at the origin, the instantaneous forward."""
+        out = np.empty(xq.shape, dtype=np.float64)
+        at_origin = xq <= 0.0
+        if at_origin.any():
+            out[at_origin] = self.instantaneous_forward(xq[at_origin])
+        inside = ~at_origin
+        if inside.any():
+            out[inside] = -self.log_discount_factor(xq[inside]) / (xq[inside] / DAYS_PER_YEAR)
+        return out
+
+    def instantaneous_forward(self, xq: FloatArray) -> FloatArray:
+        """Annualised instantaneous forward ``-d ln DF / dt`` (Act/365)."""
+        f = self._forward_interior(xq)
+        if self._space is CurveSpace.ZeroRate:
+            beyond = xq > self._x[-1]
+            if beyond.any():
+                f[beyond] = self._terminal_forward
+        return f
+
+    # -- internals --------------------------------------------------------------------
+
+    def _forward_interior(self, xq: FloatArray) -> FloatArray:
+        if self._space is CurveSpace.LogDF:
+            return -self._line.derivative(xq) * DAYS_PER_YEAR
+        # ln DF = -r(x) x / 365  ->  f = r + x r'
+        return self._line(xq) + xq * self._line.derivative(xq)
+
+    def _log_df_terminal(self) -> float:
+        return float(np.log(self._dfs[-1]))
 
     def __repr__(self) -> str:
-        seg_info = " + ".join(s.interp_type.name for s in self._segments)
         return (
-            f"Curve(origin={self._origin}, "
-            f"nodes={len(self._node_dates)}, "
-            f"interpolation=[{seg_info}], "
-            f"max_date={self._node_dates[-1]})"
+            f"ZeroCurve(nodes={self._x.size}, max_x={self.max_x:g}, space={self._space.name}, "
+            f"interpolator={self._interpolator!r}, extrapolation={self._extrapolation.name})"
         )
+
+
+__all__ = ["DAYS_PER_YEAR", "ZeroCurve"]

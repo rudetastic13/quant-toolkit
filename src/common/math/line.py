@@ -5,8 +5,9 @@ and (in log-DF or zero-rate space) the discount curve.  It owns node validation,
 query into left / interior / right, and rebinds new node values cheaply via :meth:`with_y`.
 Interpolation math lives in :mod:`common.math.interpolation`.
 
-``x`` and ``y`` are 1-D float64 arrays of equal length; ``x`` strictly increasing.  Callers
-convert dates to floats before they get here.
+``x`` and ``y`` are 1-D float64 arrays of equal length; ``x`` strictly increasing.  A single
+node is allowed (a one-print fixings history) but only :class:`Flat` can interpolate it.
+Callers convert dates to floats before they get here.
 """
 
 from __future__ import annotations
@@ -38,8 +39,8 @@ def _check_values(y: FloatArray, x: FloatArray) -> None:
 
 
 def _check_nodes(x: FloatArray, y: FloatArray) -> None:
-    if x.ndim != 1 or x.size < 2:
-        raise ValueError("x must be a 1-D array with at least 2 nodes.")
+    if x.ndim != 1 or x.size < 1:
+        raise ValueError("x must be a non-empty 1-D array.")
     if not np.isfinite(x).all():
         raise ValueError("x must be finite.")
     if np.any(x[1:] <= x[:-1]):

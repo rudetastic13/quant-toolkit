@@ -11,7 +11,7 @@ import numpy as np
 
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve, dates_to_x
 from finance.pricing.pricers import SwapPricer
 
 from quant_toolkit_xl import cache, marshalling
@@ -24,24 +24,34 @@ def _interp(interpolation: object) -> CurveInterpolator:
 
 
 def build_curve(dates: object, dfs: object, interpolation: object = "LogLinearDF") -> str:
-    """Build a ``ZeroCurve`` from pillar dates + discount factors; return a Curve handle."""
+    """Build a ``ZeroCurve`` from pillar dates + discount factors; return a Curve handle.
+
+    The handle holds ``(origin, ZeroCurve)``: the first pillar date is the origin and the
+    curve itself is on day offsets.
+    """
     node_dates = marshalling.to_datetime64_array(dates)
     node_dfs = marshalling.to_float_array(dfs)
     interp = _interp(interpolation)
-    curve = ZeroCurve(node_dates, node_dfs, interp)
-    return cache.store("Curve", curve, node_dates, node_dfs, interp.name)
+    space, interpolator = interp.resolve()
+    origin = node_dates[0]
+    curve = ZeroCurve(dates_to_x(origin, node_dates), node_dfs, space=space, interpolator=interpolator)
+    return cache.store("Curve", (origin, curve), node_dates, node_dfs, interp.name)
+
+
+def _load_curve(curve_handle: object) -> tuple[np.datetime64, ZeroCurve]:
+    return cache.load(curve_handle, "Curve")  # type: ignore[return-value]
 
 
 def discount_factor(curve_handle: object, dates: object) -> np.ndarray:
     """Discount factors off a cached curve for an array of dates."""
-    curve: ZeroCurve = cache.load(curve_handle, "Curve")  # type: ignore[assignment]
-    return curve.discount_factor(marshalling.to_datetime64_array(dates))
+    origin, curve = _load_curve(curve_handle)
+    return curve.discount_factor(dates_to_x(origin, marshalling.to_datetime64_array(dates)))
 
 
 def zero_rate(curve_handle: object, dates: object) -> np.ndarray:
     """Continuously-compounded zero rates off a cached curve for an array of dates."""
-    curve: ZeroCurve = cache.load(curve_handle, "Curve")  # type: ignore[assignment]
-    return curve.zero_rate(marshalling.to_datetime64_array(dates))
+    origin, curve = _load_curve(curve_handle)
+    return curve.zero_rate(dates_to_x(origin, marshalling.to_datetime64_array(dates)))
 
 
 def make_swap(
@@ -82,11 +92,12 @@ def compile_program(swap_handles: object) -> str:
 def make_market(as_of: object, currency: object, rate_index: object, curve_handle: object) -> str:
     """Bind a cached curve into a ``MarketContext`` under (ccy, index); return a Market handle."""
     as_of_date = marshalling.to_date(as_of)
-    curve: ZeroCurve = cache.load(curve_handle, "Curve")  # type: ignore[assignment]
+    origin, curve = _load_curve(curve_handle)
     currency_name = str(currency)
     index_name = str(rate_index)
     name = curve_name(currency_name, index_name)
     yield_curve = YieldCurve.from_registry(
+        origin,
         curve,
         currency=currency_name,
         index_name=index_name,

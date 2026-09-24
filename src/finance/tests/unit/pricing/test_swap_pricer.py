@@ -8,7 +8,7 @@ import numpy as np
 from common.testing import UnitTest
 from finance.dates import Date, Frequency, DayCountMethod
 from finance.instruments.enums import CouponType
-from finance.markets.curves import YieldCurve, ZeroCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
 from finance.instruments.resolution import Swap
@@ -24,8 +24,7 @@ def _market():
                       origin + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     ns = CurveNamespace()
-    zero_curve = ZeroCurve(dates, np.exp(-0.04 * t))
-    ns.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
+    ns.bind(YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR"))
     return MarketContext(as_of_date=AS_OF, curves=ns)
 
 
@@ -90,8 +89,7 @@ class TestSwapPricing(UnitTest):
         ns2 = CurveNamespace()
         o = AS_OF.to_numpy()
         d = np.array([o, o + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
-        zero_curve = ZeroCurve(d, np.array([1.0, np.exp(-0.05 * 12)]))
-        ns2.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
+        ns2.bind(YieldCurve.build(d, np.array([1.0, np.exp(-0.05 * 12)]), currency="USD", index_name="SOFR"))
         mkt2 = MarketContext(as_of_date=AS_OF, curves=ns2)
         pv2 = compiled.price(mkt2).pv
         self.assertNotAlmostEqual(pv1, pv2, places=4)  # different curve -> different PV, same compiled form

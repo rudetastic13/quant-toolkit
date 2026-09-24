@@ -2,13 +2,12 @@
 import numpy as np
 
 from common.testing import UnitTest
-from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve
 
 
 def _make_curve(index: str = "SOFR", terminal_df: float = 0.95) -> YieldCurve:
     dates = np.array(["2026-01-01", "2031-01-01"], dtype="datetime64[D]")
-    zero = ZeroCurve(dates, np.array([1.0, terminal_df]))
-    return YieldCurve.from_registry(zero, currency="USD", index_name=index)
+    return YieldCurve.build(dates, np.array([1.0, terminal_df]), currency="USD", index_name=index)
 
 
 class TestCurveNamespaceBind(UnitTest):

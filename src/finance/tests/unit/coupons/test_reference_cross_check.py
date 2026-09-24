@@ -28,7 +28,7 @@ from finance.instruments.schedules.payment_schedule import build_payment_schedul
 from finance.coupons.calculators import calculate_custom
 from finance.markets.context import MarketContext
 from finance.markets import HistoricalFixings
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve
 from finance.pricing.kernels import LegSpec, StaticNotional, compile_portfolio
 from finance.pricing.kernels.compiler import reprice
 
@@ -44,8 +44,7 @@ def _market(as_of: Date) -> MarketContext:
     dfs = np.exp(-z * t)
     dfs[0] = 1.0
     ns = CurveNamespace()
-    zero_curve = ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF)
-    ns.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
+    ns.bind(YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR"))
     return MarketContext(as_of_date=as_of, curves=ns)
 
 
@@ -70,7 +69,7 @@ def _reference_leg_pv(ps, coupon: CouponSchedule, sign: float, notional: float, 
         obs_weights=ps.obs_weights, obs_offsets=ps.obs_offsets,
     )
     cash = notional * rate * ps.period_fracs
-    df = market.zero_curve(CURVE).discount_factor(ps.payment_dates)
+    df = market.yield_curve(CURVE).discount_factor(ps.payment_dates)
     return rate, sign * float(np.sum(cash * df))
 
 

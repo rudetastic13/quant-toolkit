@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
 from finance.markets import HistoricalFixings
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import SwapPricer
@@ -13,17 +13,17 @@ from finance.pricing.pricers import SwapPricer
 CURVE = "USD.SOFR"
 
 
-def _zero_curve(origin: np.datetime64, level: float = 0.04) -> ZeroCurve:
-    dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 1825)], dtype="datetime64[D]")
-    time = (dates.astype(np.int64) - origin.astype(np.int64)) / 365.0
-    dfs = np.exp(-level * time)
+def _zero_curve(level: float = 0.04) -> ZeroCurve:
+    x = np.array([0.0, 365.0, 1825.0])
+    dfs = np.exp(-level * x / 365.0)
     dfs[0] = 1.0
-    return ZeroCurve(dates, dfs, CurveInterpolator.LogLinearDF)
+    return ZeroCurve(x, dfs)
 
 
 def _yield_curve(origin: np.datetime64, level: float = 0.04, index: str = "SOFR") -> YieldCurve:
     return YieldCurve.from_registry(
-        _zero_curve(origin, level),
+        origin,
+        _zero_curve(level),
         currency="USD",
         index_name=index,
     )
@@ -48,7 +48,7 @@ class TestMarketContext(UnitTest):
         starts = np.array(["2026-12-01"], dtype="datetime64[D]")
         ends = np.array(["2027-03-01"], dtype="datetime64[D]")
         got = self.rates.simple_rate(CURVE, starts, ends)[0]
-        curve = self.market.zero_curve(CURVE)
+        curve = self.market.yield_curve(CURVE)
         df_start = curve.discount_factor(starts)[0]
         df_end = curve.discount_factor(ends)[0]
         tau = (ends[0] - starts[0]).astype(np.int64) / 360.0
@@ -96,8 +96,8 @@ class TestMarketContext(UnitTest):
     def test_with_curve_rebinds_without_mutating_original(self):
         bumped = self.market.with_curve(_yield_curve(self.origin, level=0.05))
         date = np.array(["2027-06-01"], dtype="datetime64[D]")
-        self.assertAlmostEqual(bumped.zero_curve(CURVE).discount_factor(date)[0], np.exp(-0.05), places=10)
-        self.assertAlmostEqual(self.market.zero_curve(CURVE).discount_factor(date)[0], np.exp(-0.04), places=10)
+        self.assertAlmostEqual(bumped.yield_curve(CURVE).discount_factor(date)[0], np.exp(-0.05), places=10)
+        self.assertAlmostEqual(self.market.yield_curve(CURVE).discount_factor(date)[0], np.exp(-0.04), places=10)
 
     def test_with_curve_binds_new_name(self):
         market = self.market.with_curve(_yield_curve(self.origin, level=0.045, index="FEDFUND"))

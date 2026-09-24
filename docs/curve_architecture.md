@@ -7,11 +7,15 @@ itself a SOFR curve: it becomes one only after SOFR's index conventions are atta
 calibration quotes
        |
        v
-   ZeroCurve             mathematical DF / log-DF / zero-rate state
+   Line1d                common.math: nodes + interpolator + per-side extrapolation
        |
-       | + USD SOFR conventions
+       | in log-DF or zero-rate space, DF invariants
        v
-   YieldCurve            conventions + optional historical fixings
+   ZeroCurve             mathematical DF / log-DF / zero-rate state on day offsets
+       |
+       | + origin date + USD SOFR conventions
+       v
+   YieldCurve            dates, conventions + optional historical fixings
        |
        v
    MarketContext         registry of yield curves and vols
@@ -25,19 +29,29 @@ calibration quotes
 
 ## Responsibilities
 
-`ZeroCurve` is pure curve math. It owns immutable copies of pillar dates and discount
-factors, interpolation/extrapolation configuration, and only these public numerical queries:
+`ZeroCurve` is pure curve math on float day offsets (`x[0] == 0`, `dfs[0] == 1`). It is a
+`common.math.line.Line1d` in a declared `CurveSpace` (`LogDF` or `ZeroRate`) with any
+`common.math.interpolation` scheme (`Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`, ...),
+plus the discount-factor invariants. Its public queries all take day offsets:
 
-- `discount_factor(dates)`
-- `log_discount_factor(dates)`
-- `zero_rate(dates)` (continuously compounded on the curve's Act/365 clock)
+- `discount_factor(x)`, `log_discount_factor(x)`
+- `zero_rate(x)` (continuously compounded on the curve's Act/365 clock)
+- `instantaneous_forward(x)`
+- `with_dfs(dfs)` rebinds node values without refitting the geometry checks (the
+  calibration and bump-and-reprice hot path); `line.coefficients` is the engine hand-off
 
-It has no currency, index, fixing, forward-rate, coupon, or par-rate behavior.
+It has no dates, currency, index, fixing, forward-rate, coupon, or par-rate behavior.
+`CurveInterpolator` (`LogLinearDF`, `RateCubic`, ...) is a parse table for config and Excel;
+`resolve()` gives the `(space, interpolator)` pair.
 
-`YieldCurve` composes one `ZeroCurve` with a `MarketConventions` definition and optional
-`HistoricalFixings`. Its canonical name comes from that definition, for example `USD.SOFR`.
-It is the object stored by `CurveNamespace` and `MarketContext`. `with_zero_curve(...)`
-creates a scenario curve while preserving both the index definition and fixing history.
+`YieldCurve` composes an `origin` date and one `ZeroCurve` with a `MarketConventions`
+definition and optional `HistoricalFixings`. It is the only layer that sees dates:
+`discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`; `node_dates` and
+`node_index(Term | date)` map pillars back to the calendar. Its canonical name comes from the
+index definition, for example `USD.SOFR`, and it is the object stored by `CurveNamespace`
+and `MarketContext`. `YieldCurve.build(node_dates, dfs, ...)` is the dates-in constructor;
+`with_zero_curve(...)` creates a scenario curve while preserving origin, index definition and
+fixing history.
 
 `MarketContext` owns registered market data. It resolves `yield_curve(name)` and
 `zero_curve(name)` and produces immutable curve scenarios through `with_curve(yield_curve)`.
@@ -51,9 +65,9 @@ helpers use this layer rather than asking the curve or market to project a rate.
 Historical/projected selection uses the curve origin as its only cutover:
 
 ```text
-fixing date < ZeroCurve.origin   -> historical fixing (locked, zero index risk)
-fixing date >= ZeroCurve.origin  -> projected rate (curve-sensitive)
-payment date < ZeroCurve.origin  -> expired flow (DF = PV = all risk = 0)
+fixing date < YieldCurve.origin   -> historical fixing (locked, zero index risk)
+fixing date >= YieldCurve.origin  -> projected rate (curve-sensitive)
+payment date < YieldCurve.origin  -> expired flow (DF = PV = all risk = 0)
 ```
 
 `HistoricalFixings` is a date/value series backed by `Line1d` with `Flat` (previous-hold)
@@ -70,7 +84,7 @@ it has additional behavior or invariants to own.
 
 ## Calibration and registration
 
-Calibration returns mathematical state. Registration is explicit:
+Calibration returns mathematical state plus its origin. Registration is explicit:
 
 ```python
 from finance.dates import Date
@@ -99,9 +113,9 @@ result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     jacobian=True,
 )
 
-zero_curve = result.zero_curve
 sofr_curve = YieldCurve.from_registry(
-    zero_curve,
+    result.origin,
+    result.zero_curve,
     currency="USD",
     index_name="SOFR",
 )
@@ -115,7 +129,7 @@ market = base.with_curve(sofr_curve)
 The same boundary is used for scenarios:
 
 ```python
-scenario_zero = zero_curve.with_node_dfs(new_discount_factors)
+scenario_zero = result.zero_curve.with_dfs(new_discount_factors)
 scenario_market = market.with_curve(sofr_curve.with_zero_curve(scenario_zero))
 ```
 
@@ -160,9 +174,11 @@ and no-recompile scenario recalculation, see
 
 ## Interpolation scope
 
-The generic `ZeroCurve` supports the existing interpolation choices, including natural
-cubic interpolation of log discount factors. The Numba pricing/adjoint geometry currently
-supports `LogLinearDF` only; requesting another interpolation fails explicitly. A future
-monotone-convex implementation belongs behind the `ZeroCurve` interpolation strategy and
-must add matching analytic interpolation weights before it is enabled in the Numba AAD
-engine.
+`ZeroCurve` accepts any `common.math.interpolation` scheme in either space, including
+`Mixed(short, long, switch_node)` for a log-linear front end with a spline beyond a chosen
+pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba and JAX
+pricing/adjoint geometry model log-linear DF only (`ZeroCurve.is_log_linear`); requesting
+another scheme fails explicitly and the risk engine falls back to bump-and-reprice. Every
+bound interpolator exports PPoly `coefficients`, so extending an engine kernel to a new scheme
+is a searchsorted + Horner branch on that array, plus matching analytic weights for the
+adjoint.

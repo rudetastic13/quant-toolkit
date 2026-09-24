@@ -7,7 +7,7 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod, Frequency, BDC
-from finance.markets.curves import YieldCurve, ZeroCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
 from finance.markets.rate_generator import RateGenerator
@@ -20,10 +20,10 @@ CAL = "no_holidays"
 CURVE = "USD.SOFR"
 
 
-def _curve():
+def _curve() -> YieldCurve:
     dates = np.array(["2026-06-01", "2028-06-01", "2030-06-01"], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
-    return ZeroCurve(dates, np.exp(-0.04 * t))
+    return YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
 
 
 class TestRealGridTelescopes(UnitTest):
@@ -34,15 +34,9 @@ class TestRealGridTelescopes(UnitTest):
 
     def setUp(self):
         ns = CurveNamespace()
-        ns.bind(
-            YieldCurve.from_registry(
-                _curve(),
-                currency="USD",
-                index_name="SOFR",
-            )
-        )
+        ns.bind(_curve())
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
-        self.curve = self.mkt.zero_curve(CURVE)
+        self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)
         self.ps = build_payment_schedule(
             Date(2026, 6, 1), Date(2028, 6, 1), Frequency.SemiAnnually,

@@ -60,7 +60,7 @@ def build_market() -> MarketContext:
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration did not converge"
     return base.with_curve(
-        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
     )
 
 

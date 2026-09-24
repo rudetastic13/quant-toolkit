@@ -56,10 +56,10 @@ class TestCurveCalibrator(UnitTest):
         dfs = np.exp(-z * t)
         dfs[0] = 1.0
         self.true_nd = nd
-        self.true = ZeroCurve(nd, dfs, CurveInterpolator.LogLinearDF)
+        self.true = ZeroCurve((nd.astype(np.int64) - self.origin.astype(np.int64)).astype(np.float64), dfs)
 
         ns = CurveNamespace()
-        ns.bind(YieldCurve.from_registry(self.true, currency="USD", index_name="SOFR"))
+        ns.bind(YieldCurve.from_registry(self.origin, self.true, currency="USD", index_name="SOFR"))
         true_mkt = MarketContext(as_of_date=self.as_of, curves=ns)
 
         # Quotes generated from the true curve.
@@ -72,7 +72,8 @@ class TestCurveCalibrator(UnitTest):
     def test_round_trip_recovers_true_dfs(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
         # Calibrated nodes coincide with the true nodes → compare DFs directly.
-        np.testing.assert_allclose(res.zero_curve.node_dfs, self.true.node_dfs, atol=1e-9)
+        np.testing.assert_allclose(res.zero_curve.dfs, self.true.dfs, atol=1e-9)
+        self.assertEqual(res.origin, self.origin)
 
     def test_residuals_are_zero(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
@@ -81,12 +82,12 @@ class TestCurveCalibrator(UnitTest):
     def test_global_and_bootstrap_agree(self):
         rg = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
         rb = CurveCalibrator(self.helpers, Bootstrapper(), self.defn).calibrate(self.base)
-        np.testing.assert_allclose(rg.zero_curve.node_dfs, rb.zero_curve.node_dfs, atol=1e-9)
+        np.testing.assert_allclose(rg.zero_curve.dfs, rb.zero_curve.dfs, atol=1e-9)
 
     def test_result_is_explicitly_composed_and_input_is_untouched(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
         yield_curve = YieldCurve.from_registry(
-            res.zero_curve, currency="USD", index_name="SOFR"
+            res.origin, res.zero_curve, currency="USD", index_name="SOFR"
         )
         out = self.base.with_curve(yield_curve)
         self.assertIs(out.zero_curve(CURVE), res.zero_curve)
@@ -137,11 +138,12 @@ class TestWithCurve(UnitTest):
 
     def setUp(self):
         self.as_of = Date(2026, 6, 1)
-        nd = np.array(["2026-06-01", "2028-06-01"], dtype="datetime64[D]")
-        self.c1 = ZeroCurve(nd, np.array([1.0, 0.92]))
-        self.c2 = ZeroCurve(nd, np.array([1.0, 0.95]))
+        self.origin = np.datetime64("2026-06-01", "D")
+        x = np.array([0.0, 731.0])
+        self.c1 = ZeroCurve(x, np.array([1.0, 0.92]))
+        self.c2 = ZeroCurve(x, np.array([1.0, 0.95]))
         ns = CurveNamespace()
-        ns.bind(YieldCurve.from_registry(self.c1, currency="USD", index_name="SOFR"))
+        ns.bind(YieldCurve.from_registry(self.origin, self.c1, currency="USD", index_name="SOFR"))
         self.mkt = MarketContext(as_of_date=self.as_of, curves=ns, vols=object())
 
     def test_with_curve_rebinds_and_leaves_original_intact(self):
@@ -153,7 +155,7 @@ class TestWithCurve(UnitTest):
         self.assertIs(out.vols, self.mkt.vols)
 
     def test_with_curve_binds_new_name(self):
-        fedfund = YieldCurve.from_registry(self.c2, currency="USD", index_name="FEDFUND")
+        fedfund = YieldCurve.from_registry(self.origin, self.c2, currency="USD", index_name="FEDFUND")
         out = self.mkt.with_curve(fedfund)
         self.assertIs(out.zero_curve("USD.FEDFUND"), self.c2)
         self.assertNotIn("USD.FEDFUND", self.mkt.curves)

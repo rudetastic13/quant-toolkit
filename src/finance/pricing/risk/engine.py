@@ -21,7 +21,6 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.markets.curves import CurveInterpolator
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swaption import SwaptionProgram
 from finance.pricing.risk.sensitivities import _zero_rates, bumped_curve
@@ -73,7 +72,7 @@ class RiskEngine:
         if risk.NumbaRisk is None:
             return "bump"
         loglinear = all(
-            self.market.zero_curve(name).interpolation is CurveInterpolator.LogLinearDF
+            self.market.zero_curve(name).is_log_linear
             for name in self._inputs().curve_names
         )
         return "adjoint" if loglinear else "bump"
@@ -89,7 +88,10 @@ class RiskEngine:
         else:
             grid = self._bump_ladder(curve_name, base, live)
         return CurveRiskReport(
-            pillar_dates=base.node_dates[live], pillar_years=t[live], ladder=grid, method=self.method
+            pillar_dates=self.market.yield_curve(curve_name).node_dates[live],
+            pillar_years=t[live],
+            ladder=grid,
+            method=self.method,
         )
 
     def dv01(self, curve_name: str) -> FloatArray:

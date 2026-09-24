@@ -13,7 +13,7 @@ from finance.dates import Date, Term, TermType
 from finance.instruments.resolution import Swap
 from finance.markets import HistoricalFixings
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve
 from finance.pricing.pricers import SwapPricer
 from finance.pricing.risk import NumbaRisk, bumped_curve
 from finance.pricing.types import Backend, RateKind
@@ -43,9 +43,9 @@ def _sofr_history() -> HistoricalFixings:
 def _market() -> MarketContext:
     dates = np.array([ORIGIN, "2027-06-01", "2028-06-01", "2030-06-01"], dtype="datetime64[D]")
     years = (dates.astype(np.int64) - ORIGIN.astype(np.int64)) / 365.0
-    zero = ZeroCurve(dates, np.exp(-0.04 * years), CurveInterpolator.LogLinearDF)
-    yield_curve = YieldCurve.from_registry(
-        zero,
+    yield_curve = YieldCurve.build(
+        dates,
+        np.exp(-0.04 * years),
         currency="USD",
         index_name="SOFR",
         historical_fixings=_sofr_history(),
@@ -133,7 +133,7 @@ class TestSeasonedSofrRisk(UnitTest):
         curve = self.market.zero_curve(CURVE)
         yield_curve = self.market.yield_curve(CURVE)
         finite_difference = np.zeros_like(analytic)
-        for column, pillar in enumerate(range(1, curve.node_dates.size)):
+        for column, pillar in enumerate(range(1, curve.x.size)):
             up = self.market.with_curve(
                 yield_curve.with_zero_curve(bumped_curve(curve, 1e-4, pillar=pillar))
             )
