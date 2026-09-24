@@ -1,6 +1,6 @@
 # Curve refactor: `Line1d` as the foundation of `ZeroCurve`
 
-Status: PR 1 merged; PR 2 implemented on `feature/carlos/line_curve_refactor`. This document is the working plan; tick items as they land and
+Status: PR 1 merged; PR 2 and PR 3 implemented on `feature/carlos/line_curve_refactor`. This document is the working plan; tick items as they land and
 keep the "Deferred" section current so design notes are not lost between sessions.
 
 ## Why
@@ -93,9 +93,12 @@ Decisions and their reasons:
 
 - [x] `CurveInterpolator` enum kept only as a parse table for Excel/config ->
       `(CurveSpace, Interpolator)`. Negative values dropped; `SupportedIntEnum` unused here.
-- [ ] `CLAUDE.md` (currently describes a log-DF-storing `ZeroCurve` on `common/containers/curve1d.py`,
-      neither exists) and `docs/pricing_architecture.md`, `docs/curve_architecture.md`.
-- [ ] Performance tests: curve construction (calibration hot path) and bulk query.
+- [x] `CLAUDE.md`, `docs/pricing_architecture.md`, `docs/curve_architecture.md`, `docs/engine_selection.md`.
+- [x] `docs/curves_line1d.md`: usage doc with figures (`research/curve_doc_figures.py` -> `docs/img/curves/`).
+- [x] Performance tests on a reusable harness: `common/testing/benchmark.py` (`Benchmark` +
+      `BenchmarkSuite` with stored-ratio expects, `BENCHMARK_UPDATE_EXPECTS=1` to refresh,
+      check skipped under coverage). `tests/performance/test_line1d_perf.py`,
+      `test_curve_perf.py`; `test_schedule_generation_perf.py` ported onto it.
 
 ## Deferred — design notes to re-examine
 

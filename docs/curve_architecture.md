@@ -1,5 +1,8 @@
 # Curve and Rate Architecture
 
+Responsibilities and boundaries. For usage, snippets and figures see
+[curves_line1d.md](curves_line1d.md).
+
 The curve stack separates mathematical state from market meaning. A calibrated curve is not
 itself a SOFR curve: it becomes one only after SOFR's index conventions are attached.
 
@@ -182,3 +185,13 @@ another scheme fails explicitly and the risk engine falls back to bump-and-repri
 bound interpolator exports PPoly `coefficients`, so extending an engine kernel to a new scheme
 is a searchsorted + Horner branch on that array, plus matching analytic weights for the
 adjoint.
+
+Same pillar discount factors under the five named schemes. Zero rates agree at the pillars;
+the forward panel is where the scheme choice shows:
+
+![ZeroCurve schemes](img/curves/zero_curve_schemes.png)
+
+Log-linear front end, natural cubic beyond the 2Y pillar via `Mixed`; the forward is
+continuous in DF at the join, not in slope:
+
+![Mixed yield curve](img/curves/yield_curve_mixed.png)
