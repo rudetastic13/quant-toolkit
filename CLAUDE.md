@@ -39,8 +39,11 @@ pytest src/finance/tests/unit/dates/test_date.py
 # Run by marker (available: unit, hypothesis, datemath, market_data, instruments, risk, calculators, calibration, slow, integration, regression, performance)
 pytest -m "unit and datemath"
 
-# Performance tests (disable coverage so instrumentation doesn't skew pure-Python timings)
+# Performance tests (disable coverage so instrumentation doesn't skew pure-Python timings).
+# Ratios to a raw-numpy base case are checked against stored expects (tests/performance/expects/);
+# reports land in pytest-reports/benchmarks/. Under coverage the expects check is skipped.
 pytest -m performance --no-cov -s
+BENCHMARK_UPDATE_EXPECTS=1 pytest -m performance --no-cov -s   # refresh the stored ratios after a deliberate change
 ```
 
 ### Linting & Formatting
@@ -83,9 +86,9 @@ mypy src/             # type check
 
 **`finance/dates/enums/`** — `Frequency`, `BDC` (Business Day Convention), `Direction`, `Roll`, `TermType`.
 
-**`finance/markets/curves/`** — `ZeroCurve` stores log discount factors internally (`-ln(DF_t)`). Constructed from discount factors, log DFs, or zero rates. Supports linear/flat interpolation and flat-forward or no extrapolation.
+**`finance/markets/curves/`** — `ZeroCurve` is pure math on float day offsets: a `Line1d` in `CurveSpace.LogDF` or `CurveSpace.ZeroRate` with any `common.math.interpolation` scheme, flat-forward or no extrapolation, `with_dfs` for cheap rebinding. `YieldCurve` adds the origin date, index conventions and fixings and is the only layer that sees dates (`YieldCurve.build(node_dates, dfs, ...)`). `CurveInterpolator` is a parse table (`resolve()` -> space + interpolator). See [docs/curve_architecture.md](docs/curve_architecture.md) for responsibilities and [docs/curves_line1d.md](docs/curves_line1d.md) for usage with figures.
 
-**`common/containers/curve1d.py`** — Generic 1D curve with pluggable interpolation/extrapolation, used as the backbone for `ZeroCurve`.
+**`common/math/line.py`, `common/math/interpolation.py`** — `Line1d(x, y, interpolator, left, right)`: nodes + a frozen interpolator instance (`Flat`, `Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`) + per-side `Extrapolation`. Fit with scipy, evaluate via `PPoly`, `coefficients` exported for engine kernels. Backbone of `ZeroCurve`, `HistoricalFixings` and `SinglePath`.
 
 **`common/array_buffer.py`** — Pre-allocated NumPy array buffers (`ArrayBuffer`, `ExpandableArrayBuffer`, `PaginatedArrayBuffer`) for performance-sensitive calculation loops.
 
@@ -99,6 +102,7 @@ Test base classes in `common/testing/__init__.py`:
 Each declares a `COVERAGE = [...]` class attribute listing the modules it targets.
 
 Custom assertions: `common/testing/numpy_array_asserts.py`. Expected data loading: `common/testing/expects_loader.py`.
+Performance tests: `common/testing/benchmark.py` (`Benchmark` = base case + contenders with a correctness gate; `BenchmarkSuite` = report + stored-ratio expects). Every performance test uses it.
 
 Coverage minimum is 80% (`fail_under = 80`). Reports are written to `pytest-reports/` (HTML, XML, JUnit).
 

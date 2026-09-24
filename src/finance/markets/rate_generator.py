@@ -81,23 +81,19 @@ class RateGenerator:
         rates = np.zeros_like(tau, dtype=np.float64)
 
         fixing_path = yield_curve.historical_fixings
-        realized = starts < yield_curve.zero_curve.origin
+        realized = starts < yield_curve.origin
         if realized.any():
             if fixing_path is None:
                 earliest = starts[realized].min()
                 raise ValueError(
                     f"curve '{curve_name}' requires historical fixings for dates before "
-                    f"{yield_curve.zero_curve.origin} (earliest requested: {earliest})."
+                    f"{yield_curve.origin} (earliest requested: {earliest})."
                 )
             rates[realized] = fixing_path.get_value(starts[realized])
 
         projected = ~realized & (tau > 0.0)
         if projected.any():
-            df_start, df_end = _discount_pairs(
-                yield_curve.zero_curve,
-                starts[projected],
-                ends[projected],
-            )
+            df_start, df_end = _discount_pairs(yield_curve, starts[projected], ends[projected])
             rates[projected] = (df_start / df_end - 1.0) / tau[projected]
         return rates
 
@@ -113,7 +109,7 @@ class RateGenerator:
         rates = np.zeros(days.size, dtype=np.float64)
         nonzero = days > 0.0
         if nonzero.any():
-            curve = self.market.zero_curve(curve_name)
+            curve = self.market.yield_curve(curve_name)
             log_start = curve.log_discount_factor(starts[nonzero])
             log_end = curve.log_discount_factor(ends[nonzero])
             rates[nonzero] = -(log_end - log_start) / (days[nonzero] / 365.0)

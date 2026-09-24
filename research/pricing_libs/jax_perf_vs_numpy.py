@@ -70,7 +70,7 @@ def build_market(as_of: Date):
         helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
-        YieldCurve.from_registry(result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
     )
     return market, cn
 
@@ -96,12 +96,7 @@ def build_book(as_of: Date, n: int) -> list:
 def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
     program = SwapPricer().compile(build_book(as_of, n_swaps))
     P = program.inputs.n_flows
-    n_pillars = int(np.count_nonzero(
-        (
-            market.zero_curve(cn).node_dates.astype("int64")
-            - market.zero_curve(cn).origin.astype("int64")
-        ) > 0
-    ))
+    n_pillars = int(np.count_nonzero(market.zero_curve(cn).x > 0))
     print(f"\n{'='*78}\nBOOK: {n_swaps} swaps  ({P} flows, {n_pillars} curve pillars)\n{'='*78}")
 
     sens = Sensitivities(program, market)
@@ -134,7 +129,7 @@ def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
     # -- gamma ------------------------------------------------------------------------
     def np_gamma_grid():
         # O(P^2) cross-gamma by second differences — what bump-and-reprice would need
-        t = (base.node_dates.astype("int64") - base.origin.astype("int64")) / 365.0
+        t = base.x / 365.0
         pil = np.nonzero(t > 0)[0]
         bp = 1e-4
         pv0 = program.reprice(market).instrument_pv

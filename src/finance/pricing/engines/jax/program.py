@@ -63,7 +63,7 @@ class JaxProgram:
         self._df = {name: make_df(g) for name, g in self.geoms.items()}
 
         # -- per-flow static columns ----------------------------------------------------
-        o = market.zero_curve(self.curve_names[0]).origin.astype(np.int64) if self.curve_names else 0
+        o = market.yield_curve(self.curve_names[0]).origin.astype(np.int64) if self.curve_names else 0
 
         def offs(dates: np.ndarray) -> np.ndarray:
             return (dates.astype(np.int64) - o).astype(np.float64)
@@ -98,7 +98,7 @@ class JaxProgram:
         reset_fixing = np.zeros(self.F, dtype=np.float64)
         for ci, name in enumerate(self.curve_names):
             yield_curve = market.yield_curve(name)
-            origin = yield_curve.zero_curve.origin
+            origin = yield_curve.origin
             mask = (
                 (ki.proj_curve == ci)
                 & self.is_float
@@ -163,7 +163,7 @@ class JaxProgram:
             obs_fixing = np.zeros(M, dtype=np.float64)
             for ci, name in enumerate(self.curve_names):
                 yield_curve = market.yield_curve(name)
-                origin = yield_curve.zero_curve.origin
+                origin = yield_curve.origin
                 mask = (
                     (self.obs_proj_of_obs == ci)
                     & (ki.pay_dates[flow_of_obs] >= origin)

@@ -158,6 +158,11 @@ def calibrate(
     return result
 
 
+def _yield_curve(result: CalibrationResult) -> YieldCurve:
+    """Origin + calibrated ``ZeroCurve`` as a date-addressable SOFR curve (not registered)."""
+    return YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+
+
 def register_sofr_curve(
     result: CalibrationResult,
     base_market: MarketContext | None = None,
@@ -170,6 +175,7 @@ def register_sofr_curve(
     """
     market = base_market or MarketContext(as_of_date=AS_OF, curves=CurveNamespace())
     sofr_curve = YieldCurve.from_registry(
+        result.origin,
         result.zero_curve,
         currency="USD",
         index_name="SOFR",
@@ -321,7 +327,7 @@ def seven_year_swap_report(
         }
     )
 
-    curve = market.zero_curve(CURVE)
+    curve = market.yield_curve(CURVE)
     pillar_dates = curve.node_dates[1:]
     pillar_years = (
         pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -482,7 +488,7 @@ def aggregate_portfolio_report(
     partial_dv01 = risk.partial_dv01(CURVE, jacobian).sum(axis=0)
     gamma = risk.gamma(CURVE)
 
-    curve = market.zero_curve(CURVE)
+    curve = market.yield_curve(CURVE)
     pillar_dates = curve.node_dates[1:]
     pillar_years = (
         pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -583,7 +589,7 @@ def key_rate_duration_table(
         krd = ladder.krd
     elif backend == "numba":
         program = SwapPricer().compile(swaps, backend=Backend.Numba)
-        curve = market.zero_curve(CURVE)
+        curve = market.yield_curve(CURVE)
         pillar_dates = curve.node_dates[1:]
         pillar_years = (
             pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -735,11 +741,11 @@ def plot_curves(
     grid = origin + np.arange(0, total_days + 1, 7, dtype="timedelta64[D]")
     t = ((grid - origin) / np.timedelta64(365, "D")).astype(np.float64)
 
-    df_g = res_global.zero_curve.discount_factor(grid)
-    df_b = res_boot.zero_curve.discount_factor(grid)
+    df_g = _yield_curve(res_global).discount_factor(grid)
+    df_b = _yield_curve(res_boot).discount_factor(grid)
 
     t_nodes = ((res_global.pillar_dates - origin) / np.timedelta64(365, "D")).astype(np.float64)
-    df_nodes = res_global.zero_curve.discount_factor(res_global.pillar_dates)
+    df_nodes = _yield_curve(res_global).discount_factor(res_global.pillar_dates)
 
     fig, (ax_df, ax_diff) = plt.subplots(
         2, 1, figsize=(12, 9), sharex=True,
@@ -806,7 +812,7 @@ def plot_daily_log_df_change(
         (axes[1], res_boot, SERIES_GREEN, LIGHT_GREEN, "Bootstrapper (brentq)"),
     ]
     for ax, res, color, node_color, label in panels:
-        log_df = res.zero_curve.log_discount_factor(grid)
+        log_df = _yield_curve(res).log_discount_factor(grid)
         d_bp = np.diff(log_df) * 1e4
 
         for ty in t_nodes:
@@ -837,7 +843,7 @@ if __name__ == "__main__":
     res_boot = calibrate(Bootstrapper())
     dump_errors(res_boot)
 
-    node_diff = np.abs(res_global.zero_curve.node_dfs - res_boot.zero_curve.node_dfs).max()
+    node_diff = np.abs(res_global.zero_curve.dfs - res_boot.zero_curve.dfs).max()
     print(f"\nMax |node DF| difference global vs bootstrap: {node_diff:.3e}")
 
     market = register_sofr_curve(res_global)

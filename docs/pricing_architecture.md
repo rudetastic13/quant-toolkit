@@ -397,9 +397,9 @@ deliberately explicit.
 ```python
 from finance.markets import RateGenerator
 
-zero_curve = result.zero_curve
 sofr_curve = YieldCurve.from_registry(
-    zero_curve,
+    result.origin,
+    result.zero_curve,
     currency="USD",
     index_name="SOFR",
 )
@@ -407,11 +407,11 @@ market = base.with_curve(sofr_curve)
 CN = "USD.SOFR"
 
 # zero rates (continuously-compounded) at each pillar
-zero_curve.zero_rate(result.pillar_dates) * 100
+sofr_curve.zero_rate(result.pillar_dates) * 100
 # [4.300, 4.320, 4.350, 4.390, 4.197, 4.097, 4.017, 4.103]  (%, 1M … 10Y)
 
 # discount factors at the same pillars
-market.zero_curve(CN).discount_factor(result.pillar_dates)
+market.yield_curve(CN).discount_factor(result.pillar_dates)
 # [0.99643, 0.98919, 0.97832, 0.95654, 0.91894, 0.88424, 0.81672, 0.66487]
 
 # rate generation is separate from curve storage and market lookup

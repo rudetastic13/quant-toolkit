@@ -9,13 +9,13 @@ from finance.pricing.engines.numba.program import NumbaProgram
 
 
 def _logdf_gradient(curve, date: np.datetime64) -> tuple[float, np.ndarray]:
-    """Log-linear DF and ``d ln(DF) / dz`` at one date (non-origin pillars only)."""
-    dates = curve.node_dates.astype("datetime64[D]")
-    origin = dates[0].astype(np.int64)
-    x = (dates.astype(np.int64) - origin).astype(np.float64)
-    t = x[1:] / 365.0
-    z = -np.log(curve.node_dfs[1:]) / t
-    q = float(np.datetime64(date, "D").astype(np.int64) - origin)
+    """Log-linear DF and ``d ln(DF) / dz`` at one date (non-origin pillars only).
+
+    ``curve`` is the calibrated ``YieldCurve`` (origin + pure ``ZeroCurve``).
+    """
+    x = curve.zero_curve.x
+    z = curve.zero_curve.node_zero_rates
+    q = float(curve.to_x(np.array([date], dtype="datetime64[D]"))[0])
     grad = np.zeros(z.size, dtype=np.float64)
     if q <= x[0]:
         return 1.0, grad

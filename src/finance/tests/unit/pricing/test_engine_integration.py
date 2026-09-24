@@ -10,7 +10,7 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod
-from finance.markets.curves import YieldCurve, ZeroCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
 from finance.markets.rate_generator import RateGenerator
@@ -21,12 +21,12 @@ ACT360 = DayCountMethod.Actual360
 CURVE = "USD.SOFR"
 
 
-def _curve(origin: str) -> ZeroCurve:
+def _curve(origin: str) -> YieldCurve:
     # Smooth descending DFs ~ 4% continuously compounded over 3y of pillars.
     dates = np.array([origin, "2027-06-01", "2028-06-01", "2029-06-01"], dtype="datetime64[D]")
     t = (dates.astype("datetime64[D]").astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     dfs = np.exp(-0.04 * t)
-    return ZeroCurve(dates, dfs)
+    return YieldCurve.build(dates, dfs, currency="USD", index_name="SOFR")
 
 
 def _obs_windows(period_start, period_end):
@@ -53,15 +53,9 @@ class TestParSwapPricesToZero(UnitTest):
     def setUp(self):
         self.origin = "2026-06-01"
         ns = CurveNamespace()
-        ns.bind(
-            YieldCurve.from_registry(
-                _curve(self.origin),
-                currency="USD",
-                index_name="SOFR",
-            )
-        )
+        ns.bind(_curve(self.origin))
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
-        self.curve = self.mkt.zero_curve(CURVE)
+        self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)
         # 2y annual swap, effective = curve origin
         self.boundaries = np.array([self.origin, "2027-06-01", "2028-06-01"], dtype="datetime64[D]")

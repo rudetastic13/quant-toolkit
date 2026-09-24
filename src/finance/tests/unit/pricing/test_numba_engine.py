@@ -6,7 +6,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
 from finance.pricing.engines.numba import NumbaProgram
 from finance.pricing.engines.numba.program import _execute
 from finance.pricing.pricers import SwapPricer
@@ -25,8 +25,7 @@ def _market(as_of):
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.032, 0.035, 0.039, 0.043, 0.046])
     ns = CurveNamespace()
-    zero_curve = ZeroCurve(dates, np.exp(-z * t), CurveInterpolator.LogLinearDF)
-    ns.bind(YieldCurve.from_registry(zero_curve, currency="USD", index_name="SOFR"))
+    ns.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR"))
     return MarketContext(as_of, ns)
 
 
@@ -97,10 +96,10 @@ class TestNumbaProgram(UnitTest):
 
     def test_reprice_rejects_changed_pillar_geometry(self):
         program = NumbaProgram(SwapPricer().compile(_book(self.as_of, 1)).inputs, self.market)
-        curve = self.market.zero_curve(CURVE)
-        dates = np.insert(curve.node_dates, 2, curve.node_dates[1] + np.timedelta64(30, "D"))
-        dfs = np.interp(dates.astype(np.int64), curve.node_dates.astype(np.int64), curve.node_dfs)
-        changed_curve = self.market.yield_curve(CURVE).with_zero_curve(ZeroCurve(dates, dfs))
+        yc = self.market.yield_curve(CURVE)
+        dates = np.insert(yc.node_dates, 2, yc.node_dates[1] + np.timedelta64(30, "D"))
+        dfs = np.interp(dates.astype(np.int64), yc.node_dates.astype(np.int64), yc.zero_curve.dfs)
+        changed_curve = yc.with_zero_curve(ZeroCurve(yc.to_x(dates), dfs))
         changed = self.market.with_curve(changed_curve)
         with self.assertRaises(ValueError):
             program.reprice(changed)

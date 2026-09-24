@@ -11,14 +11,14 @@ from common.testing import UnitTest
 from finance.dates import Date, period_fractions
 from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve
 from finance.pricing.calibration.instruments import deposit_helper, fra_helper, swap_helper
 from finance.pricing.pricers.swap import SwapPricer
 
 CURVE = "USD.SOFR"
 
 
-def _curve(origin: str) -> ZeroCurve:
+def _curve(origin: str) -> YieldCurve:
     dates = np.array(
         [origin, "2027-06-01", "2028-06-01", "2029-06-01", "2031-06-01", "2036-06-01"],
         dtype="datetime64[D]",
@@ -26,7 +26,7 @@ def _curve(origin: str) -> ZeroCurve:
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     dfs = np.exp(-0.04 * t)
     dfs[0] = 1.0
-    return ZeroCurve(dates, dfs, CurveInterpolator.LogLinearDF)
+    return YieldCurve.build(dates, dfs, currency="USD", index_name="SOFR")
 
 
 @pytest.mark.calibration
@@ -37,7 +37,7 @@ class TestHelpers(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.curve = _curve("2026-06-01")
         ns = CurveNamespace()
-        ns.bind(YieldCurve.from_registry(self.curve, currency="USD", index_name="SOFR"))
+        ns.bind(self.curve)
         self.mkt = MarketContext(as_of_date=self.as_of, curves=ns)
 
     def _df_ratio_rate(self, eff, mat, dcm) -> float:

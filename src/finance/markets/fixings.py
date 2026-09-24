@@ -5,7 +5,8 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from common.math.line import ExtrapolationType, InterpolationType, Line1d
+from common.math.interpolation import Flat
+from common.math.line import Extrapolation, Line1d
 
 DateArray = np.ndarray
 FloatArray = np.ndarray
@@ -13,11 +14,15 @@ FloatArray = np.ndarray
 
 @dataclass(frozen=True)
 class HistoricalFixings:
-    """Immutable historical rate observations with flat interpolation/extrapolation.
+    """Immutable historical rate observations, held flat between prints.
+
+    A fixing holds until the next one: Friday's print covers Saturday and Sunday, Monday's
+    takes over on Monday.  Queries before the first print return it; queries after the last
+    return the last.
 
     The object deliberately carries no valuation-date or projection behavior. ``YieldCurve``
     owns the history and ``RateGenerator`` decides whether a requested fixing is historical
-    by comparing its date with the associated ``ZeroCurve.origin``.
+    by comparing its date with the associated ``YieldCurve.origin``.
     """
 
     dates: DateArray
@@ -46,21 +51,22 @@ class HistoricalFixings:
             self,
             "_line",
             Line1d(
-                x=dates.astype(np.int64),
+                x=dates.view(np.int64).astype(np.float64),
                 y=values,
-                interp=InterpolationType.Flat,
-                extrap=ExtrapolationType.Flat,
+                interpolator=Flat(),
+                left=Extrapolation.Flat,
+                right=Extrapolation.Flat,
             ),
         )
 
     def get_value(self, dates: DateArray) -> FloatArray:
-        """Return flat-interpolated/extrapolated fixing values for query dates."""
+        """Return the fixing in force on each query date (previous print held flat)."""
         query = np.asarray(dates).astype("datetime64[D]")
         if query.ndim != 1:
             raise ValueError("historical fixing queries require a 1-D date array.")
         if np.isnat(query).any():
             raise ValueError("historical fixing queries cannot contain NaT.")
-        return np.asarray(self._line.get_value(query.astype(np.int64)), dtype=np.float64)
+        return self._line(query.view(np.int64).astype(np.float64))
 
 
 __all__ = ["HistoricalFixings"]

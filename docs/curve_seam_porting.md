@@ -33,7 +33,7 @@ platform must be able to price a calibration instrument off an injected curve.
 
 | Piece | Source | External deps | Notes |
 |---|---|---|---|
-| Line / interpolator layer | `finance/markets/curves/_curve_impl/interpolators.py` | numpy, scipy (`PPoly`) | The real engine: `Interpolator` hierarchy (log-linear/log-cubic DF, rate linear/quadratic/cubic) + `InterpolatedSegment`, all in float day-space. **This must flow through** — `ZeroCurve` is a thin date wrapper over it. |
+| Line / interpolator layer | `common/math/interpolation.py` + `common/math/line.py` (formerly `finance/markets/curves/_curve_impl/interpolators.py`; see `docs/curve_line1d_refactor_plan.md`) | numpy, scipy (`PPoly`, `CubicSpline`) | The real engine: `Interpolator` hierarchy (log-linear/log-cubic DF, rate linear/quadratic/cubic) + `InterpolatedSegment`, all in float day-space. **This must flow through** — `ZeroCurve` is a thin date wrapper over it. |
 | `ZeroCurve` | `_curve_impl/zero_curve.py` | interpolators, `finance.dates.Term` | `Term` is only used for the dual-segment cutover convenience; either vendor `Term` or restrict the ported API to `datetime64` cutovers to drop the dependency. |
 | `CurveInterpolator` / `RateExtrapolator` enums | `markets/curves/types.py` | `common.containers.enums.SupportedIntEnum` | Trivial; vendor the enum base or replace with `IntEnum`. |
 | `YieldCurve` + `CurveNamespace` | `markets/curves/yield_curve.py`, `namespace.py` | conventions | Composes pure curve state with an index definition; the namespace binds these named market objects. |

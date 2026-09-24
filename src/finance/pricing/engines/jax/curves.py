@@ -24,7 +24,7 @@ import numpy as np
 
 import jax.numpy as jnp
 
-from finance.markets.curves import CurveInterpolator, ZeroCurve
+from finance.markets.curves import ZeroCurve
 
 FloatArray = np.ndarray
 
@@ -36,22 +36,27 @@ class CurveGeometry:
     x_nodes : (N,)  day offsets from origin, origin-inclusive (x_nodes[0] == 0.0).
     t_nodes : (N-1,) Act/365 year fractions at the non-origin pillars.
     z0      : (N-1,) the calibrated zero rates (initial parameter value).
-    interpolation : the curve's interpolation method (only LogLinearDF modelled today).
+    log_linear : whether the curve is log-linear in DF (the only scheme modelled today).
+    description : ``repr`` of the source curve, for error messages.
     """
 
     x_nodes: FloatArray
     t_nodes: FloatArray
     z0: FloatArray
-    interpolation: CurveInterpolator
+    log_linear: bool
+    description: str
 
 
 def curve_geometry(curve: ZeroCurve) -> CurveGeometry:
     """Pull the static geometry and the initial zero-rate parameter vector off a ZeroCurve."""
-    o = curve.origin.astype(np.int64)
-    x_nodes = (curve.node_dates.astype(np.int64) - o).astype(np.float64)  # incl. origin (0.0)
-    t_nodes = x_nodes[1:] / 365.0
-    z0 = -np.log(curve.node_dfs[1:]) / t_nodes
-    return CurveGeometry(x_nodes=x_nodes, t_nodes=t_nodes, z0=z0, interpolation=curve.interpolation)
+    x_nodes = curve.x  # incl. origin (0.0)
+    return CurveGeometry(
+        x_nodes=x_nodes,
+        t_nodes=x_nodes[1:] / 365.0,
+        z0=curve.node_zero_rates,
+        log_linear=curve.is_log_linear,
+        description=repr(curve),
+    )
 
 
 def make_logdf(geom: CurveGeometry):
@@ -62,10 +67,10 @@ def make_logdf(geom: CurveGeometry):
     segment's slope is continued (flat-forward extrapolation) — the same thing the numpy
     ``ZeroCurve`` does, so the two engines agree on flows past the terminal pillar.
     """
-    if geom.interpolation is not CurveInterpolator.LogLinearDF:
+    if not geom.log_linear:
         raise NotImplementedError(
-            f"JAX curve only models LogLinearDF today; got {geom.interpolation.name}. "
-            "RateLinear is a follow-up (linear in zero rate, not in ln DF)."
+            f"JAX curve only models log-linear DF today; got {geom.description}. "
+            "Linear in zero rate is a follow-up (linear in rate, not in ln DF)."
         )
     x_nodes = jnp.asarray(geom.x_nodes)
     t_nodes = jnp.asarray(geom.t_nodes)

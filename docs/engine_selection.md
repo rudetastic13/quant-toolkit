@@ -150,7 +150,7 @@ LogLinearDF curve and two flat vol surfaces — one per quoting convention, beca
 import numpy as np
 from finance.dates import Date
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, YieldCurve
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 
 as_of  = Date(2026, 6, 1)
@@ -160,10 +160,7 @@ t      = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
 zeros  = np.array([0.0, 0.035, 0.040, 0.045, 0.047])
 
 curves = CurveNamespace()
-curves.bind(YieldCurve.from_registry(
-    ZeroCurve(dates, np.exp(-zeros * t), CurveInterpolator.LogLinearDF),
-    currency="USD", index_name="SOFR",
-))
+curves.bind(YieldCurve.build(dates, np.exp(-zeros * t), currency="USD", index_name="SOFR"))
 vols = VolNamespace()
 vols.bind("USD.SOFR",    FlatVolSurface(0.0095, VolUnits.Normal))     # 95bp normal — Bachelier
 vols.bind("USD.SOFR.LN", FlatVolSurface(0.24,   VolUnits.Lognormal))  # 24%  lognormal — Black

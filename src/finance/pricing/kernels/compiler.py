@@ -214,7 +214,7 @@ def reprice(ki: KernelInputs, market) -> KernelResult:
     # -- discount factors, one curve.discount_factor call per discount curve --
     df = np.zeros(F, dtype=np.float64)
     for ci, name in enumerate(ki.curve_names):
-        curve = market.zero_curve(name)
+        curve = market.yield_curve(name)
         mask = (ki.discount_curve == ci) & (ki.pay_dates >= curve.origin)
         if mask.any():
             df[mask] = curve.discount_factor(ki.pay_dates[mask])

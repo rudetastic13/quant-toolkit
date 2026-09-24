@@ -109,7 +109,7 @@ class FuturesProgram:
         discount = np.empty(ki.n_flows, dtype=np.float64)
         for ci, name in enumerate(ki.curve_names):
             mask = ki.discount_curve == ci
-            discount[mask] = market.zero_curve(name).discount_factor(ki.pay_dates[mask])
+            discount[mask] = market.yield_curve(name).discount_factor(ki.pay_dates[mask])
         rate_grad = flow_grad / (ki.period_frac * discount)[:, None]
         price_grad = -100.0 * rate_grad
         pnl_grad = np.empty_like(price_grad)

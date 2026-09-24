@@ -67,7 +67,7 @@ def build_basis_market(as_of: Date):
         sofr_helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     sofr_market = base.with_curve(
-        YieldCurve.from_registry(r_sofr.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(r_sofr.origin, r_sofr.zero_curve, currency="USD", index_name="SOFR")
     )
 
     # Fed Funds projection curve — discounted on the SOFR curve just built (funding_id='SOFR').
@@ -83,7 +83,7 @@ def build_basis_market(as_of: Date):
         CurveDefinition("USD", "FEDFUND", CurveInterpolator.LogLinearDF),
     ).calibrate(sofr_market, jacobian=True)   # <-- the JAX hook: capture ∂implied/∂z
     market = sofr_market.with_curve(
-        YieldCurve.from_registry(r_ff.zero_curve, currency="USD", index_name="FEDFUND")
+        YieldCurve.from_registry(r_ff.origin, r_ff.zero_curve, currency="USD", index_name="FEDFUND")
     )
 
     return market, r_sofr, r_ff, SOFR, FF
