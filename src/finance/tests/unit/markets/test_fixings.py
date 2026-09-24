@@ -8,16 +8,27 @@ from finance.markets import HistoricalFixings
 class TestHistoricalFixings(UnitTest):
     COVERAGE = ["finance.markets.fixings"]
 
-    def test_flat_interpolation_and_extrapolation(self):
+    def test_fixing_holds_until_next_print(self):
+        # Wed 27th and Fri 29th prints; the 28th is covered by the 27th, the weekend and
+        # the 1st by the 29th, dates before the first print get the first print.
         history = HistoricalFixings(
             dates=np.array(["2026-05-27", "2026-05-29"], dtype="datetime64[D]"),
             values=np.array([0.0361, 0.0364]),
         )
         queries = np.array(
-            ["2026-05-20", "2026-05-27", "2026-05-28", "2026-06-01"],
+            ["2026-05-20", "2026-05-27", "2026-05-28", "2026-05-29", "2026-05-30", "2026-06-01"],
             dtype="datetime64[D]",
         )
-        np.testing.assert_allclose(history.get_value(queries), [0.0361, 0.0361, 0.0364, 0.0364])
+        np.testing.assert_allclose(history.get_value(queries), [0.0361, 0.0361, 0.0361, 0.0364, 0.0364, 0.0364])
+
+    def test_weekend_takes_friday_print(self):
+        # Fri | Sat | Sun | Mon
+        history = HistoricalFixings(
+            dates=np.array(["2026-06-05", "2026-06-08"], dtype="datetime64[D]"),
+            values=np.array([0.0530, 0.0532]),
+        )
+        queries = np.array(["2026-06-05", "2026-06-06", "2026-06-07", "2026-06-08"], dtype="datetime64[D]")
+        np.testing.assert_allclose(history.get_value(queries), [0.0530, 0.0530, 0.0530, 0.0532])
 
     def test_constructor_copies_input_arrays(self):
         dates = np.array(["2026-05-27", "2026-05-29"], dtype="datetime64[D]")

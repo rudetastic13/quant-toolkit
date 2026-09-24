@@ -2,11 +2,8 @@
 import numpy as np
 from dataclasses import dataclass, field
 from finance.dates import Date
-from common.math.line import (
-    Line1d,
-    InterpolationType,
-    ExtrapolationType,
-)
+from common.math.interpolation import Flat, Interpolator
+from common.math.line import Extrapolation, Line1d
 
 
 @dataclass
@@ -16,24 +13,26 @@ class SinglePath:
     as_of_date: Date
     dates: np.ndarray
     values: np.ndarray
-    interp: InterpolationType = InterpolationType.Flat
-    extrap: ExtrapolationType = ExtrapolationType.Flat
+    interpolator: Interpolator = Flat()
+    left: Extrapolation = Extrapolation.Flat
+    right: Extrapolation = Extrapolation.Flat
     curve: Line1d = field(init=False)
     _as_of_date_int: int = field(init=False)
 
     def __post_init__(self):
         self._as_of_date_int = self.as_of_date.toordinal()
         self.curve = Line1d(
-            x=self.dates.astype(np.int64) - self._as_of_date_int,
+            x=(self.dates.astype(np.int64) - self._as_of_date_int).astype(np.float64),
             y=self.values,
-            interp=self.interp,
-            extrap=self.extrap,
+            interpolator=self.interpolator,
+            left=self.left,
+            right=self.right,
         )
 
     def get_value(self, dates: np.ndarray) -> np.ndarray:
         """Get interpolated/extrapolated values for given dates."""
-        date_ints = dates.astype(np.int64) - self._as_of_date_int
-        return self.curve.get_value(date_ints)
+        x = (dates.astype(np.int64) - self._as_of_date_int).astype(np.float64)
+        return self.curve(x)
 
 @dataclass
 class FlatPath:

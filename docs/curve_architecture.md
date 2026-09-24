@@ -56,8 +56,9 @@ fixing date >= ZeroCurve.origin  -> projected rate (curve-sensitive)
 payment date < ZeroCurve.origin  -> expired flow (DF = PV = all risk = 0)
 ```
 
-`HistoricalFixings` is a date/value series backed by `Line1d` with flat interpolation and
-flat extrapolation. Daily compounded coupons may therefore contain both locked observations
+`HistoricalFixings` is a date/value series backed by `Line1d` with `Flat` (previous-hold)
+interpolation and flat extrapolation on both sides: a Friday print covers Saturday and
+Sunday, Monday's print takes over on Monday. Daily compounded coupons may therefore contain both locked observations
 and projected observations. Their index delta is naturally the remaining, or "stubbed",
 projection risk. A fully historical but unpaid coupon retains funding risk because its future
 payment is discounted, while its index risk is zero.

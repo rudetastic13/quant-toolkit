@@ -113,3 +113,4 @@ dependencies:
       - pluggy==1.6.0
       - ruff==0.14.13
       - scipy==1.17.1
+      - hypothesis==6.168.1
