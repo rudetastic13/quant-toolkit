@@ -171,6 +171,63 @@ class TestZeroCurveRebinding(UnitTest):
             c.with_dfs(np.array([1.0, 0.9]))
 
 
+class TestZeroCurveLogDfAffine(UnitTest):
+    """``log_df_affine``: the engine hand-off is exact for every scheme, in both spaces, past the last pillar."""
+
+    COVERAGE = ["finance.markets.curves._curve_impl.zero_curve"]
+
+    X8 = np.array([0.0, 30.0, 90.0, 365.0, 730.0, 1825.0, 3650.0, 10950.0])
+    Z8 = np.array([0.0, 0.041, 0.042, 0.040, 0.039, 0.041, 0.043, 0.045])
+    XQ = np.array([0.0, 1.0, 45.0, 365.0, 1000.0, 3650.0, 5000.0, 12000.0, 15000.0])  # pillars, interior, beyond
+
+    def _curve(self, scheme) -> ZeroCurve:
+        dfs = np.exp(-self.Z8 * self.X8 / 365.0)
+        dfs[0] = 1.0
+        if isinstance(scheme, CurveInterpolator):
+            space, interpolator = scheme.resolve()
+        else:
+            space, interpolator = scheme
+        return ZeroCurve(self.X8, dfs, space=space, interpolator=interpolator)
+
+    def _schemes(self):
+        yield from CurveInterpolator
+        yield (CurveSpace.LogDF, Mixed(Linear(), Cubic(), 3))
+        yield (CurveSpace.ZeroRate, Mixed(Linear(), Quadratic(), 2))
+
+    def test_reconstructs_log_df_at_current_rates(self):
+        for scheme in self._schemes():
+            with self.subTest(scheme=scheme):
+                c = self._curve(scheme)
+                offset, jac = c.log_df_affine(self.XQ)
+                self.assertEqual(jac.shape, (self.XQ.size, self.X8.size - 1))
+                np.testing.assert_allclose(offset + jac @ c.node_zero_rates, c.log_discount_factor(self.XQ), atol=1e-12)
+
+    def test_jacobian_matches_central_differences(self):
+        h = 1e-6
+        for scheme in self._schemes():
+            with self.subTest(scheme=scheme):
+                c = self._curve(scheme)
+                _, jac = c.log_df_affine(self.XQ)
+                t, z0 = c.x[1:] / 365.0, c.node_zero_rates
+                for k in range(z0.size):
+                    e = np.zeros(z0.size)
+                    e[k] = h
+                    up = c.with_dfs(np.concatenate([[1.0], np.exp(-(z0 + e) * t)])).log_discount_factor(self.XQ)
+                    dn = c.with_dfs(np.concatenate([[1.0], np.exp(-(z0 - e) * t)])).log_discount_factor(self.XQ)
+                    np.testing.assert_allclose(jac[:, k], (up - dn) / (2.0 * h), atol=1e-7)
+
+    def test_log_linear_rows_are_the_two_bracketing_pillars(self):
+        _, jac = self._curve(CurveInterpolator.LogLinearDF).log_df_affine(self.XQ)
+        np.testing.assert_array_equal(np.count_nonzero(jac, axis=1), [0, 1, 2, 1, 2, 1, 2, 2, 2])
+        # beyond the last pillar the terminal segment's two nodes carry the (continued) slope
+        self.assertTrue((jac[-1, -2:] != 0.0).all())
+
+    def test_origin_query_has_no_sensitivity(self):
+        offset, jac = self._curve(CurveInterpolator.RateCubic).log_df_affine(np.array([0.0]))
+        self.assertEqual(offset[0], 0.0)
+        np.testing.assert_array_equal(jac[0], 0.0)
+
+
 class TestZeroCurveValidation(UnitTest):
     COVERAGE = ["finance.markets.curves._curve_impl.zero_curve"]
 
