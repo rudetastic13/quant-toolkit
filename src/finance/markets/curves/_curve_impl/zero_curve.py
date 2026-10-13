@@ -137,7 +137,7 @@ class ZeroCurve:
 
     @property
     def is_log_linear(self) -> bool:
-        """Log-linear DF: the one scheme the Numba/JAX engines model analytically today."""
+        """Log-linear DF: the one scheme the JAX oracle models (the Numba engine takes any, via ``log_df_affine``)."""
         return self._space is CurveSpace.LogDF and self._interpolator == Linear()
 
     def with_dfs(self, dfs: FloatArray) -> ZeroCurve:

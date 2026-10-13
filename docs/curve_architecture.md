@@ -179,12 +179,12 @@ and no-recompile scenario recalculation, see
 
 `ZeroCurve` accepts any `common.math.interpolation` scheme in either space, including
 `Mixed(short, long, switch_node)` for a log-linear front end with a spline beyond a chosen
-pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba and JAX
-pricing/adjoint geometry model log-linear DF only (`ZeroCurve.is_log_linear`); requesting
-another scheme fails explicitly and the risk engine falls back to bump-and-reprice. Every
-bound interpolator exports PPoly `coefficients`, so extending an engine kernel to a new scheme
-is a searchsorted + Horner branch on that array, plus matching analytic weights for the
-adjoint.
+pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba pricing/adjoint
+engine takes any of them: at prepare time each curve hands over `ZeroCurve.log_df_affine` on
+the program's static queries — the exact `(offset, jacobian)` of `ln DF` in the pillar zero
+rates — and the kernel never sees the scheme. Only the JAX oracle still models log-linear DF
+(`ZeroCurve.is_log_linear`). Every bound interpolator also exports PPoly `coefficients` for a
+kernel that wants to evaluate the curve itself.
 
 Same pillar discount factors under the five named schemes. Zero rates agree at the pillars;
 the forward panel is where the scheme choice shows:

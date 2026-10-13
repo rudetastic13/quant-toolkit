@@ -119,8 +119,8 @@ class FuturesProgram:
 
 
 class FuturesPricer:
-    # Numpy is the always-available reference (numba is optional and LogLinearDF-only);
-    # pass Backend.Numba for the fused hot path.  risk() uses the Numba adjoint either way.
+    # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
+    # the fused hot path.  risk() uses the Numba adjoint either way.
     default_backend = Backend.Numpy
 
     def compile(self, futures: list[SofrFuture], *, backend: Backend | None = None) -> FuturesProgram:

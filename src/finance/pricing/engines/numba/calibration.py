@@ -8,42 +8,15 @@ from finance.pricing.calibration.instruments import DepositHelper, FraHelper, Sw
 from finance.pricing.engines.numba.program import NumbaProgram
 
 
-def _logdf_gradient(curve, date: np.datetime64) -> tuple[float, np.ndarray]:
-    """Log-linear DF and ``d ln(DF) / dz`` at one date (non-origin pillars only).
-
-    ``curve`` is the calibrated ``YieldCurve`` (origin + pure ``ZeroCurve``).
-    """
-    x = curve.zero_curve.x
-    z = curve.zero_curve.node_zero_rates
-    q = float(curve.to_x(np.array([date], dtype="datetime64[D]"))[0])
-    grad = np.zeros(z.size, dtype=np.float64)
-    if q <= x[0]:
-        return 1.0, grad
-    if q >= x[-1]:
-        left, right = x.size - 2, x.size - 1
-        w_right = 1.0 + (q - x[right]) / (x[right] - x[left])
-    else:
-        right = int(np.searchsorted(x, q, side="right"))
-        left = right - 1
-        w_right = (q - x[left]) / (x[right] - x[left])
-    w_left = 1.0 - w_right
-    log_left = 0.0 if left == 0 else -z[left - 1] * (x[left] / 365.0)
-    log_right = -z[right - 1] * (x[right] / 365.0)
-    if left > 0:
-        grad[left - 1] = -(x[left] / 365.0) * w_left
-    grad[right - 1] += -(x[right] / 365.0) * w_right
-    return float(np.exp(w_left * log_left + w_right * log_right)), grad
-
-
 def _money_market_gradient(helper, curve) -> np.ndarray:
+    """``d simple_rate / dz`` over ``[effective, maturity]``; ``curve`` is the calibrated ``YieldCurve``."""
     inst = getattr(helper, "deposit", None) or getattr(helper, "fra", None)
-    start = np.datetime64(inst.effective.to_numpy(), "D")
-    end = np.datetime64(inst.maturity.to_numpy(), "D")
-    tau = float(period_fractions(inst.day_count_method, np.array([start]), np.array([end]))[0])
-    df_start, grad_start = _logdf_gradient(curve, start)
-    df_end, grad_end = _logdf_gradient(curve, end)
-    ratio = df_start / df_end
-    return ratio / tau * (grad_start - grad_end)
+    window = np.array([inst.effective.to_numpy(), inst.maturity.to_numpy()], dtype="datetime64[D]")
+    tau = float(period_fractions(inst.day_count_method, window[:1], window[1:])[0])
+    offset, jac = curve.zero_curve.log_df_affine(curve.to_x(window))
+    log_df = offset + jac @ curve.zero_curve.node_zero_rates
+    ratio = float(np.exp(log_df[0] - log_df[1]))
+    return ratio / tau * (jac[0] - jac[1])
 
 
 def _swap_gradient(helper: SwapHelper, target_name: str, market) -> np.ndarray:

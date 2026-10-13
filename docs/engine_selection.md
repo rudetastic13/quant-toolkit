@@ -63,9 +63,10 @@ repeated-book performance. `Jax` is the production engine only for the numerical
 elsewhere it is the validation oracle (§5).
 
 **Shipped defaults vs this table.** Every pricer ships `default_backend = Numpy` — the
-always-available reference: numba is an optional dependency, and `NumbaProgram` supports only
-`LogLinearDF` curves with static pillar geometry (calibration on `LogCubicDF` / `RateLinear`
-must run numpy). The `Numba` rows above are the *recommended production binding* for
+always-available reference: numba is an optional dependency. `NumbaProgram` takes any curve
+scheme (it consumes `ZeroCurve.log_df_affine`, so the kernel never interpolates) and is keyed
+to the market's pillar geometry; `PricingProgram.prepare` re-prepares when that changes. The
+`Numba` rows above are the *recommended production binding* for
 repeated-book work, selected explicitly at compile (`backend=Backend.Numba`). Analytic
 first-order risk (`SwaptionProgram.risk`, `FuturesProgram.risk`, `NumbaRisk`) always executes
 on the Numba adjoint regardless of the reprice backend — numpy has no adjoint implementation —
@@ -222,14 +223,14 @@ Swaption.european(..., model=SwaptionModel.Black)   # ValueError: requires a Log
 ### 7.3 The `RiskEngine` — §4's dispatch as one front door
 
 `RiskEngine(program, market)` resolves the risk *method* from what the program and market
-support — `adjoint` (numba + LogLinearDF) or `bump` (universal fallback) — and serves the
-same requests either way. Pinning `method="bump"` is the §5 cross-check.
+support — `adjoint` (numba installed; any curve scheme) or `bump` (universal fallback) — and
+serves the same requests either way. Pinning `method="bump"` is the §5 cross-check.
 
 ```python
 from finance.pricing.risk import RiskEngine
 
 risk = RiskEngine(program, market)
-risk.method                 # 'adjoint'  (numba installed, curve is LogLinearDF)
+risk.method                 # 'adjoint'  (numba installed)
 
 risk.dv01("USD.SOFR")       # [-45,589.44, 19,811.93]   per instrument, +1bp parallel
 lad = risk.ladder("USD.SOFR")
@@ -251,8 +252,9 @@ srisk.ladder("USD.SOFR").ladder   # [[-3,564.82,  3,174.07, 16,360.27, 0.00],
                                   #  [ 1,063.76, -1,113.69, -5,096.70, 0.00]]
 srisk.dv01("USD.SOFR")            # [15,969.52, -5,146.63]; bump agrees to ~1e-5 relative
 
-# On a RateLinear / LogCubicDF curve the same calls resolve to method='bump' automatically;
-# futures are rejected with a pointer to FuturesProgram.risk (their measure is not PV).
+# A RateLinear / LogCubicDF / RateCubic curve takes the same adjoint path (the curve hands the
+# kernel its exact affine map); futures are rejected with a pointer to FuturesProgram.risk
+# (their measure is not PV).
 ```
 
 The wiring demonstrates every §4 rule: the pricer bound the pricing backend (`compile`),

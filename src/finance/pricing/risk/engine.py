@@ -3,12 +3,12 @@
 docs/engine_selection.md fixes the policy: the risk *method* is determined by what the
 program and market support, never chosen ad hoc at the call site.
 
-- ``adjoint`` — numba installed and every program curve is ``LogLinearDF``: exact
-  first-order ladders from one fused pass (linear books via :class:`NumbaRisk`, swaptions
-  via the chained forward/annuity adjoint in ``SwaptionProgram.risk``), and FD-of-gradient
-  gamma.
+- ``adjoint`` — numba installed: exact first-order ladders from one fused pass (linear
+  books via :class:`NumbaRisk`, swaptions via the chained forward/annuity adjoint in
+  ``SwaptionProgram.risk``), and FD-of-gradient gamma.  Any interpolation scheme — the
+  curve hands the kernel its exact affine map (``ZeroCurve.log_df_affine``).
 - ``bump`` — the universal fallback: central-difference bump-and-reprice over the same
-  compiled program.  Any interpolation, any backend, no numba.
+  compiled program.  Any backend, no numba.
 
 ``method="auto"`` (default) resolves per the above; pass ``"adjoint"`` / ``"bump"`` to pin
 one explicitly (``bump`` is how the adjoint is cross-checked in CI).  Futures are not
@@ -69,13 +69,7 @@ class RiskEngine:
             return method
         from finance.pricing import risk
 
-        if risk.NumbaRisk is None:
-            return "bump"
-        loglinear = all(
-            self.market.zero_curve(name).is_log_linear
-            for name in self._inputs().curve_names
-        )
-        return "adjoint" if loglinear else "bump"
+        return "bump" if risk.NumbaRisk is None else "adjoint"
 
     # -- measures -----------------------------------------------------------------------
     def ladder(self, curve_name: str) -> CurveRiskReport:

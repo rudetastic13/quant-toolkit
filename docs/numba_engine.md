@@ -37,13 +37,17 @@ The engine lives at `finance/pricing/engines/numba/`, registered under `Backend.
 the same `(kernel_id, Backend)` keys as the numpy engine, consuming the same `KernelInputs`. A
 small `prepare(program, market)` step lowers the columnar inputs + curve geometry into the flat
 `float64[::1]`/`int64[::1]` arguments the `@njit` kernels take (offsets, day-count fractions,
-the static obs-date dedup map, flattened curves). All date math is static and gradient-free;
-the only varying quantities are the per-curve zero-rate vectors `z`.
+the static query dedup map, the curves' affine rows). All date math is static and
+gradient-free; the only varying quantities are the per-curve zero-rate vectors `z`.
 
-Curve discounting runs **inside** nopython mode: `LogLinearDF` (log-linear in `ln DF`) plus
-flat-forward extrapolation, via a binary search over the flattened node arrays
-(`curve_x`, `curve_logdf`, `curve_node_off`). `RateLinear` is a later addition behind the same
-interpolation dispatch.
+Curve interpolation does **not** run inside nopython mode. Every discount-factor query the
+book needs — payment dates, reset windows, observation endpoints — is a static day offset
+once compiled, so `prepare` deduplicates them per curve and asks `ZeroCurve.log_df_affine`
+for each curve's exact map `ln DF(q) = const[q] + Σ_k coef[q,k]·z_k`, stored as CSR rows. The
+kernel evaluates one dot product per query and scatters adjoints through the same rows,
+whatever the scheme: log-linear DF gives two nonzeros per row, a cubic spline a dense one,
+`Mixed` something in between. A query before the origin carries `const = −∞`, so its DF is
+exactly zero — the expired-flow marker.
 
 ---
 
@@ -74,18 +78,22 @@ Jacobian**. *Depends on F1.*
 
 ### 3.1 The core identity (why it is cheap and sparse)
 
-The curve parameter is `z_p` = continuously-compounded zero at pillar `p`; node
-`ln DF = −z_p·t_p`. For `LogLinearDF`, `ln DF(x)` is a convex combination of the **two
-bracketing nodes**, with interp weights `w_j(x)` already computed in the discount path. Hence
+The curve parameter is `z_p` = continuously-compounded zero at pillar `p`. Every scheme in
+`common.math.interpolation` is affine in its node values, the node values are linear in `z`
+in either space, and both extrapolations are linear — so `ln DF(x)` is affine in `z` for any
+curve the library can build, and `prepare` captures it once per static query:
 
 ```
-∂ ln DF(x)/∂z_p = −t_p · w_p(x)          # nonzero for only the ≤2 bracketing pillars
-∂ DF(x)/∂z_p    =  DF(x) · (−t_p · w_p(x))
+ln DF(x)        = c(x) + Σ_p J_p(x) · z_p   # ZeroCurve.log_df_affine, probed per pillar
+∂ ln DF(x)/∂z_p = J_p(x)
+∂ DF(x)/∂z_p    = DF(x) · J_p(x)
 ```
 
-Every per-flow sensitivity is built from this. The Jacobian rows are **sparse** (2 nonzeros for
-discounting, ≤4 for a projection `DF(start)/DF(end)` ratio), so the ladder is one extra
-accumulation in the existing loop — *not* dense tangent propagation.
+For `LogLinearDF` the row is `J_p(x) = −t_p·w_p(x)` on the two bracketing pillars — the
+classic local weights. Every per-flow sensitivity is built from this. The rows are **sparse**
+for local schemes (2 nonzeros for discounting, ≤4 for a projection `DF(start)/DF(end)`
+ratio) and dense for global ones, but in both cases the ladder is one extra scatter in the
+existing loop — *not* dense tangent propagation.
 
 ### 3.2 Per-flow, split into index vs funding
 
