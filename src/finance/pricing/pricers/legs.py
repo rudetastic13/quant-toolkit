@@ -63,6 +63,7 @@ def leg_spec(
         build_observations=leg.needs_observation_grid,
         observation_calendar=leg.rate_calendar,
         rate_lookback=_business_days(leg.rate_lookback), rate_lockout=_business_days(leg.rate_lockout),
+        lookback_style=leg.lookback_style,
     )
     return LegSpec(
         schedule=schedule, coupon=leg.coupon_schedule, sign=sign, discount_curve=discount_curve,

@@ -13,6 +13,7 @@ from finance.dates import (
 )
 from finance.dates.enums import FixingType
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
+from finance.instruments.schedules.observation import LookbackStyle
 from .enums import AmortizationType, CouponType, PrincipalExchange
 
 # Flat coupon fields: the single-coupon convenience.  Changing one through ``replace`` on a
@@ -80,6 +81,10 @@ class CommonInstrument(CommonObject):
     rate_lookback: Term | None = field(default=None)
     rate_lockout: Term | None = field(default=None)
     rate_calendar: str | None = field(default=None)
+    # ISDA Lookback reads the overnight rate at each (shifted) sub-period start — the daily RFR
+    # case; ObservationShift reads the whole (shifted) sub-period, which a term-rate compounder
+    # (monthly fixings inside a quarterly coupon) needs.
+    lookback_style: LookbackStyle = field(default=LookbackStyle.Lookback)
     # ... and the single-coupon convenience, lowered into ``coupon_schedule`` when none is given
     coupon_type: CouponType = field(default=CouponType.Zero)
     coupon_rate: float = field(default=0.0)
