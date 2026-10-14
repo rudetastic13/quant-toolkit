@@ -159,6 +159,33 @@ class TestPiecewiseCouponsReachThePricer(UnitTest):
         self.assertGreater(ki.n_obs_periods, 0)
 
 
+class TestLookbackStyleReachesTheGrid(UnitTest):
+    """A term-rate compounder (monthly fixings in a quarterly coupon) must read each month, not an overnight."""
+
+    COVERAGE = ["finance.pricing.pricers.legs", "finance.instruments.common_instrument"]
+
+    def _inputs(self, style):
+        from finance.instruments.schedules.observation import LookbackStyle
+        from finance.pricing.pricers.legs import leg_spec
+
+        leg = _leg(
+            payment_frequency=Frequency.Quarterly, reset_frequency=Frequency.Monthly,
+            coupon_type=CouponType.GeometricAveraged, rate_index="USD SOFR",
+            lookback_style=LookbackStyle[style],
+        )
+        return leg_spec(leg, 1.0, "USD.SOFR", "USD.SOFR", 0).schedule
+
+    def test_observation_shift_reads_the_whole_sub_period(self):
+        ps = self._inputs("ObservationShift")
+        self.assertEqual(ps.obs_weights.size, 60)  # 20 quarters x 3 months
+        self.assertEqual(ps.obs_read_starts[0], EFFECTIVE.to_numpy())
+        self.assertEqual(ps.obs_read_ends[0], Date(2026, 2, 15).to_numpy())
+
+    def test_isda_lookback_reads_an_overnight_at_each_sub_period_start(self):
+        ps = self._inputs("Lookback")
+        self.assertEqual(ps.obs_read_ends[0], Date(2026, 1, 16).to_numpy())
+
+
 class TestOnePeriodLegWithDailyFixings(UnitTest):
     """``Frequency.Once`` is the slowest frequency, so a daily reset under it is intra-period."""
 
