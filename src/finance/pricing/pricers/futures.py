@@ -5,15 +5,12 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.dates import period_fractions
 from finance.instruments.resolution.futures import SofrFuture
 from finance.instruments.resolution.resolver import curve_name, funding_curve_name
-from finance.instruments.schedules.coupon_schedule import AveragedCouponEvent, CompoundedCouponEvent, CouponSchedule
-from finance.instruments.schedules.observation import build_observation_grid
-from finance.instruments.schedules.payment_schedule import PaymentSchedule
-from finance.pricing.kernels import LegSpec, StaticNotional, compile_portfolio
 from finance.pricing.pricers.base import PricingProgram
-from finance.pricing.types import Backend, RateKind
+from finance.pricing.pricers.legs import leg_spec
+from finance.pricing.kernels import compile_portfolio
+from finance.pricing.types import Backend
 
 
 @dataclass(frozen=True)
@@ -34,31 +31,12 @@ class FuturesRiskResult:
     pnl_gradient: np.ndarray
 
 
-def _future_schedule(future: SofrFuture) -> PaymentSchedule:
-    starts = np.array([future.ref_start.to_numpy()], dtype="datetime64[D]")
-    ends = np.array([future.ref_end.to_numpy()], dtype="datetime64[D]")
-    grid = build_observation_grid(
-        accrual_starts=starts,
-        accrual_ends=ends,
-        calendar="no_holidays",
-        day_count=future.day_count_method,
-    )
-    return PaymentSchedule(
-        accrual_starts=starts,
-        accrual_ends=ends,
-        payment_dates=ends.copy(),
-        period_fracs=period_fractions(future.day_count_method, starts, ends),
-        reset_starts=None,
-        reset_ends=None,
-        obs_read_starts=grid.read_starts,
-        obs_read_ends=grid.read_ends,
-        obs_weights=grid.weights,
-        obs_offsets=grid.offsets,
-    )
-
-
 class FuturesProgram:
-    """Compiled strip whose one flow per instrument yields its settlement rate."""
+    """Compiled strip whose one flow per instrument yields its settlement rate.
+
+    Each future's reference period is one unit-notional leg (see ``SofrFuture.legs``),
+    lowered by the same ``leg_spec`` as every other leg.
+    """
 
     def __init__(self, futures: list[SofrFuture], backend: Backend):
         if not futures:
@@ -66,19 +44,10 @@ class FuturesProgram:
         self.futures = tuple(futures)
         legs = []
         for inst, future in enumerate(futures):
-            event_type = CompoundedCouponEvent if future.rate_kind == RateKind.Compounded else AveragedCouponEvent
-            event = event_type(start_date=future.ref_start)
-            legs.append(
-                LegSpec(
-                    schedule=_future_schedule(future),
-                    coupon=CouponSchedule(events=[event]),
-                    sign=1.0,
-                    discount_curve=funding_curve_name(future.currency, future.funding_id),
-                    projection_curve=curve_name(future.currency, future.index_name),
-                    notional=StaticNotional(1.0),
-                    instrument=inst,
-                )
-            )
+            discount = funding_curve_name(future.currency, future.funding_id)
+            projection = curve_name(future.currency, future.index_name)
+            for leg, sign in future.legs:
+                legs.append(leg_spec(leg, sign, discount, projection, inst))
         self.program = PricingProgram(compile_portfolio(legs), backend=backend)
 
     def reprice(self, market) -> FuturesPricingResult:

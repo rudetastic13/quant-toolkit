@@ -175,19 +175,18 @@ class RateGenerator:
 
     def par_swap_rate(self, swap: Swap) -> float:
         """Generate the par fixed rate for a resolved fixed-versus-floating swap."""
-        from finance.instruments.enums import CouponType
         from finance.pricing.pricers import SwapPricer
 
         legs = []
         fixed: list[int] = []
         floating: list[int] = []
         for index, leg in enumerate(swap):
-            if leg.coupon_type == CouponType.Fixed:
-                legs.append(replace(leg, coupon_rate=1.0))
-                fixed.append(index)
-            else:
+            if leg.is_floating:
                 legs.append(leg)
                 floating.append(index)
+            else:
+                legs.append(leg.replace(coupon_rate=1.0))
+                fixed.append(index)
         if not fixed or not floating:
             raise ValueError("par_swap_rate requires at least one fixed and one floating leg.")
         unit_swap = replace(swap, receive_leg=legs[0], pay_leg=legs[1])

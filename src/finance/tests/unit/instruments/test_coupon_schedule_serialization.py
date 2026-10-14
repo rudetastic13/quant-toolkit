@@ -84,11 +84,20 @@ class TestCouponScheduleSerialization(UnitTest):
         # leg carries spread=None -> event default 0.0 applies
         self.assertEqual(sched.events[0].spread, 0.0)
 
-    def test_schedule_from_instrument_prefers_precomputed(self):
+    def test_supplied_schedule_is_kept(self):
         pre = CouponSchedule(events=[FixedCouponEvent(start_date=Date(2026, 1, 15))])
         leg = CommonInstrument(
             effective=Date(2026, 1, 15), maturity=Date(2031, 1, 15), currency="USD",
             notional=1e6, payment_frequency=Frequency.Annually,
-            coupon_type=CouponType.Fixed, schedules={"coupon": pre},
+            coupon_type=CouponType.Fixed, coupon_schedule=pre,
         )
-        self.assertIs(CouponSchedule.schedule_from_instrument(leg), pre)
+        self.assertIs(leg.coupon_schedule, pre)
+
+    def test_schedule_round_trips_through_serializable(self):
+        sched = CouponSchedule(events=[
+            FixedCouponEvent(start_date=Date(2026, 1, 15), coupon_rate=0.04),
+            CompoundedCouponEvent(start_date=Date(2028, 1, 15), rate_index="USD SOFR", spread=0.0005),
+        ])
+        r = CouponSchedule.from_json(sched.to_json())
+        self.assertEqual(r.events, sched.events)
+        self.assertIsInstance(r.events[1], CompoundedCouponEvent)

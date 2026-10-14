@@ -1,43 +1,25 @@
-"""Defining a custom coupon schedule"""
+"""Coupon schedules: the source of truth for what a leg pays.
+
+A :class:`CouponSchedule` is a sorted list of :class:`CouponEvent` segments, each anchored at
+the accrual period it starts governing.  A vanilla leg has one event; a step-up or a
+fixed→float switch has several.  ``CommonInstrument`` derives a single-event schedule from
+its flat coupon fields when none is supplied, and the compiler lowers *only* the schedule —
+the flat fields never reach the pricer.
+"""
 from __future__ import annotations
+
 from dataclasses import dataclass, field, fields, asdict
-from functools import partial, cached_property
-from typing import Sequence, ClassVar, Callable, Protocol, Self
+from typing import Sequence, ClassVar, Self
 import numpy as np
 from finance.dates import Date
 from finance.instruments.enums import CouponType, MarginTreatment
 from .base_schedule import BaseEvent, BaseSchedule
 
 
-class InstrumentLike(Protocol):
-    """Protocol for instruments that can be used to define coupon events."""
-    effective: Date
-    coupon_type: CouponType
-    coupon_rate: float
-    index_floor: float
-    cap: float
-    floor: float
-    rate_index: str
-    schedules: dict[str, BaseSchedule]
-
 @dataclass
 class CouponEvent(BaseEvent):
     """Defines a coupon payment event, anchored to the accrual grid."""
     coupon_type: ClassVar[CouponType] = CouponType.Unused
-
-    @property
-    def params(self) -> dict:
-        return {key: val for key, val in asdict(self).items() if key not in {"start_date", "coupon_type"}}
-
-    @cached_property
-    def _calculator(self) -> Callable:
-        raise NotImplementedError("CouponEvent subclasses bind their reference calculator")
-
-    @property
-    def calculate(self) -> Callable:
-        func = partial(self._calculator, **self.params)
-        func.__name__ = self._calculator.__name__
-        return func
 
     def to_dict(self) -> dict:
         # ``coupon_type`` is a ClassVar, so asdict() omits it — add it back explicitly;
@@ -69,11 +51,6 @@ class FixedCouponEvent(CouponEvent):
     coupon_type: ClassVar[CouponType] = CouponType.Fixed
     coupon_rate: float = field(init=True, default=0)
 
-    @cached_property
-    def _calculator(self) -> Callable:
-        from finance.coupons.calculators import calculate_fixed
-        return calculate_fixed
-
 
 @dataclass
 class FloatingCouponEvent(CouponEvent):
@@ -91,11 +68,6 @@ class FloatingCouponEvent(CouponEvent):
     cap: float | None = field(init=True, default=None)
     floor: float | None = field(init=True, default=None)
 
-    @cached_property
-    def _calculator(self) -> Callable:
-        from finance.coupons.calculators import calculate_floating
-        return calculate_floating
-
 
 @dataclass
 class AveragedCouponEvent(FloatingCouponEvent):
@@ -103,10 +75,6 @@ class AveragedCouponEvent(FloatingCouponEvent):
     coupon_type: ClassVar[CouponType] = CouponType.ArithmeticAveraged
     margin_treatment: MarginTreatment = field(init=True, default=MarginTreatment.Inclusive)
 
-    @cached_property
-    def _calculator(self) -> Callable:
-        from finance.coupons.calculators import calculate_arithmetic_average
-        return calculate_arithmetic_average
 
 @dataclass
 class CompoundedCouponEvent(FloatingCouponEvent):
@@ -114,14 +82,12 @@ class CompoundedCouponEvent(FloatingCouponEvent):
     coupon_type: ClassVar[CouponType] = CouponType.GeometricAveraged
     margin_treatment: MarginTreatment = field(init=True, default=MarginTreatment.Inclusive)
 
-    @cached_property
-    def _calculator(self) -> Callable:
-        from finance.coupons.calculators import calculate_geometric_average
-        return calculate_geometric_average
 
-# from_dict dispatch: CouponType -> concrete event class. GeometricAveraged maps to
-# CompoundedCouponEvent (daily-compounded in arrears, e.g. SOFR OIS legs).
+# from_dict dispatch: CouponType -> concrete event class.  GeometricAveraged maps to
+# CompoundedCouponEvent (daily-compounded in arrears, e.g. SOFR OIS legs); Zero is a fixed
+# event at the leg's (default 0) coupon rate — principal-only legs set PrincipalExchange.
 _EVENT_TYPES: dict[CouponType, type[CouponEvent]] = {
+    CouponType.Zero: FixedCouponEvent,
     CouponType.Fixed: FixedCouponEvent,
     CouponType.Floating: FloatingCouponEvent,
     CouponType.ArithmeticAveraged: AveragedCouponEvent,
@@ -139,6 +105,24 @@ class CouponSchedule(BaseSchedule):
         self.events.append(event)
         self.events.sort()
 
+    # -- what the schedule pays ---------------------------------------------------------
+
+    @property
+    def coupon_types(self) -> tuple[CouponType, ...]:
+        return tuple(event.coupon_type for event in self.events)
+
+    @property
+    def is_floating(self) -> bool:
+        """Any segment is index-linked (the leg needs a projection curve)."""
+        return any(event.coupon_type.is_floating for event in self.events)
+
+    @property
+    def needs_observation_grid(self) -> bool:
+        """Any segment compounds or averages daily fixings (the leg needs the Tier-2 grid)."""
+        return any(event.coupon_type.needs_observation_grid for event in self.events)
+
+    # -- (de)serialization --------------------------------------------------------------
+
     def to_list(self):
         """Convert the schedule of coupon events to a list of dictionaries for serialization."""
         return [event.to_dict() for event in self.events]
@@ -150,15 +134,15 @@ class CouponSchedule(BaseSchedule):
         return CouponSchedule(events=events)
 
     @classmethod
-    def schedule_from_instrument(cls, instrument: InstrumentLike) -> Self:
-        if instrument.schedules and "coupon" in instrument.schedules:
-            return instrument.schedules["coupon"]
-        # Single-event schedule anchored at the leg's effective date. None values are
-        # dropped so event-class defaults apply (e.g. spread=0.0 when the leg carries None).
+    def schedule_from_instrument(cls, instrument) -> Self:
+        """The single-event schedule a leg's flat coupon fields describe, anchored at its effective date.
+
+        ``None`` values are dropped so event-class defaults apply (e.g. spread=0.0 when the
+        leg carries None).
+        """
         data = {key: val for key, val in vars(instrument).items() if val is not None}
         data["start_date"] = instrument.effective
         return cls(events=[CouponEvent.from_dict(data)])
-
 
     def schedule_from_accrual_grid(self, accrual_grid: np.ndarray) -> np.ndarray:
         """Map each accrual date to the index of the event governing it.

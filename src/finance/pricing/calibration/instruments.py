@@ -149,7 +149,7 @@ class SwapHelper:
         fixed: list[int] = []
         floating: list[int] = []
         for i, leg in enumerate(self.swap):
-            (floating if leg.coupon_type.is_floating else fixed).append(i)
+            (floating if leg.is_floating else fixed).append(i)
         self._fixed_idx = tuple(fixed)
         self._float_idx = tuple(floating)
 

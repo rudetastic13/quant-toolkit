@@ -3,7 +3,7 @@
 A kernel is pure, total and narrow: it takes only the contiguous arrays it needs to do
 the vectorized-hard thing, and nothing else.  No spread, no caps/floors, no margin, no
 optional behaviour flags — those are coupon *shaping* concerns handled by the prep layer
-(``finance.coupons.rates``) before/after the call.  Keeping the kernel tight is what makes
+(``finance.pricing.kernels.shaping``) before/after the call.  Keeping the kernel tight is what makes
 it cleanly swappable for a numba/rust implementation under the same registry key.
 
 Both kernels turn a flat ``(M,)`` observation grid (every period's daily fixings

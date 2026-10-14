@@ -1,17 +1,43 @@
-"""Coupon shaping layer: the full coupon matrix over the tight kernels.
+"""Coupon shaping over the tight kernels: the full coupon matrix, assembled the way the compiler does.
 
 Covers: simple float (IBOR), averaged, compounded, averaged+index_floor,
 compounded margin inclusive vs exclusive, caps & floors — including the subtle
-cap/floor-on-final-period-coupon (NOT daily-running) convention.
+cap/floor-on-final-period-coupon (NOT daily-running) convention.  The scalar/None
+helpers below are the per-leg view of ``prep_obs`` → kernel → ``shape_period`` that
+``compiler.reprice`` applies columnwise; the explicit loops are the reference.
 """
 import numpy as np
 
 from common.testing import UnitTest
 from finance.instruments.enums import MarginTreatment
-from finance.coupons.rates import fixed_coupon, floating_coupon, compounded_coupon, averaged_coupon
+from finance.pricing.engines.numpy.rates import averaged, compounded
+from finance.pricing.kernels.inputs import NO_CAP, NO_FLOOR
+from finance.pricing.kernels.shaping import prep_obs, shape_float, shape_period
 
 INCL = MarginTreatment.Inclusive
 EXCL = MarginTreatment.Exclusive
+
+
+def _bound(value, sentinel):
+    return sentinel if value is None else value
+
+
+def floating_coupon(index_rate, *, spread=0.0, index_floor=None, cap=None, floor=None):
+    return shape_float(np.asarray(index_rate, dtype=np.float64), _bound(index_floor, NO_FLOOR), spread,
+                       _bound(floor, NO_FLOOR), _bound(cap, NO_CAP))
+
+
+def _coupon(kernel, obs_rate, obs_w, offsets, *, spread=0.0, index_floor=None, cap=None, floor=None, margin=INCL):
+    r = prep_obs(np.asarray(obs_rate, dtype=np.float64), _bound(index_floor, NO_FLOOR), spread, margin == INCL)
+    return shape_period(kernel(r, obs_w, offsets), spread, margin == EXCL, _bound(floor, NO_FLOOR), _bound(cap, NO_CAP))
+
+
+def compounded_coupon(obs_rate, obs_w, offsets, **shaping):
+    return _coupon(compounded, obs_rate, obs_w, offsets, **shaping)
+
+
+def averaged_coupon(obs_rate, obs_w, offsets, **shaping):
+    return _coupon(averaged, obs_rate, obs_w, offsets, **shaping)
 
 
 def _one_period_grid(obs_rate, w=1.0 / 360.0):
@@ -38,8 +64,11 @@ def _ref_compounded_one(obs_rate, obs_w, spread, index_floor, cap, floor, margin
     return rate
 
 
+COVERAGE = ["finance.pricing.kernels.shaping", "finance.pricing.engines.numpy.rates"]
+
+
 class TestSimpleFloatIBOR(UnitTest):
-    COVERAGE = ["finance.coupons.rates"]
+    COVERAGE = COVERAGE
 
     def test_index_plus_spread(self):
         idx = np.array([0.03, 0.05])
@@ -51,12 +80,9 @@ class TestSimpleFloatIBOR(UnitTest):
         # -0.01 -> index_floor 0 -> +0.002 = 0.002 ; 0.05 -> 0.052 -> cap 0.051
         np.testing.assert_allclose(got, [0.032, 0.051, 0.002], atol=1e-15)
 
-    def test_fixed(self):
-        np.testing.assert_array_equal(fixed_coupon(0.045, 4), np.full(4, 0.045))
-
 
 class TestAveragedCoupon(UnitTest):
-    COVERAGE = ["finance.coupons.rates"]
+    COVERAGE = COVERAGE
 
     def test_plain_average(self):
         obs_rate, obs_w, offsets = _one_period_grid([0.02, 0.04, 0.06])
@@ -79,7 +105,7 @@ class TestAveragedCoupon(UnitTest):
 
 
 class TestCompoundedCoupon(UnitTest):
-    COVERAGE = ["finance.coupons.rates"]
+    COVERAGE = COVERAGE
 
     def test_plain_matches_reference(self):
         rng = np.random.default_rng(3)
@@ -106,7 +132,7 @@ class TestCompoundedCoupon(UnitTest):
 
 
 class TestCapsAndFloors(UnitTest):
-    COVERAGE = ["finance.coupons.rates"]
+    COVERAGE = COVERAGE
 
     def test_period_floor_binds(self):
         obs_rate, obs_w, offsets = _one_period_grid([0.001] * 30)  # ~0.1% compounded
