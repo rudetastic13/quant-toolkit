@@ -203,7 +203,7 @@ single-fixing floats.
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
 | **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` / `SofrFuture` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. Every product is signed legs (`instrument.legs`) and prices through one `LegPricer`; a deposit is one fixed leg with principal out and back, a FRA a one-period fixed vs float pair, a future's reference period a unit-notional leg. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
-| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a supplied one. |
+| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortization is meant to follow the same shape: a named `amortization_type` generator, or `Custom` with a notional schedule. |
 | **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)`, `deposit(market)`, `fra(market)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Leg-bearing types dispatch to `LegPricer` through `pricer_registry`. |
 | **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (the schedule); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. Bullet principal (`PrincipalExchange`) lowers to fixed flows with `rate = period_frac = 1`, so no kernel knows about it. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
@@ -370,8 +370,9 @@ step_up = recv.replace(coupon_schedule=CouponSchedule(events=[
 ]), rate_index="USD SOFR", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
 Swap(receive_leg=step_up, pay_leg=pay, currency="USD", index_name="SOFR")   # fixed 3% then SOFR+10bp
 
+step_up.coupon_type                # CouponType.Custom — the flat type says a schedule was supplied
 recv.replace(coupon_rate=1.0)      # a derived schedule follows the flat field (unit annuity)
-step_up.replace(coupon_rate=0.09)  # a supplied schedule is the coupon; the flat field is ignored
+step_up.replace(coupon_rate=0.09)  # a Custom leg's schedule is the coupon; the flat field is ignored
 ```
 
 Deposits and FRAs are the same kind of thing — legs, not a second instrument family:

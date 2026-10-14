@@ -60,22 +60,30 @@ class TestFlatFieldsDeriveTheSchedule(UnitTest):
         )
         self.assertEqual(leg.coupon_schedule.events, [FixedCouponEvent(start_date=EFFECTIVE, coupon_rate=0.0)])
 
-    def test_unlowerable_coupon_type_is_rejected(self):
+    def test_custom_without_a_schedule_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "Custom"):
             _leg(coupon_type=CouponType.Custom)
+
+    def test_unlowerable_coupon_type_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "Unused"):
+            _leg(coupon_type=CouponType.Unused)
 
 
 class TestSuppliedScheduleIsTheTruth(UnitTest):
     COVERAGE = ["finance.instruments.common_instrument", "finance.instruments.schedules.coupon_schedule"]
 
-    def test_schedule_overrides_flat_coupon_fields(self):
+    def test_supplied_schedule_tags_the_leg_custom(self):
         sched = _piecewise()
-        leg = _leg(coupon_schedule=sched, rate_index="USD SOFR")  # flat fields still say Fixed 4%
+        leg = _leg(coupon_schedule=sched, rate_index="USD SOFR")  # flat fields said Fixed 4%
         self.assertIs(leg.coupon_schedule, sched)
-        self.assertEqual(leg.coupon_type, CouponType.Fixed)
+        self.assertIs(leg.coupon_type, CouponType.Custom)
         self.assertTrue(leg.is_floating)
         self.assertTrue(leg.needs_observation_grid)
         self.assertEqual(leg.coupon_schedule.coupon_types, (CouponType.Fixed, CouponType.GeometricAveraged))
+
+    def test_single_event_schedule_is_still_custom(self):
+        sched = CouponSchedule(events=[FixedCouponEvent(start_date=EFFECTIVE, coupon_rate=0.05)])
+        self.assertIs(_leg(coupon_schedule=sched).coupon_type, CouponType.Custom)
 
     def test_floating_segment_needs_a_leg_rate_index(self):
         with self.assertRaises(ValidationException):
@@ -98,12 +106,19 @@ class TestReplaceKeepsTheScheduleHonest(UnitTest):
         moved = leg.replace(maturity=Date(2036, 1, 15))
         self.assertEqual(moved.coupon_schedule.events, leg.coupon_schedule.events)
 
-    def test_supplied_schedule_survives_a_flat_field_change(self):
+    def test_custom_leg_keeps_its_schedule_through_a_flat_field_change(self):
         sched = _piecewise()
         leg = _leg(coupon_schedule=sched, rate_index="USD SOFR")
         changed = leg.replace(coupon_rate=0.09)
         self.assertIs(changed.coupon_schedule, sched)
+        self.assertIs(changed.coupon_type, CouponType.Custom)
         self.assertEqual(changed.coupon_rate, 0.09)
+
+    def test_custom_leg_returns_to_flat_when_told_to(self):
+        leg = _leg(coupon_schedule=_piecewise(), rate_index="USD SOFR")
+        flat = leg.replace(coupon_schedule=None, coupon_type=CouponType.Fixed, coupon_rate=0.02)
+        self.assertIs(flat.coupon_type, CouponType.Fixed)
+        self.assertEqual(flat.coupon_schedule.events, [FixedCouponEvent(start_date=EFFECTIVE, coupon_rate=0.02)])
 
 
 class TestSerialization(UnitTest):

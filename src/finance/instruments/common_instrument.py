@@ -32,12 +32,17 @@ class CommonInstrument(CommonObject):
       describe a single coupon for the whole life.  At construction they are lowered into a
       one-event :class:`CouponSchedule`.
     - **Schedule** (the general path): pass ``coupon_schedule`` directly for step-ups,
-      fixed→float switches or anything piecewise.  The flat coupon fields are then ignored.
+      fixed→float switches or anything piecewise.  The leg is then tagged
+      ``coupon_type = CouponType.Custom`` and the other flat coupon fields are ignored.
 
     Either way ``coupon_schedule`` is what the pricer reads — the flat fields never reach the
     compiler, so the two cannot drift.  The leg-level projection parameters
     (``reset_frequency``, ``fixing_type``, ``rate_lookback``/``rate_lockout``,
     ``rate_calendar``) and ``rate_index`` apply to every floating segment.
+
+    The same "flat type, or ``Custom`` + a supplied schedule" pattern is the intended shape
+    for amortization: ``amortization_type`` names a generator (straight-line, level-pay, ...)
+    or is ``Custom`` with a notional schedule attached.
 
     Designated refactor (when a second leg-bearing product lands — Bond/Loan): split the
     field groups below into ``kw_only`` dataclass mixins the products compose, defining
@@ -83,14 +88,16 @@ class CommonInstrument(CommonObject):
     floor: float | None = field(default=None)
     cap: float | None = field(default=None)
 
-    # the source of truth the pricer reads
+    # the source of truth the pricer reads; supplying one tags ``coupon_type = Custom``
     coupon_schedule: CouponSchedule | None = field(default=None)
-    _derived_schedule: bool = field(init=False, default=False, repr=False, compare=False)
 
     def __post_init__(self):
-        if self.coupon_schedule is None:
+        if self.coupon_schedule is not None:
+            self.coupon_type = CouponType.Custom
+        elif self.coupon_type is CouponType.Custom:
+            raise ValueError("coupon_type Custom means a supplied coupon_schedule; none was given")
+        else:
             self.coupon_schedule = CouponSchedule.schedule_from_instrument(self)
-            self._derived_schedule = True
         # invalid contracts fail at construction, whichever path built them
         # (raises ValidationException on failures; warnings pass through)
         self.validate()
@@ -105,14 +112,22 @@ class CommonInstrument(CommonObject):
     def needs_observation_grid(self) -> bool:
         return self.coupon_schedule.needs_observation_grid
 
+    def serialize(self) -> dict:
+        """A schedule is contract data only on a ``Custom`` leg; a flat leg rebuilds its own on load."""
+        data = super().serialize()
+        if self.coupon_type is not CouponType.Custom:
+            del data["coupon_schedule"]
+        return data
+
     def replace(self, **changes) -> "CommonInstrument":
         """``dataclasses.replace`` that keeps the schedule honest.
 
         A derived schedule is rebuilt when a flat coupon field changes (``coupon_rate=1.0``
-        for a unit-coupon annuity, say); a supplied schedule is kept as is — it *is* the
-        coupon, so change the schedule to change the coupon.
+        for a unit-coupon annuity, say); a ``Custom`` leg's supplied schedule is kept as is —
+        it *is* the coupon, so pass a new ``coupon_schedule`` to change the coupon, or
+        ``coupon_schedule=None`` with a flat ``coupon_type`` to go back to the flat path.
         """
-        if self._derived_schedule and _COUPON_FIELDS & changes.keys():
+        if self.coupon_type is not CouponType.Custom and _COUPON_FIELDS & changes.keys():
             changes.setdefault("coupon_schedule", None)
         return replace(self, **changes)
 
