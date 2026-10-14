@@ -1,10 +1,15 @@
 """Shape-polymorphic Numba pricing program with a hand-written reverse adjoint.
 
 The kernel consumes the same columnar :class:`KernelInputs` as the NumPy and JAX engines,
-but curve interpolation, coupon projection, shaping, discounting, and reduction all stay in
-one nopython call.  Its only differentiable inputs are flattened continuously-compounded
-pillar zero rates.  The adjoint scatters through log-linear interpolation's two local node
-weights, producing exact projection and funding gradients per cashflow in the primal pass.
+but coupon projection, shaping, discounting, and reduction all stay in one nopython call.
+Its only differentiable inputs are flattened continuously-compounded pillar zero rates.
+
+Curve interpolation never runs inside the kernel.  Every discount-factor query (payment
+dates, reset windows, observation endpoints) is a static day offset once the program is
+compiled, so at prepare time each curve hands over ``ZeroCurve.log_df_affine`` on its unique
+queries: ``ln DF(q) = const[q] + Σ coef[q, k] · z[k]``, stored as CSR rows.  The primal is one
+dot product per query and the adjoint scatters through the same rows, whatever the scheme —
+log-linear gives two nonzeros per row, a cubic spline a dense one.
 
 Numba specializes the function on dtype and dimensionality, not array length.  Consequently
 one compiled signature prices a singleton, a changing futures strip, or a large swap book
@@ -41,72 +46,25 @@ def _b1(a) -> np.ndarray:
 
 
 @njit(cache=True, inline="always")  # pragma: no cover - executed as Numba machine code
-def _node_param(node, curve_node_start, curve_param_start):
-    """Flattened parameter index for a curve node; the pinned origin has no parameter."""
-    if node == curve_node_start:
-        return -1
-    return curve_param_start + node - curve_node_start - 1
+def _logdf(q, q_const, q_ptr, q_param, q_coef, z):
+    """``ln DF`` of query ``q``: its affine row over the flattened zero rates."""
+    acc = q_const[q]
+    for j in range(q_ptr[q], q_ptr[q + 1]):
+        acc += q_coef[j] * z[q_param[j]]
+    return acc
 
 
 @njit(cache=True, inline="always")  # pragma: no cover - executed as Numba machine code
-def _node_logdf(node, curve_node_start, curve_param_start, node_t, z):
-    if node == curve_node_start:
-        return 0.0
-    p = curve_param_start + node - curve_node_start - 1
-    return -z[p] * node_t[node]
-
-
-@njit(cache=True, inline="always")  # pragma: no cover - executed as Numba machine code
-def _df_details(ci, xq, curve_x, node_t, curve_node_off, curve_param_off, z):
-    """Return DF plus the at-most-two nonzero derivatives of ln(DF) with respect to z."""
-    lo = curve_node_off[ci]
-    hi = curve_node_off[ci + 1]
-    po = curve_param_off[ci]
-
-    if xq < curve_x[lo]:
-        return 0.0, -1, 0.0, -1, 0.0
-    if xq == curve_x[lo]:
-        return 1.0, -1, 0.0, -1, 0.0
-
-    if xq >= curve_x[hi - 1]:
-        left = hi - 2
-        right = hi - 1
-        w_right = 1.0 + (xq - curve_x[right]) / (curve_x[right] - curve_x[left])
-        w_left = 1.0 - w_right
-    else:
-        left = lo
-        right = hi - 1
-        while right - left > 1:
-            mid = (left + right) // 2
-            if curve_x[mid] <= xq:
-                left = mid
-            else:
-                right = mid
-        w_right = (xq - curve_x[left]) / (curve_x[right] - curve_x[left])
-        w_left = 1.0 - w_right
-
-    logdf_left = _node_logdf(left, lo, po, node_t, z)
-    logdf_right = _node_logdf(right, lo, po, node_t, z)
-    df = np.exp(w_left * logdf_left + w_right * logdf_right)
-    p_left = _node_param(left, lo, po)
-    p_right = _node_param(right, lo, po)
-    d_left = -node_t[left] * w_left if p_left >= 0 else 0.0
-    d_right = -node_t[right] * w_right if p_right >= 0 else 0.0
-    return df, p_left, d_left, p_right, d_right
-
-
-@njit(cache=True, inline="always")  # pragma: no cover - executed as Numba machine code
-def _scatter(row, p0, d0, p1, d1, scale):
-    if p0 >= 0:
-        row[p0] += scale * d0
-    if p1 >= 0:
-        row[p1] += scale * d1
+def _scatter(row, q, scale, q_ptr, q_param, q_coef):
+    """Accumulate ``scale · d ln DF(q) / dz`` into a gradient row."""
+    for j in range(q_ptr[q], q_ptr[q + 1]):
+        row[q_param[j]] += scale * q_coef[j]
 
 
 @njit(cache=True)  # pragma: no cover - executed as Numba machine code
 def _execute(
     # flow columns
-    pay_off,
+    pay_q,
     period_frac,
     sign,
     notional,
@@ -117,10 +75,8 @@ def _execute(
     cap,
     floor,
     margin,
-    discount_curve,
-    proj_curve,
-    reset_start_off,
-    reset_end_off,
+    reset_s_q,
+    reset_e_q,
     float_tau,
     reset_is_fixed,
     reset_fixing,
@@ -133,41 +89,33 @@ def _execute(
     obs_tau,
     per_obs_period,
     obs_flow,
-    obs_proj_period,
-    obs_inv_start,
-    obs_inv_end,
-    obs_unique_off,
+    obs_s_q,
+    obs_e_q,
     obs_is_fixed,
     obs_fixing,
-    # curve geometry and parameters
-    curve_x,
-    node_t,
-    curve_node_off,
-    curve_param_off,
+    # discount-factor queries as affine rows over the parameters
+    q_const,
+    q_ptr,
+    q_param,
+    q_coef,
     z,
     calculate_adjoint,
 ):
-    f_count = pay_off.size
+    f_count = pay_q.size
     m_count = obs_w.size
     period_count = obs_flow.size
-    curve_count = curve_node_off.size - 1
     q_count = z.size
+
+    # Every discount factor the book needs, once per call.  A query before the origin
+    # carries const = -inf, so its DF is exactly zero: the expired-flow marker.
+    df_q = np.empty(q_const.size)
+    for q in range(q_const.size):
+        df_q[q] = np.exp(_logdf(q, q_const, q_ptr, q_param, q_coef, z))
 
     rate = np.zeros(f_count)
     df = np.empty(f_count)
-    disc_p0 = np.empty(f_count, dtype=np.int64)
-    disc_p1 = np.empty(f_count, dtype=np.int64)
-    disc_d0 = np.empty(f_count)
-    disc_d1 = np.empty(f_count)
-
-    # Discounting is independent of projection, so evaluate it once up front and retain
-    # the local interpolation stencil for the funding adjoint.
     for f in range(f_count):
-        details = _df_details(
-            discount_curve[f], pay_off[f], curve_x, node_t, curve_node_off, curve_param_off, z
-        )
-        df[f] = details[0]
-        disc_p0[f], disc_d0[f], disc_p1[f], disc_d1[f] = details[1], details[2], details[3], details[4]
+        df[f] = df_q[pay_q[f]]
 
     index_grad = np.zeros((f_count, q_count)) if calculate_adjoint else np.zeros((f_count, 0))
     funding_grad = np.zeros((f_count, q_count)) if calculate_adjoint else np.zeros((f_count, 0))
@@ -183,20 +131,11 @@ def _execute(
                 continue
             active = 1.0
             q_ratio = 0.0
-            s_details = (1.0, -1, 0.0, -1, 0.0)
-            e_details = (1.0, -1, 0.0, -1, 0.0)
             if reset_is_fixed[f]:
                 projected = reset_fixing[f]
                 active = 0.0
             else:
-                ci = proj_curve[f]
-                s_details = _df_details(
-                    ci, reset_start_off[f], curve_x, node_t, curve_node_off, curve_param_off, z
-                )
-                e_details = _df_details(
-                    ci, reset_end_off[f], curve_x, node_t, curve_node_off, curve_param_off, z
-                )
-                q_ratio = s_details[0] / e_details[0]
+                q_ratio = df_q[reset_s_q[f]] / df_q[reset_e_q[f]]
                 projected = (q_ratio - 1.0) / float_tau[f]
             if projected < index_floor[f]:
                 projected = index_floor[f]
@@ -213,27 +152,11 @@ def _execute(
             if calculate_adjoint and active != 0.0:
                 pv_per_rate = notional[f] * period_frac[f] * df[f] * sign[f]
                 scale = pv_per_rate * q_ratio / float_tau[f]
-                _scatter(index_grad[f], s_details[1], s_details[2], s_details[3], s_details[4], scale)
-                _scatter(index_grad[f], e_details[1], e_details[2], e_details[3], e_details[4], -scale)
+                _scatter(index_grad[f], reset_s_q[f], scale, q_ptr, q_param, q_coef)
+                _scatter(index_grad[f], reset_e_q[f], -scale, q_ptr, q_param, q_coef)
 
-    # Compounded/averaged observation grids.  Endpoint discount factors are deduplicated
-    # across the whole book and retain their local curve stencils for the adjoint gather.
+    # Compounded/averaged observation grids.
     if period_count > 0:
-        unique_count = obs_unique_off.size
-        df_unique = np.empty((curve_count, unique_count))
-        unique_p0 = np.empty((curve_count, unique_count), dtype=np.int64)
-        unique_p1 = np.empty((curve_count, unique_count), dtype=np.int64)
-        unique_d0 = np.empty((curve_count, unique_count))
-        unique_d1 = np.empty((curve_count, unique_count))
-        for ci in range(curve_count):
-            for u in range(unique_count):
-                details = _df_details(
-                    ci, obs_unique_off[u], curve_x, node_t, curve_node_off, curve_param_off, z
-                )
-                df_unique[ci, u] = details[0]
-                unique_p0[ci, u], unique_d0[ci, u] = details[1], details[2]
-                unique_p1[ci, u], unique_d1[ci, u] = details[3], details[4]
-
         obs_rate = np.empty(m_count)
         obs_active = np.ones(m_count)
         growth_log = np.zeros(period_count)
@@ -249,10 +172,7 @@ def _execute(
                 projected = obs_fixing[m]
                 obs_active[m] = 0.0
             else:
-                ci = obs_proj_period[p]
-                dfs = df_unique[ci, obs_inv_start[m]]
-                dfe = df_unique[ci, obs_inv_end[m]]
-                projected = (dfs / dfe - 1.0) / obs_tau[m]
+                projected = (df_q[obs_s_q[m]] / df_q[obs_e_q[m]] - 1.0) / obs_tau[m]
             if projected < index_floor[flow]:
                 projected = index_floor[flow]
                 obs_active[m] = 0.0
@@ -291,10 +211,7 @@ def _execute(
                 if period_active[p] == 0.0:
                     continue
                 flow = obs_flow[p]
-                ci = obs_proj_period[p]
-                us = obs_inv_start[m]
-                ue = obs_inv_end[m]
-                q_ratio = df_unique[ci, us] / df_unique[ci, ue]
+                q_ratio = df_q[obs_s_q[m]] / df_q[obs_e_q[m]]
                 if rate_kind[flow] == _COMPOUNDED:
                     drate_dobs = growth[p] * obs_w[m] / (
                         sum_weight[p] * (1.0 + obs_rate[m] * obs_w[m])
@@ -303,23 +220,15 @@ def _execute(
                     drate_dobs = obs_w[m] / sum_weight[p]
                 pv_per_rate = notional[flow] * period_frac[flow] * df[flow] * sign[flow]
                 scale = pv_per_rate * drate_dobs * q_ratio / obs_tau[m]
-                _scatter(
-                    index_grad[flow], unique_p0[ci, us], unique_d0[ci, us],
-                    unique_p1[ci, us], unique_d1[ci, us], scale,
-                )
-                _scatter(
-                    index_grad[flow], unique_p0[ci, ue], unique_d0[ci, ue],
-                    unique_p1[ci, ue], unique_d1[ci, ue], -scale,
-                )
+                _scatter(index_grad[flow], obs_s_q[m], scale, q_ptr, q_param, q_coef)
+                _scatter(index_grad[flow], obs_e_q[m], -scale, q_ptr, q_param, q_coef)
 
     # Cashflow PV and the discount/funding half of the adjoint.
     flow_pv = np.empty(f_count)
     for f in range(f_count):
         flow_pv[f] = notional[f] * rate[f] * period_frac[f] * df[f] * sign[f]
         if calculate_adjoint:
-            _scatter(
-                funding_grad[f], disc_p0[f], disc_d0[f], disc_p1[f], disc_d1[f], flow_pv[f]
-            )
+            _scatter(funding_grad[f], pay_q[f], flow_pv[f], q_ptr, q_param, q_coef)
 
     leg_pv = np.zeros(leg_offsets.size)
     for leg in range(leg_offsets.size):
@@ -395,12 +304,26 @@ class NumbaAdjointResult:
         raise ValueError("role must be 'index', 'funding', or 'total'")
 
 
+@dataclass(frozen=True)
+class _QueryTable:
+    """Every discount-factor query of the book as CSR affine rows over the flattened zero rates.
+
+    ``const[q] = -inf`` with an empty row marks a query before the origin (an expired flow).
+    """
+
+    const: np.ndarray   # (NQ,)
+    ptr: np.ndarray     # (NQ + 1,)
+    param: np.ndarray   # (NNZ,) flattened parameter index
+    coef: np.ndarray    # (NNZ,)
+
+
 class NumbaProgram:
     """Prepared pricing geometry reusable across arbitrary zero-rate values of one shape.
 
     The cashflow arrays may have any lengths when a new ``NumbaProgram`` is created; they all
     call the same Numba dispatcher signature.  Within a prepared program, ``reprice`` accepts
-    any market with identical curve pillar geometry, which is the normal scenario/risk path.
+    any market with identical curve pillar geometry and interpolation scheme, which is the
+    normal scenario/risk path.
     """
 
     def __init__(self, inputs: KernelInputs, market):
@@ -420,7 +343,6 @@ class NumbaProgram:
 
         ki = inputs
         f_count = ki.n_flows
-        self.pay_off = offs(ki.pay_dates)
         self.period_frac = _f64(ki.period_frac)
         self.sign = _f64(ki.sign)
         self.notional = _f64(ki.notional)
@@ -431,12 +353,11 @@ class NumbaProgram:
         self.cap = _f64(ki.cap)
         self.floor = _f64(ki.floor)
         self.margin = _i64(ki.margin)
-        self.discount_curve = _i64(ki.discount_curve)
-        self.proj_curve = _i64(ki.proj_curve)
-        self.reset_start_off = offs(ki.reset_starts) if ki.reset_starts.size else np.zeros(f_count)
-        self.reset_end_off = offs(ki.reset_ends) if ki.reset_ends.size else np.zeros(f_count)
+        pay_off = offs(ki.pay_dates)
+        reset_start_off = offs(ki.reset_starts) if ki.reset_starts.size else np.zeros(f_count)
+        reset_end_off = offs(ki.reset_ends) if ki.reset_ends.size else np.zeros(f_count)
         is_float = self.rate_kind == _FLOAT
-        self.float_tau = _f64(np.where(is_float, (self.reset_end_off - self.reset_start_off) / 360.0, 1.0))
+        self.float_tau = _f64(np.where(is_float, (reset_end_off - reset_start_off) / 360.0, 1.0))
 
         self.leg_offsets = _i64(ki.leg_offsets)
         self.leg_instrument = _i64(ki.leg_instrument)
@@ -449,51 +370,78 @@ class NumbaProgram:
             m_count = ki.obs_w.size
             obs_start_off = offs(ki.obs_starts)
             obs_end_off = offs(ki.obs_ends)
-            all_obs = np.concatenate([obs_start_off, obs_end_off])
-            unique, inverse = np.unique(all_obs, return_inverse=True)
-            self.obs_unique_off = _f64(unique)
-            self.obs_inv_start = _i64(inverse[:m_count])
-            self.obs_inv_end = _i64(inverse[m_count:])
             self.per_obs_period = _i64(
                 np.repeat(np.arange(period_count), np.diff(np.append(ki.obs_offsets, m_count)))
             )
             self.obs_w = _f64(ki.obs_w)
             self.obs_tau = _f64((obs_end_off - obs_start_off) / 360.0)
             self.obs_flow = _i64(ki.obs_flow)
-            self.obs_proj_period = _i64(ki.obs_proj_curve)
+            obs_curve = ki.obs_proj_curve[self.per_obs_period]
         else:
-            self.obs_unique_off = np.zeros(0, dtype=np.float64)
-            self.obs_inv_start = np.zeros(0, dtype=np.int64)
-            self.obs_inv_end = np.zeros(0, dtype=np.int64)
+            obs_start_off = obs_end_off = np.zeros(0, dtype=np.float64)
             self.per_obs_period = np.zeros(0, dtype=np.int64)
             self.obs_w = np.zeros(0, dtype=np.float64)
             self.obs_tau = np.zeros(0, dtype=np.float64)
             self.obs_flow = np.zeros(0, dtype=np.int64)
-            self.obs_proj_period = np.zeros(0, dtype=np.int64)
+            obs_curve = np.zeros(0, dtype=np.int64)
 
-        curve_x: list[np.ndarray] = []
-        node_t: list[np.ndarray] = []
-        node_off = [0]
+        # -- discount-factor queries: dedup per curve, then one affine row each ------------
+        self.pay_q = np.full(f_count, -1, dtype=np.int64)
+        self.reset_s_q = np.full(f_count, -1, dtype=np.int64)
+        self.reset_e_q = np.full(f_count, -1, dtype=np.int64)
+        self.obs_s_q = np.full(obs_start_off.size, -1, dtype=np.int64)
+        self.obs_e_q = np.full(obs_end_off.size, -1, dtype=np.int64)
+        consts, ptrs, params, coefs = [], [], [], []
         param_off = [0]
+        q_off = 0
         self._node_dates: list[np.ndarray] = []
-        for name in self.curve_names:
+        self._schemes: list[tuple] = []
+        for ci, name in enumerate(self.curve_names):
             yield_curve = market.yield_curve(name)
-            if not yield_curve.zero_curve.is_log_linear:
-                raise NotImplementedError(
-                    f"NumbaProgram supports log-linear DF curves; curve '{name}' is {yield_curve.zero_curve!r}"
-                )
+            zero_curve = yield_curve.zero_curve
             dates = yield_curve.node_dates
             if dates.size < 2:
                 raise ValueError(f"curve '{name}' needs at least an origin and one pillar")
-            x = offs(dates)
-            curve_x.append(x)
-            node_t.append(x / 365.0)
-            node_off.append(node_off[-1] + dates.size)
-            param_off.append(param_off[-1] + dates.size - 1)
             self._node_dates.append(dates)
-        self.curve_x = _f64(np.concatenate(curve_x))
-        self.node_t = _f64(np.concatenate(node_t))
-        self.curve_node_offsets = _i64(node_off)
+            self._schemes.append((zero_curve.space, zero_curve.interpolator))
+
+            pay_m = ki.discount_curve == ci
+            reset_m = is_float & (ki.proj_curve == ci)
+            obs_m = obs_curve == ci
+            targets = (
+                (self.pay_q, pay_m, pay_off),
+                (self.reset_s_q, reset_m, reset_start_off),
+                (self.reset_e_q, reset_m, reset_end_off),
+                (self.obs_s_q, obs_m, obs_start_off),
+                (self.obs_e_q, obs_m, obs_end_off),
+            )
+            unique, inverse = np.unique(np.concatenate([x[m] for _, m, x in targets]), return_inverse=True)
+            cursor = 0
+            for out, m, _ in targets:
+                n = int(m.sum())
+                out[m] = q_off + inverse[cursor : cursor + n]
+                cursor += n
+
+            live = unique >= 0.0
+            const = np.full(unique.size, -np.inf)
+            jac = np.zeros((unique.size, dates.size - 1))
+            if live.any():
+                const[live], jac[live] = zero_curve.log_df_affine(unique[live])
+            nonzero = jac != 0.0
+            consts.append(const)
+            ptrs.append(np.count_nonzero(nonzero, axis=1))
+            params.append(np.nonzero(nonzero)[1] + param_off[-1])
+            coefs.append(jac[nonzero])
+            param_off.append(param_off[-1] + dates.size - 1)
+            q_off += unique.size
+
+        counts = np.concatenate(ptrs) if ptrs else np.zeros(0, dtype=np.int64)
+        self.queries = _QueryTable(
+            const=_f64(np.concatenate(consts)),
+            ptr=_i64(np.concatenate([[0], np.cumsum(counts)])),
+            param=_i64(np.concatenate(params)),
+            coef=_f64(np.concatenate(coefs)),
+        )
         self.curve_param_offsets = _i64(param_off)
 
         self._zero_reset_fixing = np.zeros(f_count, dtype=np.float64)
@@ -518,19 +466,26 @@ class NumbaProgram:
             historical_reset.any() or historical_observation.any()
         )
 
+    def compatible(self, market) -> bool:
+        """Whether ``market`` has the origin, pillar geometry and schemes this program was prepared on."""
+        if np.datetime64(market.as_of_date.to_str(), "D") != self.origin:
+            return False
+        for name, expected_dates, scheme in zip(self.curve_names, self._node_dates, self._schemes):
+            yield_curve = market.yield_curve(name)
+            zero_curve = yield_curve.zero_curve
+            if (zero_curve.space, zero_curve.interpolator) != scheme:
+                return False
+            if not np.array_equal(yield_curve.node_dates, expected_dates):
+                return False
+        return True
+
     def params_from_market(self, market) -> np.ndarray:
         """Flatten non-origin zero rates after validating the prepared curve geometry."""
-        if np.datetime64(market.as_of_date.to_str(), "D") != self.origin:
-            raise ValueError("market as-of date differs from the prepared NumbaProgram origin")
-        params: list[np.ndarray] = []
-        for name, expected_dates in zip(self.curve_names, self._node_dates):
-            yield_curve = market.yield_curve(name)
-            if not yield_curve.zero_curve.is_log_linear:
-                raise ValueError(f"curve '{name}' interpolation changed after preparation")
-            if not np.array_equal(yield_curve.node_dates, expected_dates):
-                raise ValueError(f"curve '{name}' pillar geometry changed after preparation")
-            params.append(yield_curve.zero_curve.node_zero_rates)
-        return _f64(np.concatenate(params))
+        if not self.compatible(market):
+            raise ValueError(
+                "market origin, pillar geometry or interpolation differs from the prepared NumbaProgram"
+            )
+        return _f64(np.concatenate([market.zero_curve(name).node_zero_rates for name in self.curve_names]))
 
     def _fixings_from_market(self, market):
         ki = self.inputs
@@ -575,7 +530,7 @@ class NumbaProgram:
     def _args(self, z, fixings):
         reset_mask, reset_value, obs_mask, obs_value = fixings
         return (
-            self.pay_off,
+            self.pay_q,
             self.period_frac,
             self.sign,
             self.notional,
@@ -586,10 +541,8 @@ class NumbaProgram:
             self.cap,
             self.floor,
             self.margin,
-            self.discount_curve,
-            self.proj_curve,
-            self.reset_start_off,
-            self.reset_end_off,
+            self.reset_s_q,
+            self.reset_e_q,
             self.float_tau,
             reset_mask,
             reset_value,
@@ -601,16 +554,14 @@ class NumbaProgram:
             self.obs_tau,
             self.per_obs_period,
             self.obs_flow,
-            self.obs_proj_period,
-            self.obs_inv_start,
-            self.obs_inv_end,
-            self.obs_unique_off,
+            self.obs_s_q,
+            self.obs_e_q,
             obs_mask,
             obs_value,
-            self.curve_x,
-            self.node_t,
-            self.curve_node_offsets,
-            self.curve_param_offsets,
+            self.queries.const,
+            self.queries.ptr,
+            self.queries.param,
+            self.queries.coef,
             _f64(z),
         )
 

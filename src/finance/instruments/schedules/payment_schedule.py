@@ -188,9 +188,14 @@ def build_payment_schedule(
         payment_dates = _dt_utils.add_term(payment_dates, payment_delay, bdc, calendar)
 
     # 4. Single-fixing reset windows, keyed off reset vs payment frequency + fixing type.
-    #    Frequency is an IntEnum ordered slow > fast, so "< frequency" means a faster reset.
+    #    Frequency is an IntEnum ordered slow > fast — except Once (0), the slowest of all —
+    #    so any other reset is faster than a single payment.
     reset_cal = observation_calendar or calendar
-    reset_faster = reset_frequency is not None and reset_frequency < frequency
+    reset_faster = (
+        reset_frequency is not None
+        and reset_frequency != frequency
+        and (frequency == Frequency.Once or reset_frequency < frequency)
+    )
     reset_starts = reset_ends = None
     if reset_faster:
         if not build_observations:

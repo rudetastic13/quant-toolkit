@@ -16,9 +16,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from finance.dates import Date, DayCountMethod, Frequency, Term, add_term
+from finance.dates import BDC, Date, DayCountMethod, Frequency, Term, add_term
 from finance.instruments.common_instrument import CommonInstrument
-from finance.instruments.enums import CouponType
+from finance.instruments.enums import CouponType, PrincipalExchange
 from finance.instruments.priceable import Priceable
 from finance.instruments.resolution.resolver import STDCSA, resolve_conventions, roll_spot
 from finance.conventions import ConventionRegistry, default_registry
@@ -40,7 +40,8 @@ class Swap(Priceable):
     differ for a real basis trade.
 
     Iterating a ``Swap`` yields its legs in pricing order (receive then pay) — the
-    same order the pricer compiles them and ``KernelResult.leg_pv`` is laid out in.
+    same order the pricer compiles them and ``KernelResult.leg_pv`` is laid out in;
+    ``legs`` pairs each with its sign.
     """
 
     receive_leg: CommonInstrument
@@ -60,6 +61,10 @@ class Swap(Priceable):
         """Yield legs in pricing/compile order (receive, pay)."""
         yield self.receive_leg
         yield self.pay_leg
+
+    @property
+    def legs(self) -> tuple[tuple[CommonInstrument, float], ...]:
+        return ((self.receive_leg, 1.0), (self.pay_leg, -1.0))
 
     @classmethod
     def fixed_float_swap(
@@ -141,18 +146,21 @@ class Swap(Priceable):
 
 
 # ---------------------------------------------------------------------------
-# Money-market instruments (deposits / FRAs) — short-end calibration helpers.
-# Single-period contracts: there is no schedule builder downstream to adjust the
-# end date, so the constructor BDC-adjusts the maturity itself.
+# Money-market instruments (deposits / FRAs): one-period legs.
+# The constructor BDC-adjusts the maturity itself, so the legs carry their dates as
+# contractual (``BDC.NoAdjustment``) and price through the same lowering as a swap.
 # ---------------------------------------------------------------------------
 
 
 @dataclass(kw_only=True)
-class Deposit:
+class Deposit(Priceable):
     """A cash deposit: lend ``notional`` over ``[effective, maturity]`` at simple ``rate``.
 
     Pure data.  ``index_name``/``currency`` resolve the forecast curve; ``funding_id`` the
-    discount curve (a no-op for the single-curve case where they coincide).
+    discount curve (a no-op for the single-curve case where they coincide).  As a contract it
+    is one fixed leg with principal out on the effective date and back, plus interest, on
+    maturity — so ``deposit(market).pv`` is zero exactly when ``rate`` is the curve's simple
+    rate over the window.
     """
 
     effective: Date
@@ -169,6 +177,17 @@ class Deposit:
             raise ValueError(
                 f"deposit maturity {self.maturity} must be after effective {self.effective}"
             )
+
+    @property
+    def legs(self) -> tuple[tuple[CommonInstrument, float], ...]:
+        leg = CommonInstrument(
+            effective=self.effective, maturity=self.maturity, currency=self.currency,
+            notional=self.notional, payment_frequency=Frequency.Once,
+            day_count_method=self.day_count_method, business_day_convention=BDC.NoAdjustment,
+            coupon_type=CouponType.Fixed, coupon_rate=self.rate,
+            principal_exchange=PrincipalExchange.Both,
+        )
+        return ((leg, 1.0),)
 
     @classmethod
     def spot_deposit(
@@ -199,11 +218,14 @@ class Deposit:
 
 
 @dataclass(kw_only=True)
-class Fra:
+class Fra(Priceable):
     """A forward rate agreement over ``[effective, maturity]``.
 
     Pure data: ``coupon_rate`` is the agreed forward rate, ``rate_index`` the projected
-    index label, ``index_name``/``currency``/``funding_id`` resolve the curves.
+    index label, ``index_name``/``currency``/``funding_id`` resolve the curves.  As a contract
+    it is a one-period fixed leg against a one-period floating leg settled at maturity; as
+    for a swap, positive ``notional`` receives fixed, so ``fra(market).pv`` is zero exactly
+    when ``coupon_rate`` is the curve's forward.
     """
 
     effective: Date
@@ -221,6 +243,18 @@ class Fra:
             raise ValueError(
                 f"FRA maturity {self.maturity} must be after effective {self.effective}"
             )
+
+    @property
+    def legs(self) -> tuple[tuple[CommonInstrument, float], ...]:
+        common = dict(
+            effective=self.effective, maturity=self.maturity, currency=self.currency,
+            notional=abs(self.notional), payment_frequency=Frequency.Once,
+            day_count_method=self.day_count_method, business_day_convention=BDC.NoAdjustment,
+        )
+        fixed = CommonInstrument(coupon_type=CouponType.Fixed, coupon_rate=self.coupon_rate, **common)
+        floating = CommonInstrument(coupon_type=CouponType.Floating, rate_index=self.rate_index, **common)
+        receive_fixed = self.notional >= 0
+        return ((fixed, 1.0), (floating, -1.0)) if receive_fixed else ((floating, 1.0), (fixed, -1.0))
 
     @classmethod
     def forward_starting(

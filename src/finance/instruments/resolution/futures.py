@@ -5,7 +5,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.dates import Date, DayCountMethod
+from finance.dates import BDC, Date, DayCountMethod, Frequency
+from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
 
 _MONTH_CODES = {code: month for month, code in enumerate("FGHJKMNQUVXZ", start=1)}
@@ -83,6 +84,22 @@ class SofrFuture:
         if self.coupon_type == CouponType.GeometricAveraged:
             return RateKind.Compounded
         return RateKind.Averaged
+
+    @property
+    def legs(self) -> tuple[tuple[CommonInstrument, float], ...]:
+        """The reference period as one unit-notional leg: daily fixings compounded or averaged over it.
+
+        Contract dates are already good business days, so no adjustment; fixings read every
+        calendar day's rate (the exchange's weekday grid), hence ``no_holidays``.
+        """
+        leg = CommonInstrument(
+            effective=self.ref_start, maturity=self.ref_end, currency=self.currency, notional=1.0,
+            payment_frequency=Frequency.Once, day_count_method=self.day_count_method,
+            business_day_convention=BDC.NoAdjustment, pay_calendar="no_holidays",
+            coupon_type=self.coupon_type, rate_index=f"{self.currency} {self.index_name}",
+            reset_frequency=Frequency.Daily, rate_calendar="no_holidays",
+        )
+        return ((leg, 1.0),)
 
     @classmethod
     def from_contract_month(

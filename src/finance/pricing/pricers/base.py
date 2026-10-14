@@ -31,14 +31,18 @@ class PricingProgram:
     _prepared_numba: object | None = field(default=None, init=False, repr=False, compare=False)
 
     def prepare(self, market, *, backend: Backend | None = None):
-        """Prepare and cache a backend-specific executable for repeated repricing."""
+        """Prepare and cache a backend-specific executable for repeated repricing.
+
+        The preparation is keyed to the market's curve geometry (origin, pillars, schemes):
+        scenario and bump markets share it, and a market with a different geometry replaces it.
+        """
         selected = self.backend if backend is None else Backend(backend)
         if selected == Backend.Numpy:
             return self
         if selected == Backend.Numba:
             from finance.pricing.engines.numba import NumbaProgram
 
-            if self._prepared_numba is None:
+            if self._prepared_numba is None or not self._prepared_numba.compatible(market):
                 self._prepared_numba = NumbaProgram(self.inputs, market)
             return self._prepared_numba
         raise NotImplementedError(f"prepared backend {selected.name} is not implemented")

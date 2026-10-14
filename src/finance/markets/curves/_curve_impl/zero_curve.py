@@ -137,7 +137,7 @@ class ZeroCurve:
 
     @property
     def is_log_linear(self) -> bool:
-        """Log-linear DF: the one scheme the Numba/JAX engines model analytically today."""
+        """Log-linear DF: the one scheme the JAX oracle models (the Numba engine takes any, via ``log_df_affine``)."""
         return self._space is CurveSpace.LogDF and self._interpolator == Linear()
 
     def with_dfs(self, dfs: FloatArray) -> ZeroCurve:
@@ -190,6 +190,41 @@ class ZeroCurve:
             if beyond.any():
                 f[beyond] = self._terminal_forward
         return f
+
+    # -- engine hand-off ----------------------------------------------------------------
+
+    def log_df_affine(self, xq: FloatArray) -> tuple[FloatArray, FloatArray]:
+        """``ln DF(xq)`` as an affine map of the pillar zero rates.
+
+        Returns ``(offset, jacobian)`` with ``ln DF(xq) == offset + jacobian @ node_zero_rates``
+        for every query, ``jacobian`` of shape ``(xq.size, pillars)``.  The map is exact: every
+        scheme in :mod:`common.math.interpolation` is affine in its node values, the node values
+        are linear in the zero rates in either space, and both extrapolations are linear.  The
+        jacobian is probed one pillar at a time and the reconstruction is checked against a
+        direct evaluation, so a scheme that breaks the affine assumption is rejected rather than
+        silently mis-differentiated.
+
+        Queries are static across reprices in the engines, so they call this once at prepare
+        time and the kernel then evaluates ``exp(offset + jacobian @ z)`` and scatters adjoints
+        through ``jacobian`` without knowing the interpolation scheme.
+        """
+        t = self._x[1:] / DAYS_PER_YEAR
+        z0 = self.node_zero_rates
+
+        def log_df_at(z: FloatArray) -> FloatArray:
+            return self.with_dfs(np.concatenate([[1.0], np.exp(-z * t)])).log_discount_factor(xq)
+
+        offset = log_df_at(np.zeros(t.size))
+        jacobian = np.empty((xq.size, t.size), dtype=np.float64)
+        unit = np.zeros(t.size)
+        for k in range(t.size):
+            unit[k] = 1.0
+            jacobian[:, k] = log_df_at(unit) - offset
+            unit[k] = 0.0
+        direct = self.log_discount_factor(xq)
+        if not np.allclose(offset + jacobian @ z0, direct, rtol=0.0, atol=1e-9):
+            raise ValueError(f"{self._interpolator!r} in {self._space.name} space is not affine in the zero rates.")
+        return offset, jacobian
 
     # -- internals --------------------------------------------------------------------
 

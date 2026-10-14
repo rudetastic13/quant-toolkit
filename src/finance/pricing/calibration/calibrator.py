@@ -141,8 +141,9 @@ class CurveCalibrator:
         """Solve for the target curve.
 
         ``jacobian=True`` additionally captures ``∂implied/∂z`` at the solution.  The default
-        Numba path uses analytic curve weights and the hand-written swap adjoint; pass
-        ``jacobian_backend=Backend.Jax`` only for validation against traced autodiff.
+        Numba path uses the curve's exact affine map and the hand-written swap adjoint, for
+        any interpolation scheme; pass ``jacobian_backend=Backend.Jax`` only for validation
+        against traced autodiff (log-linear DF curves only).
         """
         jacobian_backend = Backend(jacobian_backend)
         helpers = list(self.instruments)
@@ -173,12 +174,13 @@ class CurveCalibrator:
                 f"either space, e.g. {local}); got {self.target.scheme_label}"
             )
 
-        # Both exact-Jacobian curve models currently implement local log-linear DF weights.
-        if jacobian and not self.target.is_log_linear:
+        # The Numba adjoint differentiates through any scheme (ZeroCurve.log_df_affine); the
+        # JAX oracle still models log-linear DF only.
+        if jacobian and jacobian_backend == Backend.Jax and not self.target.is_log_linear:
             raise NotImplementedError(
-                "calibrate(jacobian=True) requires CurveInterpolator.LogLinearDF (the adjoint "
-                f"curve model does not support {self.target.scheme_label} yet); "
-                "calibrate without jacobian and use the numpy bump path for risk instead"
+                "calibrate(jacobian_backend=Backend.Jax) requires CurveInterpolator.LogLinearDF "
+                f"(the JAX curve model does not support {self.target.scheme_label}); "
+                "use the default Numba Jacobian backend"
             )
 
         x_pillars = (pillars.astype(np.int64) - origin.astype(np.int64)).astype(np.float64)

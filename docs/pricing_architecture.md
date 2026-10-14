@@ -202,14 +202,15 @@ single-fixing floats.
 | Pattern | Where | Why |
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
-| **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
-| **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Pricers self-register in `pricer_registry`. |
-| **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (`CouponEvent`); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. |
+| **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` / `SofrFuture` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. Every product is signed legs (`instrument.legs`) and prices through one `LegPricer`; a deposit is one fixed leg with principal out and back, a FRA a one-period fixed vs float pair, a future's reference period a unit-notional leg. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
+| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortization is meant to follow the same shape: a named `amortization_type` generator, or `Custom` with a notional schedule. |
+| **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)`, `deposit(market)`, `fra(market)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Leg-bearing types dispatch to `LegPricer` through `pricer_registry`. |
+| **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (the schedule); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. Bullet principal (`PrincipalExchange`) lowers to fixed flows with `rate = period_frac = 1`, so no kernel knows about it. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
 | **Compile-once / reprice-many** | `PricingProgram.reprice` | A scenario/bump is one array pass, not a rebuild. |
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
-| **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler, the JAX program, and the reference coupon calculators — the three can't drift. |
+| **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler and the JAX program (the Numba kernel mirrors it scalar-wise and is held to parity in CI) — they can't drift. |
 | **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (index / per-leg / per-product tiers) does the rest. |
 | **Versioned namespace** | `CurveNamespace` / `VolNamespace` | Rebind a curve per scenario; version counter for cache invalidation without observers. |
 
@@ -226,8 +227,11 @@ single-fixing floats.
   repriceable artifact. A real book/portfolio abstraction would sit on top.
 - **Enums over strings.** `BDC`, `DayCountMethod`, `Frequency`, `Roll`, `CouponType`
   (with `.is_floating` / `.needs_observation_grid`) — typos are import-time, not runtime.
-- **Piecewise coupons are first-class.** Fixed → float → fixed, arbitrary step-ups: the
-  per-flow `rate_kind`/`fixed_rate` columns express any switching with no special machinery.
+- **Piecewise coupons are first-class.** Fixed → float → fixed, arbitrary step-ups: pass a
+  `CouponSchedule` on the leg and the per-flow `rate_kind`/`fixed_rate` columns express any
+  switching with no special machinery. The flat coupon fields are the one-event shortcut.
+- **One lowering for every product.** `LegPricer` compiles anything with `legs`; `SwapPricer`
+  is its swap-shaped name. Money-market instruments are not a second pricing path.
 - **Cap/floor on the final period coupon** (documented convention), with `index_floor` as the
   separate per-fixing floor that changes the compounding.
 - **Lookback styles are explicit.** ISDA `Lookback` (default; rate at shifted date, real
@@ -352,6 +356,29 @@ convention), routed to the leg it belongs to: `fixed_frequency` / `float_frequen
 conventions can't express, build the `CommonInstrument` legs directly and construct
 `Swap(...)` — the fully-general escape hatch. `funding_id` (default `STDCSA`) selects the discount curve independently of
 the `rate_index` projection curve.
+
+A leg has two faces. The flat coupon fields above are the simple one; the general one is a
+`CouponSchedule`, which is what the pricer actually reads (the flat fields build a one-event
+schedule when none is given):
+
+```python
+from finance.instruments.schedules import CouponSchedule, FixedCouponEvent, CompoundedCouponEvent
+
+step_up = recv.replace(coupon_schedule=CouponSchedule(events=[
+    FixedCouponEvent(start_date=recv.effective, coupon_rate=0.03),
+    CompoundedCouponEvent(start_date=Date(2029, 6, 3), rate_index="USD SOFR", spread=0.001),
+]), rate_index="USD SOFR", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
+Swap(receive_leg=step_up, pay_leg=pay, currency="USD", index_name="SOFR")   # fixed 3% then SOFR+10bp
+
+step_up.coupon_type                # CouponType.Custom — the flat type says a schedule was supplied
+recv.replace(coupon_rate=1.0)      # a derived schedule follows the flat field (unit annuity)
+step_up.replace(coupon_rate=0.09)  # a Custom leg's schedule is the coupon; the flat field is ignored
+```
+
+Deposits and FRAs are the same kind of thing — legs, not a second instrument family:
+`Deposit.spot_deposit(...)` is one fixed leg with `PrincipalExchange.Both`, `Fra.forward_starting(...)`
+a one-period fixed vs single-fixing float pair, and both are `Priceable`
+(`depo(market).pv` is zero exactly at the curve's simple rate).
 
 ### 9.2 Calibrating a curve
 

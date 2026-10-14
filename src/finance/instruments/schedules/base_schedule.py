@@ -1,9 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Any
+
+from common.object.serializer import Serializable
 from finance.dates import Date
 
+
 @dataclass
-class BaseEvent:
+class BaseEvent(Serializable):
     """Base class for defining a schedule of misc info, anchors to accrual grid"""
     start_date: Date = field(init=True)
 
@@ -14,10 +17,10 @@ class BaseEvent:
             raise ValueError(f"Cannot compare {self.__class__.__name__} with {other.__class__.__name__}")
         return self.start_date < other.start_date
 
+
 @dataclass
-class BaseSchedule:
+class BaseSchedule(Serializable):
     events: list[BaseEvent] = field(default_factory=list)
 
     def __post_init__(self):
         self.events.sort()
-

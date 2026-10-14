@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.instruments.enums import CouponType, MarginTreatment
+from finance.instruments.enums import CouponType, MarginTreatment, PrincipalExchange
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
 from finance.instruments.schedules.payment_schedule import PaymentSchedule
 from finance.markets.rate_generator import RateGenerator
@@ -56,6 +56,10 @@ class LegSpec:
         Static/scheduled (materialized at compile); rate-dependent is a designed seam.
     instrument : int
         Instrument index, so leg PVs roll up to net instrument PV.
+    principal_exchange : PrincipalExchange
+        Bullet principal flows: ``-notional`` on the first accrual start and/or ``+notional``
+        on the last payment date.  Lowered as fixed flows with ``rate = period_frac = 1``, so
+        ``cash = notional`` and no kernel knows about them.
     """
 
     schedule: PaymentSchedule
@@ -65,6 +69,7 @@ class LegSpec:
     projection_curve: str | None
     notional: NotionalProvider
     instrument: int = 0
+    principal_exchange: PrincipalExchange = PrincipalExchange.Unused
 
 
 def _bound(value, sentinel: float) -> float:
@@ -130,10 +135,11 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         disc_id = curve_id(leg.discount_curve)
         proj_id = curve_id(leg.projection_curve)
 
+        amounts = leg.notional.materialize(n)
         pay.append(ps.payment_dates.astype("datetime64[D]"))
         frac.append(np.asarray(ps.period_fracs, dtype=np.float64))
         sign.append(np.full(n, float(leg.sign)))
-        notl.append(leg.notional.materialize(n))
+        notl.append(amounts)
         rkind.append(rk)
         frate.append(np.array([c["fixed_rate"] for c in cols], dtype=np.float64))
         spr.append(np.array([c["spread"] for c in cols], dtype=np.float64))
@@ -148,6 +154,29 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         has_reset = ps.reset_starts is not None
         rstart.append((ps.reset_starts if has_reset else ps.accrual_starts).astype("datetime64[D]"))
         rend.append((ps.reset_ends if has_reset else ps.accrual_ends).astype("datetime64[D]"))
+
+        # Bullet principal flows after the coupons: fixed flows with rate = period_frac = 1.
+        principal = []
+        if leg.principal_exchange.initial:
+            principal.append((ps.accrual_starts[0], -amounts[0]))
+        if leg.principal_exchange.final:
+            principal.append((ps.payment_dates[-1], amounts[-1]))
+        for date, amount in principal:
+            pay.append(np.array([date], dtype="datetime64[D]"))
+            frac.append(np.array([1.0]))
+            sign.append(np.array([float(leg.sign)]))
+            notl.append(np.array([amount], dtype=np.float64))
+            rkind.append(np.array([RateKind.Fixed], dtype=np.int8))
+            frate.append(np.array([1.0]))
+            spr.append(np.array([0.0]))
+            ifloor.append(np.array([NO_FLOOR]))
+            cap.append(np.array([NO_CAP]))
+            floor.append(np.array([NO_FLOOR]))
+            marg.append(np.array([int(MarginTreatment.Inclusive)], dtype=np.int8))
+            disc.append(np.array([disc_id], dtype=np.int64))
+            proj.append(np.array([NO_CURVE], dtype=np.int64))
+            rstart.append(np.array([date], dtype="datetime64[D]"))
+            rend.append(np.array([date], dtype="datetime64[D]"))
 
         # global observation grid: only compounded/averaged periods contribute fixings
         needs_obs = (rk == RateKind.Compounded) | (rk == RateKind.Averaged)
@@ -168,7 +197,7 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
                 obs_proj.append(proj_id)
                 m += e - s
 
-        f += n
+        f += n + len(principal)
 
     def cat_dt(xs):
         return np.concatenate(xs).astype("datetime64[D]") if xs else np.array([], dtype="datetime64[D]")

@@ -41,10 +41,10 @@ class SwaptionRiskResult:
 def _unit_fixed_swap(swap):
     receive = swap.receive_leg
     pay = swap.pay_leg
-    if receive.coupon_type.is_floating:
-        pay = dataclasses.replace(pay, coupon_rate=1.0)
+    if receive.is_floating:
+        pay = pay.replace(coupon_rate=1.0)
     else:
-        receive = dataclasses.replace(receive, coupon_rate=1.0)
+        receive = receive.replace(coupon_rate=1.0)
     return dataclasses.replace(swap, receive_leg=receive, pay_leg=pay)
 
 
@@ -57,11 +57,15 @@ class SwaptionProgram:
         self.swaptions = tuple(swaptions)
         unit_swaps = [_unit_fixed_swap(option.underlying) for option in swaptions]
         self.program: PricingProgram = SwapPricer().compile(unit_swaps, backend=backend)
+        # Program legs are laid out in instrument order, each underlying's legs in its own
+        # order — classify by walking them, never by assuming two legs per swap.
         fixed_idx = []
         float_idx = []
-        for inst, option in enumerate(swaptions):
-            for local, leg in enumerate(option.underlying):
-                (float_idx if leg.coupon_type.is_floating else fixed_idx).append(2 * inst + local)
+        leg_index = 0
+        for option in swaptions:
+            for leg, _sign in option.underlying.legs:
+                (float_idx if leg.is_floating else fixed_idx).append(leg_index)
+                leg_index += 1
         self.fixed_leg = np.asarray(fixed_idx, dtype=np.int64)
         self.float_leg = np.asarray(float_idx, dtype=np.int64)
 
@@ -82,7 +86,7 @@ class SwaptionProgram:
         vol = np.empty_like(expiry)
         as_of = np.datetime64(market.as_of_date.to_str(), "D")
         for i, option in enumerate(self.swaptions):
-            fixed_leg = next(leg for leg in option.underlying if not leg.coupon_type.is_floating)
+            fixed_leg = next(leg for leg in option.underlying if not leg.is_floating)
             expiry[i] = max((option.expiry.to_numpy() - as_of).astype(int) / 365.0, 0.0)
             tenor[i] = (fixed_leg.maturity.to_numpy() - fixed_leg.effective.to_numpy()).astype(int) / 365.0
             strike[i] = float(fixed_leg.coupon_rate)
@@ -162,8 +166,8 @@ class SwaptionProgram:
 
 
 class SwaptionPricer:
-    # Numpy is the always-available reference (numba is optional and LogLinearDF-only);
-    # pass Backend.Numba for the fused hot path.  risk() uses the Numba adjoint either way.
+    # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
+    # the fused hot path.  risk() uses the Numba adjoint either way.
     default_backend = Backend.Numpy
 
     def compile(self, swaptions: list[Swaption], *, backend: Backend | None = None) -> SwaptionProgram:

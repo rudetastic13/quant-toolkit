@@ -12,6 +12,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.pricing.types import Backend
 from finance.pricing.calibration import (
     Bootstrapper,
     CurveCalibrator,
@@ -118,13 +119,38 @@ class TestCurveCalibrator(UnitTest):
         with self.assertRaises(ValueError):
             CurveCalibrator([], GlobalSolver(), self.defn).calibrate(self.base)
 
-    def test_jacobian_rejects_non_loglinear_interpolation_up_front(self):
+    def test_jax_jacobian_rejects_non_loglinear_interpolation_up_front(self):
         # The JAX curve model only supports LogLinearDF; the guard must fire before any
         # jax import / tracing, with a message naming the offending interpolator.
         defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear)
         with self.assertRaises(NotImplementedError) as ctx:
-            CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base, jacobian=True)
+            CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(
+                self.base, jacobian=True, jacobian_backend=Backend.Jax
+            )
         self.assertIn("RateLinear", str(ctx.exception))
+
+    def test_numba_jacobian_on_any_scheme_matches_finite_differences(self):
+        # The Numba adjoint consumes the curve's exact affine map, so the calibration
+        # Jacobian is available for every scheme, not only LogLinearDF.
+        h = 1e-6
+        for scheme in (CurveInterpolator.RateLinear, CurveInterpolator.LogCubicDF, CurveInterpolator.RateCubic):
+            with self.subTest(scheme=scheme.name):
+                defn = CurveDefinition("USD", "SOFR", scheme)
+                res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base, jacobian=True)
+                helpers = sorted(self.helpers, key=lambda hp: hp.pillar_date)
+                zc = res.zero_curve
+                t, z0 = zc.x[1:] / 365.0, zc.node_zero_rates
+                fd = np.empty_like(res.jacobian)
+                for k in range(z0.size):
+                    e = np.zeros(z0.size)
+                    e[k] = h
+                    cols = []
+                    for z in (z0 + e, z0 - e):
+                        curve = zc.with_dfs(np.concatenate([[1.0], np.exp(-z * t)]))
+                        mkt = self.base.with_curve(defn.compose(res.origin, curve, self.base))
+                        cols.append(np.array([hp.implied(mkt) for hp in helpers]))
+                    fd[:, k] = (cols[0] - cols[1]) / (2.0 * h)
+                np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-9)
 
     def test_rate_linear_calibrates_without_jacobian(self):
         defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear)

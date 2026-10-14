@@ -233,16 +233,18 @@ the calibrator's per-iteration step and the risk engine's per-pillar bump.
 ### Engine hand-off
 
 ```python
-zc.is_log_linear                           # True: LogDF space and Linear()
 zc.x                                       # pillar offsets, origin-inclusive
 zc.node_zero_rates                         # z at the non-origin pillars
+zc.log_df_affine(xq)                       # (offset, jacobian): ln DF(xq) == offset + jacobian @ z, exact
 zc.line.coefficients                       # (2, 8) for Linear; (4, 8) for Cubic
+zc.is_log_linear                           # True: LogDF space and Linear() (the JAX oracle's one scheme)
 ```
 
-The Numba and JAX programs model log-linear DF only today and check `is_log_linear`; the
-risk engine falls back to bump-and-reprice for anything else. Extending a kernel to another
-scheme is a Horner branch on `line.coefficients` plus matching analytic weights for the
-adjoint.
+`log_df_affine` is how the Numba engine consumes a curve: the program's discount-factor
+queries are static once compiled, so it is called once per curve at prepare time and the
+kernel evaluates `exp(offset + jacobian @ z)` and scatters adjoints through `jacobian` without
+knowing the scheme. Any scheme in either space works; the JAX oracle still models log-linear
+DF only.
 
 ### `CurveInterpolator`: the parse table
 
@@ -439,7 +441,8 @@ schemes; construct it directly as above.
 | Meeting-dated front end, local bumps, bootstrap-safe | `LogDF` + `Linear()` |
 | Smooth forwards for the long end | `LogDF` + `Cubic()` |
 | Both | `LogDF` + `Mixed(Linear(), Cubic(), switch_node=yc.node_index(Term.from_str("2Y")))` |
-| Analytic Numba / JAX risk today | `LogDF` + `Linear()` only (`zc.is_log_linear`) |
+| Analytic Numba risk | any scheme (`zc.log_df_affine`) |
+| JAX validation oracle | `LogDF` + `Linear()` only (`zc.is_log_linear`) |
 | Sequential bootstrap | `Linear()` or `Flat()` in either space |
 | Compatibility with a rate-space system | `ZeroRate` + `Linear()` / `Cubic()` |
 

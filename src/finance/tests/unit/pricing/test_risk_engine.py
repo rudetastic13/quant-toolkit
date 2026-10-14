@@ -48,12 +48,19 @@ class TestRiskEngine(UnitTest):
         np.testing.assert_allclose(adjoint.dv01(CURVE), bump.dv01(CURVE), rtol=5e-4)
         np.testing.assert_allclose(bump.dv01(CURVE), Sensitivities(program, self.market).dv01(CURVE), rtol=1e-12)
 
-    def test_non_loglinear_curve_resolves_to_bump(self):
-        market = _market(self.as_of, interpolation=CurveInterpolator.RateLinear)
-        engine = RiskEngine(SwapPricer().compile(self.book), market)
-        self.assertEqual(engine.method, "bump")
-        self.assertEqual(engine.ladder(CURVE).method, "bump")
-        self.assertTrue(np.isfinite(engine.dv01(CURVE)).all())
+    def test_every_scheme_resolves_to_adjoint_and_matches_bump(self):
+        program = SwapPricer().compile(self.book)
+        for scheme in CurveInterpolator:
+            with self.subTest(scheme=scheme.name):
+                market = _market(self.as_of, interpolation=scheme)
+                adjoint = RiskEngine(program, market)
+                bump = RiskEngine(program, market, method="bump")
+                self.assertEqual(adjoint.method, "adjoint")
+                self.assertEqual(adjoint.ladder(CURVE).method, "adjoint")
+                np.testing.assert_allclose(
+                    adjoint.ladder(CURVE).ladder, bump.ladder(CURVE).ladder, rtol=5e-4, atol=1e-6
+                )
+                np.testing.assert_allclose(adjoint.dv01(CURVE), bump.dv01(CURVE), rtol=5e-4)
 
     def test_swaption_adjoint_matches_bump(self):
         option = Swaption.european(
