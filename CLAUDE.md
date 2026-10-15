@@ -86,7 +86,7 @@ mypy src/             # type check
 
 **`finance/dates/enums/`** — `Frequency`, `BDC` (Business Day Convention), `Direction`, `Roll`, `TermType`.
 
-**`finance/markets/curves/`** — `ZeroCurve` is pure math on float day offsets: a `Line1d` in `CurveSpace.LogDF` or `CurveSpace.ZeroRate` with any `common.math.interpolation` scheme, flat-forward or no extrapolation, `with_dfs` for cheap rebinding. `YieldCurve` adds the origin date, index conventions and fixings and is the only layer that sees dates (`YieldCurve.build(node_dates, dfs, ...)`). `CurveInterpolator` is a parse table (`resolve()` -> space + interpolator). See [docs/curve_architecture.md](docs/curve_architecture.md) for responsibilities and [docs/curves_line1d.md](docs/curves_line1d.md) for usage with figures.
+**`finance/markets/curves/`** — `DiscountCurve` is the runtime-checkable protocol every curve satisfies (`x`, `params`/`with_params`, queries, `scheme`, and `log_df_affine`: the exact affine map of `ln DF` in the parameters the engines differentiate through). `ZeroCurve` is the atom: pure math on float day offsets, a `Line1d` in `CurveSpace.LogDF` or `CurveSpace.ZeroRate` with any `common.math.interpolation` scheme, flat-forward or no extrapolation, `with_dfs`/`with_params` for cheap rebinding. `CompositeCurve` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves (basis, turns, nesting); `SpreadCurve` is base + spread with `flat()`. `YieldCurve` adds the origin date, index conventions and fixings and is the only layer that sees dates (`YieldCurve.build(node_dates, dfs, ...)`). `CurveInterpolator` is a parse table (`resolve()` -> space + interpolator). See [docs/curves/](docs/curves/README.md) (one doc per object plus `maths/`), [docs/curve_architecture.md](docs/curve_architecture.md) for responsibilities and [docs/curves_line1d.md](docs/curves_line1d.md) for usage with figures.
 
 **`common/math/line.py`, `common/math/interpolation.py`** — `Line1d(x, y, interpolator, left, right)`: nodes + a frozen interpolator instance (`Flat`, `Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`) + per-side `Extrapolation`. Fit with scipy, evaluate via `PPoly`, `coefficients` exported for engine kernels. Backbone of `ZeroCurve`, `HistoricalFixings` and `SinglePath`.
 
@@ -108,5 +108,7 @@ Coverage minimum is 80% (`fail_under = 80`). Reports are written to `pytest-repo
 
 ### Style & Tooling
 - Line length: 120, double quotes, 4-space indent (enforced by ruff)
+- No `__all__` in implementation modules. Public exports are declared once, in the package `__init__.py` (the `__all__` there is the only one).
+- Docstrings follow the numpydoc convention: a one-line summary, then `Parameters` / `Returns` / `Raises` / `Notes` / `Examples` sections with `name : type` entries and array shapes spelled out.
 - Target: Python 3.11+; environment runs Python 3.14
 - Type hints are used extensively; `NDArray`, `DTypeLike`, and custom aliases (`DateType`, `FloatArray`, etc.) are defined in type modules within each package

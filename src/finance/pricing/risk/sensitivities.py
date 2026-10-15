@@ -36,7 +36,16 @@ def bumped_curve(curve: ZeroCurve, bp: float, pillar: int | None = None) -> Zero
     """Curve with zero rates shifted by ``bp`` — all pillars (parallel) or just ``pillar``.
 
     The origin (t=0, DF=1) is never bumped. Interpolation method is preserved.
+
+    Only a ``ZeroCurve`` atom has pillar zero rates to bump.  A composite's "parallel" move is
+    ambiguous (bump the base, the spread, or both?), so bump the component you mean and rebuild
+    the composite with ``with_component`` / ``with_base`` / ``with_spread``.
     """
+    if not isinstance(curve, ZeroCurve):
+        raise TypeError(
+            f"bumped_curve bumps the pillar zero rates of a ZeroCurve; got {type(curve).__name__}. "
+            "Bump a component and rebuild the composite instead."
+        )
     t, z = _zero_rates(curve)
     m = t > 0
     z2 = z.copy()

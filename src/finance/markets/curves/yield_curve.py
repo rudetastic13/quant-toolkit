@@ -1,7 +1,8 @@
-"""Convention-aware market curve: an origin date, a pure :class:`ZeroCurve`, and an index.
+"""Convention-aware market curve: an origin date, a pure :class:`DiscountCurve`, and an index.
 
-This is the only layer that sees dates.  ``ZeroCurve`` works on float day offsets; every
-date-based query here converts through :func:`dates_to_x` against ``origin``.
+This is the only layer that sees dates.  Discount curves (``ZeroCurve``, ``CompositeCurve``,
+``SpreadCurve``) work on float day offsets; every date-based query here converts through
+:func:`dates_to_x` against ``origin``.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from numpy.typing import NDArray
 from common.math.interpolation import Interpolator, Linear
 from finance.conventions import ConventionRegistry, MarketConventions, RateIndex, default_registry
 from finance.dates import Term
+from finance.markets.curves._curve_impl.discount_curve import DiscountCurve
 from finance.markets.curves._curve_impl.zero_curve import ZeroCurve
 from finance.markets.curves.types import CurveSpace, RateExtrapolator
 from finance.markets.fixings import HistoricalFixings
@@ -32,13 +34,14 @@ def dates_to_x(origin: np.datetime64, dates: DateArray) -> FloatArray:
 class YieldCurve:
     """Bind an origin date and mathematical discount state to the conventions of one index.
 
-    ``ZeroCurve`` is unaware of dates, currency, calendars, fixing rules or coupon conventions.
-    ``YieldCurve`` is the market object registered in ``MarketContext`` and supplies those
-    definitions to ``RateGenerator``.
+    A ``DiscountCurve`` is unaware of dates, currency, calendars, fixing rules or coupon
+    conventions.  ``YieldCurve`` is the market object registered in ``MarketContext`` and
+    supplies those definitions to ``RateGenerator``.  The field is still called ``zero_curve``
+    although any ``DiscountCurve`` (a ``SpreadCurve`` over another index's atom, say) can sit there.
     """
 
     origin: np.datetime64
-    zero_curve: ZeroCurve
+    zero_curve: DiscountCurve
     conventions: MarketConventions
     historical_fixings: HistoricalFixings | None = None
 
@@ -48,7 +51,7 @@ class YieldCurve:
     def from_registry(
         cls,
         origin: np.datetime64,
-        zero_curve: ZeroCurve,
+        zero_curve: DiscountCurve,
         *,
         currency: str,
         index_name: str,
@@ -96,7 +99,7 @@ class YieldCurve:
             historical_fixings=historical_fixings,
         )
 
-    def with_zero_curve(self, zero_curve: ZeroCurve) -> YieldCurve:
+    def with_zero_curve(self, zero_curve: DiscountCurve) -> YieldCurve:
         """Same origin, definition and fixings with replacement mathematical curve state."""
         return YieldCurve(
             origin=self.origin,
@@ -131,7 +134,7 @@ class YieldCurve:
 
     @property
     def node_dates(self) -> DateArray:
-        """Pillar dates, origin first."""
+        """Pillar dates, origin first (for a composite, the union of its components' pillars)."""
         return self.origin + self.zero_curve.x.astype(np.int64).astype("timedelta64[D]")
 
     @property
