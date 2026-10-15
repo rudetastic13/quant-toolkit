@@ -2,7 +2,7 @@
 
 The market resolves market objects. Financial projection and par-rate logic deliberately
 lives in :class:`finance.markets.rate_generator.RateGenerator`, not on the market or the
-underlying mathematical :class:`ZeroCurve`.
+underlying mathematical :class:`DiscountCurve`.
 """
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from finance.conventions import ConventionRegistry, default_registry
 from finance.dates import Date
-from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveNamespace, DiscountCurve, YieldCurve
 
 
 @dataclass
@@ -46,8 +46,8 @@ class MarketContext:
         """Resolve a registered convention-aware yield curve."""
         return self.curves.resolve(name)
 
-    def zero_curve(self, name: str) -> ZeroCurve:
-        """Resolve the mathematical discount state of a registered yield curve."""
+    def zero_curve(self, name: str) -> DiscountCurve:
+        """Resolve the mathematical discount state of a registered yield curve (any ``DiscountCurve``)."""
         return self.yield_curve(name).zero_curve
 
     def convention(self, currency: str, index_name: str):

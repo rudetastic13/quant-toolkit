@@ -403,7 +403,7 @@ class NumbaProgram:
             if dates.size < 2:
                 raise ValueError(f"curve '{name}' needs at least an origin and one pillar")
             self._node_dates.append(dates)
-            self._schemes.append((zero_curve.space, zero_curve.interpolator))
+            self._schemes.append(zero_curve.scheme)
 
             pay_m = ki.discount_curve == ci
             reset_m = is_float & (ki.proj_curve == ci)
@@ -424,7 +424,7 @@ class NumbaProgram:
 
             live = unique >= 0.0
             const = np.full(unique.size, -np.inf)
-            jac = np.zeros((unique.size, dates.size - 1))
+            jac = np.zeros((unique.size, zero_curve.n_params))
             if live.any():
                 const[live], jac[live] = zero_curve.log_df_affine(unique[live])
             nonzero = jac != 0.0
@@ -432,7 +432,7 @@ class NumbaProgram:
             ptrs.append(np.count_nonzero(nonzero, axis=1))
             params.append(np.nonzero(nonzero)[1] + param_off[-1])
             coefs.append(jac[nonzero])
-            param_off.append(param_off[-1] + dates.size - 1)
+            param_off.append(param_off[-1] + zero_curve.n_params)
             q_off += unique.size
 
         counts = np.concatenate(ptrs) if ptrs else np.zeros(0, dtype=np.int64)
@@ -472,20 +472,19 @@ class NumbaProgram:
             return False
         for name, expected_dates, scheme in zip(self.curve_names, self._node_dates, self._schemes):
             yield_curve = market.yield_curve(name)
-            zero_curve = yield_curve.zero_curve
-            if (zero_curve.space, zero_curve.interpolator) != scheme:
+            if yield_curve.zero_curve.scheme != scheme:
                 return False
             if not np.array_equal(yield_curve.node_dates, expected_dates):
                 return False
         return True
 
     def params_from_market(self, market) -> np.ndarray:
-        """Flatten non-origin zero rates after validating the prepared curve geometry."""
+        """Flatten every curve's ``DiscountCurve.params`` after validating the prepared curve geometry."""
         if not self.compatible(market):
             raise ValueError(
                 "market origin, pillar geometry or interpolation differs from the prepared NumbaProgram"
             )
-        return _f64(np.concatenate([market.zero_curve(name).node_zero_rates for name in self.curve_names]))
+        return _f64(np.concatenate([market.zero_curve(name).params for name in self.curve_names]))
 
     def _fixings_from_market(self, market):
         ki = self.inputs

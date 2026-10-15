@@ -5,6 +5,11 @@ discount-factor invariants.
 float days from the origin (``x[0] == 0``, ``dfs[0] == 1``); :class:`YieldCurve` owns the
 origin date and converts dates to ``x``.  Queries before the origin are rejected.  Beyond the
 last pillar the terminal instantaneous forward is continued (or the query is rejected).
+
+It is the atom of the :class:`~finance.markets.curves.DiscountCurve` protocol: its parameters
+are the non-origin pillar zero rates, and :class:`~finance.markets.curves.CompositeCurve` builds
+spreads, bases and turns as weighted sums of atoms in log-DF space.  :meth:`ZeroCurve.constant`
+is the two-node atom a flat spread is made of.
 """
 
 from __future__ import annotations
@@ -14,6 +19,8 @@ from numpy.typing import NDArray
 
 from common.math.interpolation import Interpolator, Linear
 from common.math.line import Extrapolation, Line1d
+from finance.markets.curves._curve_impl.algebra import CurveArithmetic
+from finance.markets.curves._curve_impl.discount_curve import Leaf
 from finance.markets.curves.types import CurveSpace, RateExtrapolator
 
 FloatArray = NDArray[np.float64]
@@ -45,7 +52,7 @@ def _check_dfs(x: FloatArray, dfs: FloatArray) -> None:
         raise ValueError("the first node (the origin) must have DF = 1.0.")
 
 
-class ZeroCurve:
+class ZeroCurve(CurveArithmetic):
     """Discount factors on a day-offset axis, interpolated in a declared space.
 
     Parameters
@@ -89,6 +96,42 @@ class ZeroCurve:
         line = Line1d(x, _to_space(space, x, dfs), interpolator, left=Extrapolation.NotAllowed, right=right)
         self._init(x, dfs, space, interpolator, extrapolation, line)
 
+    @classmethod
+    def constant(
+        cls, rate: float, horizon: float, *, extrapolation: RateExtrapolator = RateExtrapolator.FlatForward
+    ) -> ZeroCurve:
+        """Two-node log-linear curve whose zero rate and forward equal ``rate`` for every ``x``.
+
+        The single parameter *is* ``rate``.  Flat-forward extrapolation continues it unchanged
+        beyond ``horizon``, so the horizon only names the pillar.  This is the atom a constant
+        spread is made of: ``CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)})``.
+
+        Parameters
+        ----------
+        rate : float
+            Act/365 continuously compounded rate, decimal (``0.00085`` for 8.5 bp; may be negative).
+        horizon : float
+            Day offset of the single non-origin pillar, ``> 0``.
+        extrapolation : RateExtrapolator, optional
+            Default ``FlatForward``.
+
+        Returns
+        -------
+        ZeroCurve
+            ``n_params == 1``, ``params[0] == rate``.
+
+        Raises
+        ------
+        ValueError
+            If ``horizon`` is not positive.
+        """
+        horizon = float(horizon)
+        if not horizon > 0.0:
+            raise ValueError(f"horizon must be positive; got {horizon}.")
+        x = np.array([0.0, horizon])
+        dfs = np.array([1.0, np.exp(-float(rate) * horizon / DAYS_PER_YEAR)])
+        return cls(x, dfs, extrapolation=extrapolation)
+
     def _init(self, x, dfs, space, interpolator, extrapolation, line) -> None:
         self._x = x
         self._dfs = dfs
@@ -131,14 +174,57 @@ class ZeroCurve:
         return self._line
 
     @property
+    def scheme(self) -> tuple[CurveSpace, Interpolator]:
+        """``(space, interpolator)``: together with :attr:`x`, everything that pins :meth:`log_df_affine`."""
+        return (self._space, self._interpolator)
+
+    @property
     def node_zero_rates(self) -> FloatArray:
-        """Act/365 continuously compounded zero rates at the non-origin pillars (the calibration parameters)."""
+        """Act/365 continuously compounded zero rates at the non-origin pillars.
+
+        Returns
+        -------
+        ndarray of float64, shape (n_nodes - 1,)
+            ``z_j = -ln DF_j / (x_j / 365)``: the calibration and risk parameters.
+        """
         return -np.log(self._dfs[1:]) / (self._x[1:] / DAYS_PER_YEAR)
+
+    @property
+    def n_params(self) -> int:
+        """Number of non-origin pillars."""
+        return self._x.size - 1
+
+    @property
+    def params(self) -> FloatArray:
+        """The :class:`DiscountCurve` parameters: :attr:`node_zero_rates`."""
+        return self.node_zero_rates
 
     @property
     def is_log_linear(self) -> bool:
         """Log-linear DF: the one scheme the JAX oracle models (the Numba engine takes any, via ``log_df_affine``)."""
         return self._space is CurveSpace.LogDF and self._interpolator == Linear()
+
+    def with_params(self, params: FloatArray) -> ZeroCurve:
+        """Same pillars, space, interpolator and extrapolation with new pillar zero rates.
+
+        Parameters
+        ----------
+        params : array_like of float64, shape (n_params,)
+            Act/365 continuously compounded zero rates at the non-origin pillars.
+
+        Returns
+        -------
+        ZeroCurve
+
+        Raises
+        ------
+        ValueError
+            If the shape is wrong or the implied discount factors are not finite and positive.
+        """
+        params = np.asarray(params, dtype=np.float64)
+        if params.shape != (self.n_params,):
+            raise ValueError(f"expected {self.n_params} parameters; got shape {params.shape}.")
+        return self.with_dfs(np.concatenate([[1.0], np.exp(-params * self._x[1:] / DAYS_PER_YEAR)]))
 
     def with_dfs(self, dfs: FloatArray) -> ZeroCurve:
         """Same pillars, space, interpolator and extrapolation with new discount factors."""
@@ -153,6 +239,16 @@ class ZeroCurve:
             self._line.with_y(_to_space(self._space, self._x, dfs)),
         )
         return curve
+
+    # -- structure ----------------------------------------------------------------------
+
+    def leaves(self) -> tuple[Leaf, ...]:
+        """An atom is its own single leaf: weight ``1``, all columns."""
+        return (Leaf(self, 1.0, slice(0, self.n_params)),)
+
+    def replace(self, old: ZeroCurve, new: ZeroCurve) -> ZeroCurve:
+        """``new`` if ``old is self``, else ``self``."""
+        return new if old is self else self
 
     # -- queries (xq: float64 day offsets) ---------------------------------------------
 
@@ -208,16 +304,16 @@ class ZeroCurve:
         time and the kernel then evaluates ``exp(offset + jacobian @ z)`` and scatters adjoints
         through ``jacobian`` without knowing the interpolation scheme.
         """
-        t = self._x[1:] / DAYS_PER_YEAR
         z0 = self.node_zero_rates
+        n = z0.size
 
         def log_df_at(z: FloatArray) -> FloatArray:
-            return self.with_dfs(np.concatenate([[1.0], np.exp(-z * t)])).log_discount_factor(xq)
+            return self.with_params(z).log_discount_factor(xq)
 
-        offset = log_df_at(np.zeros(t.size))
-        jacobian = np.empty((xq.size, t.size), dtype=np.float64)
-        unit = np.zeros(t.size)
-        for k in range(t.size):
+        offset = log_df_at(np.zeros(n))
+        jacobian = np.empty((xq.size, n), dtype=np.float64)
+        unit = np.zeros(n)
+        for k in range(n):
             unit[k] = 1.0
             jacobian[:, k] = log_df_at(unit) - offset
             unit[k] = 0.0
@@ -242,6 +338,3 @@ class ZeroCurve:
             f"ZeroCurve(nodes={self._x.size}, max_x={self.max_x:g}, space={self._space.name}, "
             f"interpolator={self._interpolator!r}, extrapolation={self._extrapolation.name})"
         )
-
-
-__all__ = ["DAYS_PER_YEAR", "ZeroCurve"]

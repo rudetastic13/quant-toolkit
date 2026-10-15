@@ -14,7 +14,7 @@ def _money_market_gradient(helper, curve) -> np.ndarray:
     window = np.array([inst.effective.to_numpy(), inst.maturity.to_numpy()], dtype="datetime64[D]")
     tau = float(period_fractions(inst.day_count_method, window[:1], window[1:])[0])
     offset, jac = curve.zero_curve.log_df_affine(curve.to_x(window))
-    log_df = offset + jac @ curve.zero_curve.node_zero_rates
+    log_df = offset + jac @ curve.zero_curve.params
     ratio = float(np.exp(log_df[0] - log_df[1]))
     return ratio / tau * (jac[0] - jac[1])
 

@@ -1,7 +1,8 @@
 # Curve and Rate Architecture
 
 Responsibilities and boundaries. For usage, snippets and figures see
-[curves_line1d.md](curves_line1d.md).
+[curves_line1d.md](curves_line1d.md); for one document per object with runnable snippets, and
+the mathematics behind them, see [curves/](curves/README.md).
 
 The curve stack separates mathematical state from market meaning. A calibrated curve is not
 itself a SOFR curve: it becomes one only after SOFR's index conventions are attached.
@@ -14,7 +15,7 @@ calibration quotes
        |
        | in log-DF or zero-rate space, DF invariants
        v
-   ZeroCurve             mathematical DF / log-DF / zero-rate state on day offsets
+   DiscountCurve         protocol: ZeroCurve (atom) | CompositeCurve (weighted sums in log-DF)
        |
        | + origin date + USD SOFR conventions
        v
@@ -47,7 +48,19 @@ It has no dates, currency, index, fixing, forward-rate, coupon, or par-rate beha
 `CurveInterpolator` (`LogLinearDF`, `RateCubic`, ...) is a parse table for config and Excel;
 `resolve()` gives the `(space, interpolator)` pair.
 
-`YieldCurve` composes an `origin` date and one `ZeroCurve` with a `MarketConventions`
+`DiscountCurve` is the runtime-checkable protocol `ZeroCurve` satisfies and that everything
+downstream consumes: geometry (`x`, `dfs`, `max_x`, `scheme`), a flat parameter vector
+(`params`, `with_params`), the queries above, and `log_df_affine`, the exact
+`(offset, jacobian)` of `ln DF` in the parameters that the engines differentiate through.
+`CompositeCurve(components, weights)` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves (spreads,
+basis curves, turns, overlays; composites nest). Components may be labelled
+(`{"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)}`) and addressed by label.
+It is exactly affine in its concatenated parameters, so a composite prices and risks through
+the engines unchanged, with the ladder split per component block. Each *registered* curve is its own parameter block today; a
+shared-atom layout that reports an atom once across the composites referencing it is the pending
+piece ([risk_and_engine_design.md](risk_and_engine_design.md) §4.1).
+
+`YieldCurve` composes an `origin` date and one `DiscountCurve` with a `MarketConventions`
 definition and optional `HistoricalFixings`. It is the only layer that sees dates:
 `discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`; `node_dates` and
 `node_index(Term | date)` map pillars back to the calendar. Its canonical name comes from the
