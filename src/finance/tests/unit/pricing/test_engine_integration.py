@@ -18,7 +18,7 @@ from finance.pricing.engines.numpy.rates import compounded
 from finance.pricing.engines.numpy.dcf import dcf
 
 ACT360 = DayCountMethod.Actual360
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _curve(origin: str) -> YieldCurve:
@@ -53,7 +53,9 @@ class TestParSwapPricesToZero(UnitTest):
     def setUp(self):
         self.origin = "2026-06-01"
         ns = CurveNamespace()
-        ns.bind(_curve(self.origin))
+        sofr = _curve(self.origin)
+        ns.bind(sofr)
+        ns.bind(sofr, "USD.STDCSA")
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
         self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)

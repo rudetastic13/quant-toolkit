@@ -20,13 +20,19 @@ from finance.dates import BDC, Date, DayCountMethod, Frequency, Term, add_term
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType, PrincipalExchange
 from finance.instruments.priceable import Priceable
-from finance.instruments.resolution.resolver import STDCSA, resolve_conventions, roll_spot
-from finance.conventions import ConventionRegistry, default_registry
+from finance.instruments.resolution.resolver import STDCSA, _strip_currency, resolve_conventions, roll_spot
+from finance.conventions import ConventionRegistry, RateIndex, default_registry
 
 
 def _use(override, convention):
     """Explicit override wins; ``None`` means "take the convention"."""
     return override if override is not None else convention
+
+
+def _index(currency: str, rate_index: str, registry: ConventionRegistry) -> RateIndex:
+    """``"SOFR"`` → the overnight SOFR index; ``"CME-TERM-SOFR.3M"`` → that tenor of the family."""
+    family, _ = _strip_currency(currency, rate_index)
+    return registry.index(currency, family)
 
 
 @dataclass(kw_only=True)
@@ -35,9 +41,9 @@ class Swap(Priceable):
 
     Pure data plus the ``Priceable`` functor: ``swap(market)`` prices standalone through
     the same compile→reprice machinery the portfolio path uses (compiled once, cached).
-    ``currency``/``index_name`` let the pricer resolve the *projection* curve by name;
-    ``funding_id`` (default ``STDCSA``) resolves the *discount* curve, so the two can
-    differ for a real basis trade.
+    ``currency``/``index_name`` let the pricer resolve the *projection* curve
+    (``USD.SOFR.ON``); ``funding_id`` (default ``STDCSA``) names the *discount* curve
+    (``USD.STDCSA``), so the two can differ for a real basis trade.
 
     Iterating a ``Swap`` yields its legs in pricing order (receive then pay) — the
     same order the pricer compiles them and ``KernelResult.leg_pv`` is laid out in;
@@ -95,12 +101,13 @@ class Swap(Priceable):
         """Build a standard fixed-vs-float swap from minimal trader input.
 
         Sign rides on the notional — positive = receive fixed, negative = pay fixed.
-        Conventions come from the ``(currency, rate_index)`` bundle; any keyword above
-        overrides its convention.  For a leg structure the conventions can't express,
+        ``rate_index`` is a family name (``"SOFR"``, overnight) or a family with its tenor
+        (``"CME-TERM-SOFR.3M"``); conventions come from that family's bundle and any keyword
+        above overrides its convention.  For a leg structure the conventions can't express,
         construct the legs directly and call ``Swap(...)``.
         """
         conv = resolve_conventions(currency, rate_index, registry)
-        idx, swp = conv.index, conv.swap
+        idx, swp = _index(currency, rate_index, registry), conv.swap
         fixed_conv, float_conv = swp.fixed_leg, swp.float_leg
 
         effective = roll_spot(as_of, swp.spot_lag, swp.spot_calendar)
@@ -121,13 +128,13 @@ class Swap(Priceable):
         )
         float_leg = CommonInstrument(
             effective=effective, maturity=maturity, currency=currency, notional=notl,
-            payment_frequency=_use(float_frequency, float_conv.payment_frequency),
+            payment_frequency=_use(float_frequency, conv.float_leg_payment_frequency(idx)),
             day_count_method=_use(float_day_count, conv.float_leg_day_count),
             business_day_convention=float_conv.business_day_convention,
             roll_convention=float_conv.roll_convention,
             pay_calendar=float_conv.pay_calendar,
             payment_delay=_use(payment_delay, float_conv.payment_delay),
-            reset_frequency=float_conv.reset_frequency,
+            reset_frequency=conv.float_leg_reset_frequency(idx),
             fixing_type=idx.fixing_type,
             coupon_type=float_conv.coupon_type,
             rate_index=idx.label,
@@ -222,7 +229,7 @@ class Fra(Priceable):
     """A forward rate agreement over ``[effective, maturity]``.
 
     Pure data: ``coupon_rate`` is the agreed forward rate, ``rate_index`` the projected
-    index label, ``index_name``/``currency``/``funding_id`` resolve the curves.  As a contract
+    index's key (``'USD.SOFR.ON'``), ``index_name``/``currency``/``funding_id`` resolve the curves.  As a contract
     it is a one-period fixed leg against a one-period floating leg settled at maturity; as
     for a swap, positive ``notional`` receives fixed, so ``fra(market).pv`` is zero exactly
     when ``coupon_rate`` is the curve's forward.
@@ -281,10 +288,8 @@ class Fra(Priceable):
         return cls(
             effective=effective, maturity=maturity, coupon_rate=float(rate),
             day_count_method=_use(day_count, conv.fra_day_count),
-            rate_index=conv.index.label,
+            rate_index=_index(currency, rate_index, registry).label,
             currency=currency, index_name=rate_index, funding_id=funding_id,
             notional=float(notional),
         )
 
-
-__all__ = ["Swap", "Deposit", "Fra"]

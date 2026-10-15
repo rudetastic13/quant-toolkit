@@ -161,9 +161,11 @@ t      = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
 zeros  = np.array([0.0, 0.035, 0.040, 0.045, 0.047])
 
 curves = CurveNamespace()
-curves.bind(YieldCurve.build(dates, np.exp(-zeros * t), currency="USD", index_name="SOFR"))
+sofr = YieldCurve.build(dates, np.exp(-zeros * t), currency="USD", index_name="SOFR")
+curves.bind(sofr)                                                     # USD.SOFR.ON, the projection key
+curves.bind(sofr, "USD.STDCSA")                                       # the same curve as the discount curve
 vols = VolNamespace()
-vols.bind("USD.SOFR",    FlatVolSurface(0.0095, VolUnits.Normal))     # 95bp normal — Bachelier
+vols.bind("USD.SOFR.ON", FlatVolSurface(0.0095, VolUnits.Normal))     # 95bp normal — Bachelier
 vols.bind("USD.SOFR.LN", FlatVolSurface(0.24,   VolUnits.Lognormal))  # 24%  lognormal — Black
 market = MarketContext(as_of, curves, vols=vols)
 ```
@@ -199,7 +201,7 @@ from finance.instruments.resolution import Swaption, SwaptionModel
 from finance.pricing.pricers import SwaptionPricer
 
 payer_n = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor="5Y", as_of=as_of,
-                            payer=True,  model=SwaptionModel.Bachelier)                       # -> USD.SOFR (Normal)
+                            payer=True,  model=SwaptionModel.Bachelier)                       # -> USD.SOFR.ON (Normal)
 recv_ln = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor="5Y", as_of=as_of,
                             payer=False, model=SwaptionModel.Black, vol_name="USD.SOFR.LN")   # -> Lognormal
 
@@ -217,7 +219,7 @@ r.greeks.gamma   # [ 7.117e9,  5.789e9 ]
 
 # Wrong pairing fails loudly — Black model reading the Normal surface:
 Swaption.european(..., model=SwaptionModel.Black)   # ValueError: requires a Lognormal vol
-                                                    # surface; 'USD.SOFR' is quoted Normal
+                                                    # surface; 'USD.SOFR.ON' is quoted Normal
 ```
 
 ### 7.3 The `RiskEngine` — §4's dispatch as one front door
@@ -232,25 +234,25 @@ from finance.pricing.risk import RiskEngine
 risk = RiskEngine(program, market)
 risk.method                 # 'adjoint'  (numba installed)
 
-risk.dv01("USD.SOFR")       # [-45,589.44, 19,811.93]   per instrument, +1bp parallel
-lad = risk.ladder("USD.SOFR")
+risk.dv01("USD.SOFR.ON")       # [-45,589.44, 19,811.93]   per instrument, +1bp parallel
+lad = risk.ladder("USD.SOFR.ON")
 lad.pillar_years            # [1.0, 3.0, 7.0, 12.0]
 lad.ladder                  # [[  -536.58, -14,990.47, -30,062.39,       0.00],
                             #  [   130.54,     783.84,   6,582.76,  12,314.79]]
 lad.dv01                    # == risk.dv01 (key-rate additivity)
 
-RiskEngine(program, market, method="bump").dv01("USD.SOFR")
+RiskEngine(program, market, method="bump").dv01("USD.SOFR.ON")
                             # [-45,589.44, 19,811.93]   central-difference cross-check
 
-risk.gamma("USD.SOFR")      # (4, 4) book pillar Hessian, 0.5*H*bp^2 — FD of the exact
+risk.gamma("USD.SOFR.ON")      # (4, 4) book pillar Hessian, 0.5*H*bp^2 — FD of the exact
                             # gradient; asking a 'bump' engine for gamma raises (§2)
 
 # Swaptions ride the same front door — the adjoint chains option delta through the
 # underlying forward/annuity gradients (sticky-strike):
 srisk = RiskEngine(sw_prog, market)
-srisk.ladder("USD.SOFR").ladder   # [[-3,564.82,  3,174.07, 16,360.27, 0.00],
+srisk.ladder("USD.SOFR.ON").ladder   # [[-3,564.82,  3,174.07, 16,360.27, 0.00],
                                   #  [ 1,063.76, -1,113.69, -5,096.70, 0.00]]
-srisk.dv01("USD.SOFR")            # [15,969.52, -5,146.63]; bump agrees to ~1e-5 relative
+srisk.dv01("USD.SOFR.ON")            # [15,969.52, -5,146.63]; bump agrees to ~1e-5 relative
 
 # A RateLinear / LogCubicDF / RateCubic curve takes the same adjoint path (the curve hands the
 # kernel its exact affine map); futures are rejected with a pointer to FuturesProgram.risk

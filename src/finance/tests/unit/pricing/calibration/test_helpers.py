@@ -15,7 +15,7 @@ from finance.markets.curves import CurveNamespace, YieldCurve
 from finance.pricing.calibration.instruments import deposit_helper, fra_helper, swap_helper
 from finance.pricing.pricers.swap import SwapPricer
 
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _curve(origin: str) -> YieldCurve:
@@ -38,6 +38,7 @@ class TestHelpers(UnitTest):
         self.curve = _curve("2026-06-01")
         ns = CurveNamespace()
         ns.bind(self.curve)
+        ns.bind(self.curve, "USD.STDCSA")
         self.mkt = MarketContext(as_of_date=self.as_of, curves=ns)
 
     def _df_ratio_rate(self, eff, mat, dcm) -> float:

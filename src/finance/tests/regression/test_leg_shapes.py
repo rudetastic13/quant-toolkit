@@ -43,8 +43,8 @@ AS_OF = Date(2026, 6, 1)
 EFFECTIVE = Date(2026, 6, 3)
 MATURITY = Date(2029, 6, 3)
 JOIN = Date(2028, 6, 3)
-INDEX = "USD SOFR"
-CURVE = "USD.SOFR"
+INDEX = "USD.SOFR.ON"
+CURVE = "USD.SOFR.ON"
 NOTIONAL = 10_000_000.0
 FIXING_1Y = 0.0435  # the 2025-06-03 print example 3 reads in advance
 
@@ -62,7 +62,9 @@ def market() -> MarketContext:
     z = np.array([0.0, 0.041, 0.040, 0.039, 0.040, 0.042])
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([FIXING_1Y]))
     ns = CurveNamespace()
-    ns.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings))
+    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
+    ns.bind(sofr)
+    ns.bind(sofr, "USD.STDCSA")
     return MarketContext(as_of_date=AS_OF, curves=ns)
 
 

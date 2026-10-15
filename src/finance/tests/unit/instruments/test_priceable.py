@@ -16,7 +16,9 @@ def _market(as_of: Date, level: float = 0.04) -> MarketContext:
     dfs = np.exp(-level * t)
     dfs[0] = 1.0
     ns = CurveNamespace()
-    ns.bind(YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR"))
+    sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
+    ns.bind(sofr)
+    ns.bind(sofr, "USD.STDCSA")
     return MarketContext(as_of_date=as_of, curves=ns)
 
 

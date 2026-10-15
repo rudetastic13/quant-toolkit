@@ -351,7 +351,9 @@ class TestCompositeThroughNumbaEngine(UnitTest):
 
         def market(curve):
             ns = CurveNamespace()
-            ns.bind(YieldCurve.from_registry(origin, curve, currency="USD", index_name="SOFR"))
+            sofr = YieldCurve.from_registry(origin, curve, currency="USD", index_name="SOFR")
+            ns.bind(sofr)
+            ns.bind(sofr, "USD.STDCSA")
             return MarketContext(self.as_of, ns)
 
         self.market_spread = market(self.spread_curve)
@@ -367,7 +369,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         from finance.pricing.types import Backend
 
         result = self.program.prepare(market, backend=Backend.Numba).value_and_grad(market)
-        return result, result.instrument_gradient("USD.SOFR", role="total")
+        return result, result.instrument_gradient("USD.SOFR.ON", role="total")
 
     def test_pv_matches_the_equivalent_atom(self):
         from finance.pricing.types import Backend
@@ -382,7 +384,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         result, g_spread = self._grad(self.market_spread)
         _, g_atom = self._grad(self.market_atom)
         self.assertEqual(g_spread.shape, (2, self.base.n_params + 1))
-        self.assertEqual(result.curve_slice("USD.SOFR"), slice(0, self.base.n_params + 1))
+        self.assertEqual(result.curve_slice("USD.SOFR.ON"), slice(0, self.base.n_params + 1))
         # Base block equals the atom's pillar risk; the spread parameter carries the parallel risk.
         np.testing.assert_allclose(g_spread[:, self.spread_curve.component_slice("base")], g_atom, rtol=1e-11)
         np.testing.assert_allclose(

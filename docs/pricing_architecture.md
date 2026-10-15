@@ -297,12 +297,13 @@ that object into a `MarketContext`; the input market is never mutated.
   *local* interpolators (`LogLinearDF` / `RateLinear`); the calibrator rejects a global
   interpolator up front. Parameterisation is continuously-compounded zero rates at the
   pillars (`DF = exp(-x·t)`), with the origin node pinned at `DF = 1`.
-- **Proj/disc split via `funding_id`.** A trade carries a **rate index** (projection curve)
-  and a **funding id** (discount curve, default `STDCSA`). `STDCSA` aliases per-currency to
-  the OIS curve (USD→SOFR, EUR→ESTR); the pricer resolves both at compile time. For a SOFR
-  OIS the two coincide, so single-curve calibration is unchanged — but discount and forecast
-  are now expressed separately, so a basis curve (e.g. Fed Funds projected, SOFR discounted)
-  is just different labels rather than a structural change.
+- **Proj/disc split via `funding_id`.** A trade carries a **rate index** (projection curve,
+  key `USD.SOFR.ON`) and a **funding id** (discount curve, key `USD.STDCSA` by default); the
+  pricer resolves both keys at compile time and the market must register both. There is no
+  alias from a funding id to an index: discounting at SOFR is the SOFR curve bound under
+  `USD.STDCSA` as well, one object under two keys, and the engines give it one parameter
+  block. A basis curve (Fed Funds projected, SOFR discounted) is then just different keys
+  rather than a structural change.
 - **Bond / treasury-yield seam.** Quoting on yield (or price) is a new `QuoteKind` plus a
   helper whose `implied` returns that measure — no calibrator change, because the measure is
   the instrument's responsibility.
@@ -366,8 +367,8 @@ from finance.instruments.schedules import CouponSchedule, FixedCouponEvent, Comp
 
 step_up = recv.replace(coupon_schedule=CouponSchedule(events=[
     FixedCouponEvent(start_date=recv.effective, coupon_rate=0.03),
-    CompoundedCouponEvent(start_date=Date(2029, 6, 3), rate_index="USD SOFR", spread=0.001),
-]), rate_index="USD SOFR", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
+    CompoundedCouponEvent(start_date=Date(2029, 6, 3), rate_index="USD.SOFR.ON", spread=0.001),
+]), rate_index="USD.SOFR.ON", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
 Swap(receive_leg=step_up, pay_leg=pay, currency="USD", index_name="SOFR")   # fixed 3% then SOFR+10bp
 
 step_up.coupon_type                # CouponType.Custom — the flat type says a schedule was supplied
@@ -424,14 +425,9 @@ deliberately explicit.
 ```python
 from finance.markets import RateGenerator
 
-sofr_curve = YieldCurve.from_registry(
-    result.origin,
-    result.zero_curve,
-    currency="USD",
-    index_name="SOFR",
-)
-market = base.with_curve(sofr_curve)
-CN = "USD.SOFR"
+sofr_curve = YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
+market = base.with_curve(sofr_curve).with_curve(sofr_curve, name="USD.STDCSA")   # one curve, two keys
+CN = "USD.SOFR.ON"
 
 # zero rates (continuously-compounded) at each pillar
 sofr_curve.zero_rate(result.pillar_dates) * 100
@@ -455,8 +451,8 @@ rates.simple_rate(CN, t_6m, t_5y)     # 6M→5Y simple, SOFR's Act/360 conventio
 ### 9.4 Tying to a pricer
 
 The market plugs straight into the compile-once / reprice-many pricer. The pricer resolves
-the swap's projection curve from `rate_index` and its discount curve from `funding_id` —
-both `USD.SOFR` here.
+the swap's projection curve from `rate_index` (`USD.SOFR.ON`) and its discount curve from
+`funding_id` (`USD.STDCSA`) — the same SOFR object under both keys here.
 
 ```python
 from finance.pricing.pricers import SwapPricer

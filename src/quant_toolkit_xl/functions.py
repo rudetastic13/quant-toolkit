@@ -68,10 +68,10 @@ def qCompileProgram(swaps):  # noqa: N802
 
 
 @xw.func
-def qMarket(as_of, currency, rate_index, curve):  # noqa: N802
-    """Bind a curve handle into a market under (currency, index). Returns a market handle."""
+def qMarket(as_of, currency, rate_index, curve, funding_id="STDCSA"):  # noqa: N802
+    """Bind a curve handle into a market under its projection key and the funding key. Returns a market handle."""
     try:
-        return api.make_market(as_of, currency, rate_index, curve)
+        return api.make_market(as_of, currency, rate_index, curve, funding_id)
     except Exception as e:  # noqa: BLE001
         return _ERR.format(e)
 

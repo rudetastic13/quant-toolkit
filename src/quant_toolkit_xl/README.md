@@ -107,7 +107,7 @@ D1:  =qBuildCurve(A2:A6, B2:B6)              ' -> Curve handle  (default LogLine
 D2:  =qSwap(100000000, "SOFR", 0.041, "5Y", A2)   ' -> Swap handle (sign on notional:
                                                   '    + = receive fixed, − = pay fixed)
 D3:  =qCompileProgram(D2)                    ' -> Program handle (D2 may be a range of swaps)
-D4:  =qMarket(A2, "USD", "SOFR", D1)         ' -> Market handle (binds the curve under USD.SOFR)
+D4:  =qMarket(A2, "USD", "SOFR", D1)         ' -> Market handle (curve under USD.SOFR.ON and USD.STDCSA)
 D5:  =qPrice(D3, D4)                         ' -> per-instrument PV(s); spills down
 
 ' curve queries (dates may be ranges; results spill)

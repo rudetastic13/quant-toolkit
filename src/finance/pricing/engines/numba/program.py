@@ -274,14 +274,15 @@ class NumbaAdjointResult:
     instrument_index_gradient: np.ndarray
     instrument_funding_gradient: np.ndarray
     curve_names: tuple[str, ...]
-    curve_param_offsets: np.ndarray
+    curve_param_slices: tuple[slice, ...]
 
     def curve_slice(self, curve_name: str) -> slice:
+        """Columns of ``curve_name``'s parameter block; keys sharing one curve object share the block."""
         try:
             ci = self.curve_names.index(curve_name)
         except ValueError:
             raise KeyError(f"program has no curve named '{curve_name}'") from None
-        return slice(int(self.curve_param_offsets[ci]), int(self.curve_param_offsets[ci + 1]))
+        return self.curve_param_slices[ci]
 
     def cashflow_gradient(self, curve_name: str, *, role: str = "total") -> np.ndarray:
         sl = self.curve_slice(curve_name)
@@ -338,6 +339,20 @@ class NumbaProgram:
         self.origin = origins[0]
         self._origin_ord = self.origin.astype(np.int64)
 
+        # -- parameter blocks: one per distinct discount-curve object -----------------------
+        # Two keys bound to one curve (``USD.SOFR.ON`` and ``USD.STDCSA`` for SOFR discounting)
+        # share a block: a move of the curve is one move of its parameters and both roles'
+        # adjoints land in the same columns.  The block is named after the owning key.
+        self.curve_owners = tuple(market.curve_owner(name) for name in self.curve_names)
+        self.block_names = tuple(dict.fromkeys(self.curve_owners))
+        block_sizes = [market.zero_curve(name).n_params for name in self.block_names]
+        block_start = np.concatenate([[0], np.cumsum(block_sizes)]).astype(np.int64)
+        block_slices = {
+            name: slice(int(block_start[b]), int(block_start[b + 1])) for b, name in enumerate(self.block_names)
+        }
+        self.curve_param_slices = tuple(block_slices[owner] for owner in self.curve_owners)
+        self.n_params = int(block_start[-1])
+
         def offs(dates):
             return _f64(dates.astype(np.int64) - self._origin_ord)
 
@@ -392,7 +407,6 @@ class NumbaProgram:
         self.obs_s_q = np.full(obs_start_off.size, -1, dtype=np.int64)
         self.obs_e_q = np.full(obs_end_off.size, -1, dtype=np.int64)
         consts, ptrs, params, coefs = [], [], [], []
-        param_off = [0]
         q_off = 0
         self._node_dates: list[np.ndarray] = []
         self._schemes: list[tuple] = []
@@ -430,9 +444,8 @@ class NumbaProgram:
             nonzero = jac != 0.0
             consts.append(const)
             ptrs.append(np.count_nonzero(nonzero, axis=1))
-            params.append(np.nonzero(nonzero)[1] + param_off[-1])
+            params.append(np.nonzero(nonzero)[1] + self.curve_param_slices[ci].start)
             coefs.append(jac[nonzero])
-            param_off.append(param_off[-1] + zero_curve.n_params)
             q_off += unique.size
 
         counts = np.concatenate(ptrs) if ptrs else np.zeros(0, dtype=np.int64)
@@ -442,7 +455,6 @@ class NumbaProgram:
             param=_i64(np.concatenate(params)),
             coef=_f64(np.concatenate(coefs)),
         )
-        self.curve_param_offsets = _i64(param_off)
 
         self._zero_reset_fixing = np.zeros(f_count, dtype=np.float64)
         self._false_reset_fixing = np.zeros(f_count, dtype=np.bool_)
@@ -470,21 +482,29 @@ class NumbaProgram:
         """Whether ``market`` has the origin, pillar geometry and schemes this program was prepared on."""
         if np.datetime64(market.as_of_date.to_str(), "D") != self.origin:
             return False
-        for name, expected_dates, scheme in zip(self.curve_names, self._node_dates, self._schemes):
-            yield_curve = market.yield_curve(name)
-            if yield_curve.zero_curve.scheme != scheme:
+        for name, owner, expected_dates, scheme in zip(
+            self.curve_names, self.curve_owners, self._node_dates, self._schemes
+        ):
+            try:
+                yield_curve = market.yield_curve(name)
+                shared = market.zero_curve(owner) is yield_curve.zero_curve
+            except KeyError:
+                return False
+            if not shared or yield_curve.zero_curve.scheme != scheme:
                 return False
             if not np.array_equal(yield_curve.node_dates, expected_dates):
                 return False
         return True
 
     def params_from_market(self, market) -> np.ndarray:
-        """Flatten every curve's ``DiscountCurve.params`` after validating the prepared curve geometry."""
+        """Concatenate every parameter block's ``DiscountCurve.params`` after validating the prepared geometry.
+
+        Blocks are laid out per distinct curve object (see ``block_names``), not per key."""
         if not self.compatible(market):
             raise ValueError(
                 "market origin, pillar geometry or interpolation differs from the prepared NumbaProgram"
             )
-        return _f64(np.concatenate([market.zero_curve(name).params for name in self.curve_names]))
+        return _f64(np.concatenate([market.zero_curve(name).params for name in self.block_names]))
 
     def _fixings_from_market(self, market):
         ki = self.inputs
@@ -607,7 +627,7 @@ class NumbaProgram:
             instrument_index_gradient=raw[6],
             instrument_funding_gradient=raw[7],
             curve_names=self.curve_names,
-            curve_param_offsets=self.curve_param_offsets,
+            curve_param_slices=self.curve_param_slices,
         )
 
     def value_and_grad_params(self, z: np.ndarray, market=None) -> NumbaAdjointResult:
@@ -631,8 +651,6 @@ class NumbaProgram:
             instrument_index_gradient=raw[6],
             instrument_funding_gradient=raw[7],
             curve_names=self.curve_names,
-            curve_param_offsets=self.curve_param_offsets,
+            curve_param_slices=self.curve_param_slices,
         )
 
-
-__all__ = ["NumbaProgram", "NumbaAdjointResult"]

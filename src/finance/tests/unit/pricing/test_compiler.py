@@ -24,7 +24,7 @@ from finance.pricing.types import RateKind
 
 ACT360 = DayCountMethod.Actual360
 CAL = "no_holidays"
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _market(origin="2026-06-01"):
@@ -33,6 +33,7 @@ def _market(origin="2026-06-01"):
     ns = CurveNamespace()
     yield_curve = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
     ns.bind(yield_curve)
+    ns.bind(yield_curve, "USD.STDCSA")
     return MarketContext(as_of_date=Date(2026, 6, 1), curves=ns), yield_curve
 
 

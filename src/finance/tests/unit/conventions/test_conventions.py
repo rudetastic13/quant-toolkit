@@ -7,19 +7,22 @@ from finance.dates.term.term_type import TermType
 from finance.dates.enums import BDC, DayCountMethod, Frequency, Roll
 from finance.instruments.enums import CouponType
 from finance.conventions import (
+    MATCH_TENOR,
     ConventionRegistry,
+    CurveKey,
     DepositConventions,
     FixedLegConventions,
     FloatLegConventions,
     FraConventions,
+    IndexFamily,
     MarketConventions,
-    RateIndex,
     SwapConventions,
+    frequency_for_tenor,
 )
 
 
 def _make_market(**index_overrides) -> MarketConventions:
-    index = RateIndex(
+    family = IndexFamily(
         currency="USD",
         name="TEST",
         day_count_method=DayCountMethod.Actual360,
@@ -28,7 +31,7 @@ def _make_market(**index_overrides) -> MarketConventions:
     )
     spot_lag = Term(2, TermType.BusinessDays)
     return MarketConventions(
-        index=index,
+        family=family,
         swap=SwapConventions(
             fixed_leg=FixedLegConventions(
                 payment_frequency=Frequency.SemiAnnually,
@@ -89,7 +92,7 @@ class TestMarketConventions(UnitTest):
     def test_frozen(self):
         m = _make_market()
         with self.assertRaises(FrozenInstanceError):
-            m.index = None
+            m.family = None
         with self.assertRaises(FrozenInstanceError):
             m.swap.fixed_leg.payment_frequency = Frequency.Annually
 
@@ -98,6 +101,24 @@ class TestMarketConventions(UnitTest):
         fixed = replace(m.swap.fixed_leg, payment_frequency=Frequency.Annually)
         self.assertEqual(fixed.payment_frequency, Frequency.Annually)
         self.assertEqual(m.swap.fixed_leg.payment_frequency, Frequency.SemiAnnually)
+
+    def test_match_tenor_resolves_per_index(self):
+        m = _make_market(tenors=("1M", "3M", "6M"))
+        float_leg = replace(m.swap.float_leg, payment_frequency=MATCH_TENOR, reset_frequency=MATCH_TENOR)
+        m2 = replace(m, swap=replace(m.swap, float_leg=float_leg))
+        three = m2.index("3M")
+        self.assertEqual(m2.float_leg_payment_frequency(three), Frequency.Quarterly)
+        self.assertEqual(m2.float_leg_reset_frequency(three), Frequency.Quarterly)
+        self.assertEqual(m2.float_leg_payment_frequency(m2.index("6M")), Frequency.SemiAnnually)
+        # a fixed frequency is left alone
+        self.assertEqual(m.float_leg_payment_frequency(m.index("3M")), Frequency.Quarterly)
+        self.assertEqual(m.float_leg_reset_frequency(m.index("1M")), Frequency.Daily)
+
+    def test_frequency_for_tenor(self):
+        self.assertEqual(frequency_for_tenor(Term.from_str("12M")), Frequency.Annually)
+        self.assertEqual(frequency_for_tenor(Term.from_str("1Y")), Frequency.Annually)
+        with self.assertRaises(ValueError):
+            frequency_for_tenor(Term.from_str("5M"))
 
 
 class TestConventionRegistry(UnitTest):
@@ -149,7 +170,38 @@ class TestConventionRegistry(UnitTest):
     def test_bundled_usd_sofr_definition(self):
         from finance.conventions import default_registry
         m = default_registry.get("USD", "SOFR")
-        self.assertEqual(m.index.label, "USD SOFR")
-        self.assertTrue(m.index.is_overnight)
+        self.assertEqual(m.index().label, "USD.SOFR.ON")
+        self.assertTrue(m.family.is_overnight)
         self.assertEqual(m.float_leg_day_count, DayCountMethod.Actual360)
         self.assertEqual(m.swap.float_leg.coupon_type, CouponType.GeometricAveraged)
+
+    def test_index_lookup_by_name_and_tenor(self):
+        from finance.conventions import default_registry as reg
+        self.assertEqual(reg.index("USD", "SOFR").label, "USD.SOFR.ON")
+        self.assertEqual(reg.index("usd", "sofr.on").label, "USD.SOFR.ON")
+        self.assertEqual(reg.key("USD", "CME-TERM-SOFR.3M"), CurveKey.parse("USD.CME-TERM-SOFR.3M"))
+        self.assertEqual(reg.key("USD", "CME-TERM-SOFR", "6M"), CurveKey.parse("USD.CME-TERM-SOFR.6M"))
+        self.assertEqual(reg.get("USD", "CME-TERM-SOFR.3M").family.name, "CME-TERM-SOFR")
+        with self.assertRaises(KeyError):
+            reg.index("USD", "CME-TERM-SOFR")  # tenor required for a term family
+        with self.assertRaises(KeyError):
+            reg.index("USD", "SOFR.3M")  # overnight family publishes ON only
+        with self.assertRaises(ValueError):
+            reg.index("USD", "CME-TERM-SOFR.3M", "6M")  # tenor twice
+
+    def test_validate_key(self):
+        from finance.conventions import default_registry as reg
+        self.assertEqual(reg.validate("USD.STDCSA"), CurveKey.parse("USD.STDCSA"))  # no conventions needed
+        self.assertEqual(reg.validate("USD.SOFR.ON"), CurveKey.parse("USD.SOFR.ON"))
+        with self.assertRaises(KeyError):
+            reg.validate("USD.SOFR.3M")
+        with self.assertRaises(KeyError):
+            reg.validate("USD.NOTANINDEX.ON")
+
+    def test_bundled_cme_term_sofr(self):
+        from finance.conventions import default_registry
+        m = default_registry.get("USD", "CME-TERM-SOFR")
+        self.assertEqual(m.family.tenor_labels, ("1M", "3M", "6M", "12M"))
+        self.assertIs(m.swap.float_leg.payment_frequency, MATCH_TENOR)
+        self.assertEqual(m.swap.float_leg.coupon_type, CouponType.Floating)
+        self.assertEqual(m.float_leg_payment_frequency(m.index("3M")), Frequency.Quarterly)

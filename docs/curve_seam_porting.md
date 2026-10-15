@@ -140,9 +140,9 @@ the port remain:
 
 The right split is **two tiers**:
 
-- **Market/index tier** (ports with the curves): `RateIndex` — index label, projection
-  day count, fixing calendar, fixing style — plus curve naming
-  (`curve_name(currency, index)` → `"USD.SOFR"`, `funding_curve_name`). This is what the
+- **Market/index tier** (ports with the curves): `IndexFamily` / `RateIndex` — projection
+  day count, fixing calendar, fixing style, published tenors — plus curve keys
+  (`curve_name(currency, index)` → `"USD.SOFR.ON"`, `funding_curve_name` → `"USD.STDCSA"`). This is what the
   curve/market/calibration layer needs: which curve a name resolves to, and how the
   index it projects accrues. Depends only on `dates`.
 - **Product tier** (stays with whichever instrument layer is in play): leg shapes,

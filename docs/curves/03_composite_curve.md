@@ -175,7 +175,7 @@ jac_s[:, funding.component_slice("spread")]
 
 So a book priced on `funding` reports a ladder over SOFR pillars (index or funding risk, depending
 on the role) and a separate ladder over the spread pillars (basis risk). A spread composite
-registered as its own index (`USD.FEDFUND` over the SOFR atom) does this through the engine with
+registered as its own index (`USD.FEDFUND.ON` over the SOFR atom) does this through the engine with
 no extra code; [05](05_risk_jacobian_hessian.md) shows the output.
 
 ## A basis curve
@@ -293,7 +293,7 @@ Two different things look like "index A plus a margin":
 - **A contractual redefinition.** An index that is *defined* as another index plus a fixed
   number (a fallback-rate index, or a legacy index quoted as a benchmark plus a fixed spread
   adjustment). The spread has no risk because it cannot change. That belongs on the leg or the
-  `RateIndex` convention, in the rate generator, not in a curve, or a parameter would be reported
+  index family's conventions, in the rate generator, not in a curve, or a parameter would be reported
   with zero risk forever.
 
 The library does not decide for you; both are expressible. Prefer the convention when the

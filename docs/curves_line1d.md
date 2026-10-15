@@ -281,15 +281,17 @@ node_dates = np.array(
 )
 yc = YieldCurve.build(node_dates, dfs, currency="USD", index_name="SOFR")
 yc
-# YieldCurve(name='USD.SOFR', origin=2026-06-01, zero_curve=ZeroCurve(nodes=9, max_x=3653, ...))
+# YieldCurve(name='USD.SOFR.ON', origin=2026-06-01, zero_curve=ZeroCurve(nodes=9, max_x=3653, ...))
 
 YieldCurve.build(node_dates, dfs, currency="USD", index_name="SOFR",
                  space=CurveSpace.ZeroRate, interpolator=Cubic(),
                  extrapolation=RateExtrapolator.NotAllowed)
 ```
 
-The first node date is the origin. The rest become the `ZeroCurve` pillars. Conventions
-come from the `ConventionRegistry` (default registry unless `registry=` is passed).
+The first node date is the origin. The rest become the `ZeroCurve` pillars. The key is
+`USD.SOFR.ON` (`index_name="SOFR"` names the overnight family); a projection key's conventions
+come from the `ConventionRegistry` (default registry unless `registry=` is passed), and a
+discount curve is built with `key="USD.STDCSA"` instead.
 
 From an existing `ZeroCurve`, which is what the calibrator hands back:
 
@@ -358,7 +360,7 @@ or after it projects from the curve.
 ```python
 rates = RateGenerator(market)              # market holds `seasoned`, see below
 starts = np.array(["2026-05-28", "2026-05-30", "2026-06-01"], dtype="datetime64[D]")
-rates.simple_rate("USD.SOFR", starts, starts + np.timedelta64(1, "D"))
+rates.simple_rate("USD.SOFR.ON", starts, starts + np.timedelta64(1, "D"))
 # -> [0.0428, 0.0431, 0.04192]             (27th's print, 29th's print, projected)
 ```
 
@@ -370,17 +372,18 @@ from finance.markets.context import MarketContext
 from finance.markets.curves import CurveNamespace
 
 ns = CurveNamespace()
-ns.bind(yc)                                # keyed by yc.name == "USD.SOFR"
+ns.bind(yc)                                # keyed by yc.name == "USD.SOFR.ON"
+ns.bind(yc, "USD.STDCSA")                  # the same curve is the discount curve
 market = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
 
-market.yield_curve("USD.SOFR")             # the YieldCurve
-market.zero_curve("USD.SOFR")              # its ZeroCurve
+market.yield_curve("USD.SOFR.ON")             # the YieldCurve
+market.zero_curve("USD.SOFR.ON")              # its ZeroCurve
 market.with_curve(yc.with_zero_curve(bumped))   # new market, original untouched
 
 rates = RateGenerator(market)
 starts = np.array(["2027-06-01"], dtype="datetime64[D]")
-rates.simple_rate("USD.SOFR", starts, starts + np.timedelta64(91, "D"))   # index day count (Act/360 for SOFR)
-rates.continuous_forward_rate("USD.SOFR", starts, starts + np.timedelta64(91, "D"))
+rates.simple_rate("USD.SOFR.ON", starts, starts + np.timedelta64(91, "D"))   # index day count (Act/360 for SOFR)
+rates.continuous_forward_rate("USD.SOFR.ON", starts, starts + np.timedelta64(91, "D"))
 ```
 
 `simple_rate` is the pseudo cash rate: `(DF(start) / DF(end) - 1) / tau` with `tau` on the

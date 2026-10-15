@@ -75,10 +75,11 @@ Product coverage and the facts the design relies on. File references are `path:l
 
 ### 1.2 Facts the design depends on
 
-- **Curve identity.** Curves are keyed `"CCY.INDEX"` (`YieldCurve.name`, `yield_curve.py:123`;
-  `curve_name()` in `resolution/resolver.py:15`). `funding_curve_name(ccy, funding_id)` maps
-  `STDCSA` → `SOFR`; any other `funding_id` passes through as an index name, so
-  `funding_id="UST"` already resolves to `"USD.UST"`.
+- **Curve identity.** Curves are keyed by `CurveKey` (`finance/conventions/keys.py`):
+  projection `"CCY.INDEX.TENOR"` (`USD.SOFR.ON`) and discount `"CCY.NAME"` (`USD.STDCSA`,
+  `USD.UST`). `funding_curve_name(ccy, funding_id)` is literally the discount key; there is no
+  alias from `STDCSA` to an index, the market binds the SOFR curve under `USD.STDCSA` itself
+  (curves_and_market_plan.md PR C, done).
 - **Parameters.** The engines differentiate with respect to `ZeroCurve.node_zero_rates`:
   continuously-compounded Act/365 zero rates at the non-origin pillars, `z_j = −ln DF_j / (x_j/365)`.
   `NumbaProgram.params_from_market` concatenates curves in `KernelInputs.curve_names` order
@@ -112,9 +113,10 @@ Product coverage and the facts the design relies on. File references are `path:l
   (`KeyError`). `Thirty360` computes 30E/360 (unconditional `min(D, 30)` on both ends,
   `day_counts/calculator.py:46-68`), not US 30/360. Only the `no_holidays` calendar exists.
   `CommonInstrument.day_count_method` defaults to `Unused`, which accrues **zero**.
-- **Conventions.** Live package is `finance/conventions/` (`RateIndex`, `MarketConventions` with
-  required `swap`/`deposit`/`fra` sections, registry keyed `(ccy, index)`; `USD.SOFR` and
-  `USD.FEDFUND` registered). `markets/conventions/` and `pricing/conventions/` are stale
+- **Conventions.** Live package is `finance/conventions/` (`IndexFamily` with its published
+  tenors, `RateIndex` = family + tenor, `MarketConventions` with required `swap`/`deposit`/`fra`
+  sections, registry keyed per family `(ccy, name)`; `SOFR`, `FEDFUND` and `CME-TERM-SOFR`
+  registered). `markets/conventions/` and `pricing/conventions/` are stale
   `__pycache__` only.
 - **Prior design notes.** `risk_map_and_dual_ad.md` §1 defines partials as `s = g · J_B⁺` with
   the unhedged residual `‖g − s·J_B‖`; `research/risk_reconciliation.py::reconcile` is its
@@ -972,7 +974,7 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `NumbaRisk.partial_dv01`, `AutodiffRisk.partial_dv01` | `risk/adjoint.py:87`, `risk/autodiff.py:156` | replaced by the identity `RiskTemplate` (§2) | delete in PR R3 |
 | `engines/rust/` | docstring-only stub; no Cargo/PyO3 anywhere | `Backend.Rust` tested only as "absent" | delete the package and the enum member; the op registry readmits a backend when one exists |
 | `markets/paths/` (`SinglePath`, `FlatPath`, `InvertedPath`) | no consumers outside its test; `InvertedPath.__post_init__` mutates the caller's array | listed "NOT ported" in `curve_seam_porting.md` | delete with its test and the `markets/__init__` re-exports |
-| `FundingIndex`, `ccy_indices/amrs/usd.py::DEFINED` | `conventions/rate_index.py:44`, `ccy_indices` | test-only | delete; `funding_curve_name` aliases are the funding model (`resolver.py:26`) |
+| `ccy_indices/amrs/usd.py::DEFINED` | `ccy_indices` | test-only | delete (`FundingIndex` deleted in PR C; the discount key `CCY.NAME` is the funding model) |
 | `DayCountMethod.{ThirtyE365, Bus252}` | enum members without implementation | 0 uses | delete; `ThirtyE360`, `ThirtyE360ISDA` get implementations with the 30/360 fix (§3.1) |
 | `DayCountMethod.is_supported`, `SupportedIntEnum.is_supported` call sites | always true, never called | — | delete |
 | `research/pricing_libs/numba_kernel.py`, `numba_perf.py` lines calling `NumbaProgram.from_program` | removed in `cfd013d` | fail at runtime | fix or delete the scripts |

@@ -62,6 +62,7 @@ class AutodiffRisk:
     # -- first order: instrument ladders ------------------------------------------------
     def index_ladder(self, curve_name: str) -> FloatArray:
         """(n_inst, P) projection-curve (index) key-rate ladder, per +1bp."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -74,6 +75,7 @@ class AutodiffRisk:
 
     def funding_ladder(self, curve_name: str) -> FloatArray:
         """(n_inst, P) discount-curve (funding) key-rate ladder, per +1bp."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -91,6 +93,7 @@ class AutodiffRisk:
     # -- first order: per-cashflow decomposition ----------------------------------------
     def cashflow_index_delta(self, curve_name: str) -> FloatArray:
         """(n_flows, P) each cashflow's sensitivity to the projection curve, per +1bp."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -103,6 +106,7 @@ class AutodiffRisk:
 
     def cashflow_funding_delta(self, curve_name: str) -> FloatArray:
         """(n_flows, P) each cashflow's sensitivity to the funding curve, per +1bp."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -116,6 +120,7 @@ class AutodiffRisk:
     # -- second order -------------------------------------------------------------------
     def _total_z_pv(self, curve_name: str):
         """JIT'd scalar ``PV(z)`` where ``z`` drives both projection and discount of a curve."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -131,6 +136,7 @@ class AutodiffRisk:
         The curve drives projection and discount together (a real curve move shifts both),
         so this is the total convexity; ``0.5·Hₚ_q·(1bp)²`` is the per-pillar-pair P&L.
         """
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -144,6 +150,7 @@ class AutodiffRisk:
     # -- market-quote partial DV01 (the calibration-Jacobian transform) -----------------
     def _unit_zero_jacobian(self, curve_name: str) -> FloatArray:
         """(n_inst, P) ∂V/∂z (per unit rate) for a total move of ``curve_name``."""
+        curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
 
         def build():
@@ -164,5 +171,3 @@ class AutodiffRisk:
         g = self._unit_zero_jacobian(curve_name)          # (n_inst, P), per unit rate
         return (g @ np.linalg.inv(np.asarray(jacobian))) * self.bp
 
-
-__all__ = ["AutodiffRisk", "BP"]

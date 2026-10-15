@@ -58,6 +58,7 @@ def _swap_fn(helper: SwapHelper, market, curve_name: str):
     """
     jp = JaxProgram(helper._program.inputs, market)
     disc0, proj0 = jp.params_from_market(market)
+    curve_name = jp.block(curve_name)  # the target's parameter block (shared with its discount alias)
     fixed_idx = jnp.asarray(helper._fixed_idx)
     float_idx = jnp.asarray(helper._float_idx)
 

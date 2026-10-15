@@ -25,7 +25,9 @@ def _market(as_of):
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.032, 0.035, 0.039, 0.043, 0.046])
     ns = CurveNamespace()
-    ns.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR"))
+    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
+    ns.bind(sofr)
+    ns.bind(sofr, "USD.STDCSA")
     return MarketContext(as_of, ns)
 
 

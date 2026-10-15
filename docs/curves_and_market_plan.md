@@ -1,7 +1,8 @@
 # Curves and market: the next book of work
 
-> **Status: AGREED PLAN (2026-10-14, updated 2026-10-15).** Decisions taken in design discussion on
-> `feature/carlos/more_curves`; PRs A and B are implemented on that branch, nothing else is.
+> **Status: AGREED PLAN (2026-10-14, updated 2026-10-16).** Decisions taken in design discussion on
+> `feature/carlos/more_curves`; PRs A and B are merged (#22), PR C is implemented on
+> `feature/curve_grammar`, nothing else is.
 > Companion to [risk_and_engine_design.md](risk_and_engine_design.md) (the `RiskTemplate` that
 > lands on top of this) and [curves/](curves/README.md) (the user-facing documentation).
 
@@ -47,7 +48,7 @@
 graph LR
     A["A · DiscountCurve / CompositeCurve<br/><i>done</i>"]
     B["B · curve algebra<br/>+ − ×, bp, leaves(), replace()<br/><i>done</i>"]
-    C["C · key grammar<br/>CCY.INDEX.TENOR projection, CCY.NAME discount"]
+    C["C · key grammar<br/>CCY.INDEX.TENOR projection, CCY.NAME discount<br/><i>done</i>"]
     D["D · MarketContext as Mapping<br/>setitem, propagation, bump, owned, to_mermaid"]
     E["E · engine layout by identity<br/>blocks per leaf, ownership ladders"]
     F["F · term indices<br/>advance-fixing legs, per-key fixings"]
@@ -66,7 +67,7 @@ graph LR
     G --> R
 ```
 
-B and C are independent of each other and of everything else; start both.
+A, B and C are done; D is next.
 
 ## 2. PRs
 
@@ -91,7 +92,7 @@ module `__all__`, numpydoc).
 - Tests (`test_curve_algebra.py`): algebra equals explicit construction; `leaves` of a three-deep chain;
   `replace` propagates through nesting and leaves unrelated objects shared.
 
-### PR C — key grammar: projection and discount keys (≈2–3 days)
+### PR C — key grammar: projection and discount keys (done 2026-10-16, `feature/curve_grammar`)
 
 **Grammar (settled 2026-10-15).** The slot count carries the kind of curve:
 
@@ -155,6 +156,48 @@ Gate: suite green; a Fed Funds swap (`USD.FEDFUND.ON` projection, `USD.STDCSA` d
 prices identically to today; `GBP.USDSTDCSA = GBP.SONIA.ON + xccy` discounts a GBP leg and
 reports the basis under the discount key only (needs PR E for the ladder).
 
+**As built (2026-10-16).** Everything above landed; the deltas from the spec, so D/E/F start from
+the right picture:
+
+- `finance/conventions/keys.py`: `CurveKey` (value equality and hash, because `Term` is
+  unhashable), `CurveKind`, `OVERNIGHT = Term(1, Days)`, `parse_tenor` / `tenor_label`.
+  `IndexFamily` (upper-cased, validated tenors, `index(tenor)`), `RateIndex(family, tenor)` with
+  `key` / `label` = `'USD.SOFR.ON'`. `MarketConventions.family` replaces `.index`;
+  `MarketConventions.index(tenor)` is the method. `MATCH_TENOR` is a sentinel enum member usable
+  on `FloatLegConventions.payment_frequency` / `reset_frequency`, resolved per `RateIndex` by
+  `float_leg_payment_frequency(index)` / `float_leg_reset_frequency(index)`
+  (`frequency_for_tenor`). `ConventionRegistry.get` ignores a tenor suffix; `index(ccy, name, tenor)`,
+  `key(...)`, `validate(key)` added; `FundingIndex` deleted.
+- **CME Term SOFR** is registered with `FixingType.Arrears`, not `Advance`: in this library
+  `FixingType` is the reset-*window* rule (`Advance` = the window ending at the accrual start, the
+  "pay monthly, reset annually in advance" shape in `test_reset_grids`), and a forward-looking term
+  rate projects over its own accrual period. The fixing *date* lag is not modelled yet (PR F). With
+  `MATCH_TENOR` + `CouponType.Floating` a 3M Term SOFR swap already lowers to the simple-forward
+  path and prices on both engines, so PR F's first bullet is done; F keeps per-key fixings and the
+  basis tests.
+- `YieldCurve(origin, zero_curve, key, conventions=None, fixings=None)`; `from_registry` /
+  `build` take `key=` or `currency=`/`index_name=`; `with_key(...)`; `index` / `family` are `None`
+  for a discount key and `RateGenerator.simple_rate` then requires an explicit `day_count`.
+- `CurveNamespace.bind(curve, name=None)` / `rebind(curve, name=None)` / `names_of(curve)`:
+  `ns.bind(sofr, "USD.STDCSA")` is today's spelling of `market["USD.STDCSA"] = market["USD.SOFR.ON"]`.
+  `MarketContext.with_curve(curve, name=None)`: without `name` the curve "moved" and every key
+  holding the replaced object follows (a `YieldCurve` sharing only the `zero_curve` object receives
+  the new one under its own key); with `name` only that key changes. `curve_owner(name)` (projection
+  key wins, else first bound) and `curve_aliases(name)` implement decision 4 at depth zero.
+- **Part of PR E pulled forward.** `NumbaProgram` and `JaxProgram` lay parameters out per distinct
+  registered curve *object* (`block_names`, named by `curve_owner`), so `USD.SOFR.ON` and
+  `USD.STDCSA` are one block and risk under either key is the whole SOFR ladder; `compatible`
+  also checks the sharing pattern. `NumbaAdjointResult.curve_param_slices` replaces
+  `curve_param_offsets`; `JaxProgram.block(name)` maps a name to its block for `AutodiffRisk` and
+  the JAX calibration Jacobian. PR E still owns the *leaf*-level layout (composites sharing an atom).
+- `CurveDefinition.discount_keys: tuple[str, ...] = ()` — the discount keys the curve under
+  calibration is bound under while its quotes price (`("USD.STDCSA",)` for a SOFR OIS from an
+  empty market); `CurveDefinition.bind(market, curve)` does the binding. Nothing is discounted
+  implicitly, so this is required for a from-scratch OIS calibration.
+- Excel: `qMarket(as_of, ccy, index, curve, funding_id="STDCSA")` binds the curve under both keys.
+- Not touched: `ccy_indices/amrs/usd.py::DEFINED` (test-only data, still listed for deletion in
+  the risk design §6.1), `markets/paths/` (housekeeping).
+
 ### PR D — `MarketContext` redesign (≈3 days)
 
 ```python
@@ -173,6 +216,9 @@ class MarketContext(Mapping[str, DiscountCurve]):
 ```
 
 - `__setitem__` rejects a curve that contains the curve it replaces (that is a redefinition, not a bump).
+- Starting point from PR C: `CurveNamespace.bind(curve, name)` aliases, `with_curve(curve, name=None)`
+  with its two semantics, `curve_owner` / `curve_aliases` at depth zero. `with_curve` propagates
+  to keys holding the same object or the same `zero_curve`; `replace` through composites is this PR.
 - `to_mermaid()` is derived from component references by the same walk `leaf_owner()` uses; no graph class, no graph library.
 - Old constructor `MarketContext(as_of_date, curves=CurveNamespace)` accepted for one release
   with a deprecation warning; `as_of_date` kept as an alias of `as_of`.
@@ -183,6 +229,8 @@ class MarketContext(Mapping[str, DiscountCurve]):
 
 ### PR E — engine parameter layout by identity (≈3 days)
 
+- PR C already gives one block per distinct registered curve object (`NumbaProgram.block_names`,
+  `JaxProgram.block`), so two keys on one object share a block. This PR goes one level down:
 - `engines/numba/layout.py: ParamLayout` built from `market.leaf_owner()`: one block per leaf,
   `W` (registered key → leaf weights) from `leaves()`, `scatter(key, jac)` into leaf columns.
 - `NumbaProgram`: query table rows scattered through the layout; `params_from_market` reads
@@ -198,9 +246,10 @@ class MarketContext(Mapping[str, DiscountCurve]):
 
 ### PR F — term indices (≈2 days, after C and D)
 
-- Advance-fixing floating legs lower to the simple-forward path (`rate_kind=FLOAT`, reset window
-  = accrual period, no observation grid); `fixed_float_swap` chooses it when the index tenor is
-  not `1D`.
+- ~~Term-index floating legs lower to the simple-forward path~~ — done in PR C via
+  `MATCH_TENOR` + `CouponType.Floating` (`USD.CME-TERM-SOFR.3M` swaps price on both engines).
+  Left here: the fixing-date lag of a rate set in advance (today the fixing date is the period
+  start), and whether `FixingType` should split into window rule and fixing-date rule.
 - Per-key fixings in the market; `RateGenerator.simple_rate` reads the key's fixings.
 - Tests: a 3M Term SOFR swap on `USD.CME-TERM-SOFR.3M = USD.SOFR.ON + s3m` has SOFR risk under
   SOFR and basis risk under the 3M key; 6M built on 1M shows three ladders.
@@ -231,7 +280,7 @@ is fixed or explained in R1, since R1 generalises that routine.
 |---|---|---|---|
 | 1 | A commit | — | everything |
 | 2 | B algebra (done) | 1 | D |
-| 3 | C keys: projection / discount | 2–3 | D, F |
+| 3 | C keys: projection / discount (done) | 2–3 | D, F |
 | 4 | D market | 3 | E, F, G |
 | 5 | E layout + ownership | 3 | G, R |
 | 6 | F term indices | 2 | — |

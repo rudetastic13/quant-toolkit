@@ -10,7 +10,8 @@ from finance.markets import HistoricalFixings
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import SwapPricer
 
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
+DISCOUNT = "USD.STDCSA"
 
 
 def _zero_curve(level: float = 0.04) -> ZeroCurve:
@@ -36,7 +37,9 @@ class TestMarketContext(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.origin = np.datetime64("2026-06-01", "D")
         namespace = CurveNamespace()
-        namespace.bind(_yield_curve(self.origin))
+        sofr = _yield_curve(self.origin)
+        namespace.bind(sofr)
+        namespace.bind(sofr, DISCOUNT)
         self.market = MarketContext(as_of_date=self.as_of, curves=namespace)
         self.rates = RateGenerator(self.market)
 
@@ -101,8 +104,44 @@ class TestMarketContext(UnitTest):
 
     def test_with_curve_binds_new_name(self):
         market = self.market.with_curve(_yield_curve(self.origin, level=0.045, index="FEDFUND"))
-        self.assertIn("USD.FEDFUND", market.curves)
+        self.assertIn("USD.FEDFUND.ON", market.curves)
         self.assertIn(CURVE, market.curves)
+
+    def test_with_curve_moves_every_key_holding_the_object(self):
+        bumped = self.market.with_curve(_yield_curve(self.origin, level=0.05))
+        self.assertIs(bumped.yield_curve(DISCOUNT), bumped.yield_curve(CURVE))
+        date = np.array(["2027-06-01"], dtype="datetime64[D]")
+        self.assertAlmostEqual(bumped.yield_curve(DISCOUNT).discount_factor(date)[0], np.exp(-0.05), places=10)
+        # the original market is untouched
+        self.assertIs(self.market.yield_curve(DISCOUNT), self.market.yield_curve(CURVE))
+
+    def test_with_curve_under_a_name_rebinds_only_that_key(self):
+        fedfund = _yield_curve(self.origin, level=0.045, index="FEDFUND")
+        market = self.market.with_curve(fedfund, name=DISCOUNT)
+        self.assertIs(market.yield_curve(DISCOUNT), fedfund)
+        self.assertIs(market.yield_curve(CURVE), self.market.yield_curve(CURVE))
+        self.assertNotIn("USD.FEDFUND.ON", market.curves)
+
+    def test_with_curve_propagates_a_shared_discount_curve_under_its_own_key(self):
+        sofr = self.market.yield_curve(CURVE)
+        # a separate YieldCurve object on the same ZeroCurve, registered under its own key
+        term = YieldCurve.from_registry(self.origin, sofr.zero_curve, key="USD.CME-TERM-SOFR.3M")
+        market = self.market.with_curve(term)
+        bumped = market.with_curve(_yield_curve(self.origin, level=0.05))
+        moved = bumped.yield_curve("USD.CME-TERM-SOFR.3M")
+        self.assertEqual(moved.name, "USD.CME-TERM-SOFR.3M")
+        self.assertIs(moved.zero_curve, bumped.zero_curve(CURVE))
+
+    def test_curve_owner_prefers_the_projection_key(self):
+        self.assertEqual(self.market.curve_owner(DISCOUNT), CURVE)
+        self.assertEqual(self.market.curve_owner(CURVE), CURVE)
+        self.assertEqual(self.market.curve_aliases(DISCOUNT), (CURVE, DISCOUNT))
+        namespace = CurveNamespace()
+        ust = YieldCurve.from_registry(self.origin, _zero_curve(0.03), key="USD.UST")
+        namespace.bind(ust)
+        namespace.bind(ust, "USD.STDCSA")
+        market = MarketContext(as_of_date=self.as_of, curves=namespace)
+        self.assertEqual(market.curve_owner("USD.STDCSA"), "USD.UST")  # no projection key: first bound
 
     def test_continuous_forward_rate(self):
         starts = np.array(["2026-12-01"], dtype="datetime64[D]")
@@ -133,5 +172,16 @@ class TestMarketContext(UnitTest):
 
     def test_convention_helper(self):
         conv = self.market.convention("USD", "SOFR")
-        self.assertEqual(conv.index.label, "USD SOFR")
+        self.assertEqual(conv.index().label, "USD.SOFR.ON")
         self.assertEqual(conv.swap.spot_calendar, "no_holidays")
+
+    def test_simple_rate_on_a_discount_curve_needs_a_day_count(self):
+        from finance.dates.enums import DayCountMethod
+        ust = YieldCurve.from_registry(self.origin, _zero_curve(0.03), key="USD.UST")
+        market = self.market.with_curve(ust)
+        starts = np.array(["2026-12-01"], dtype="datetime64[D]")
+        ends = np.array(["2027-03-01"], dtype="datetime64[D]")
+        with self.assertRaises(ValueError):
+            RateGenerator(market).simple_rate("USD.UST", starts, ends)
+        got = RateGenerator(market).simple_rate("USD.UST", starts, ends, DayCountMethod.Actual360)[0]
+        self.assertGreater(got, 0.0)

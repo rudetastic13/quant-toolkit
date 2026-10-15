@@ -4,52 +4,76 @@ This is the deliberate inverse of the "25 stringly-typed constructor args" appro
 instrument carries a currency + index, and the conventions (frequencies, day counts, BDC,
 roll, calendar, spot lag) are looked up from the shared ``ConventionRegistry``.  No curve
 lives here — resolution produces a *contract*, never anything tied to market data.
+
+Curve names follow the one grammar in :mod:`finance.conventions.keys`: a floating leg
+projects off ``CCY.INDEX.TENOR`` (:func:`curve_name`), cashflows discount off ``CCY.NAME``
+(:func:`funding_curve_name`).  There is no alias from a funding id to an index: a market that
+discounts at SOFR registers the SOFR curve under ``USD.STDCSA`` itself.
 """
+
 from __future__ import annotations
 
-from finance.dates import Date, Term, BDC, add_business_days, add_term
+from finance.conventions import ConventionRegistry, CurveKey, MarketConventions, default_registry, split_index_name
+from finance.dates import BDC, Date, Term, add_business_days, add_term
 from finance.dates.term import TermType
-from finance.conventions import ConventionRegistry, MarketConventions, default_registry
 
-
-def curve_name(currency: str, index_name: str) -> str:
-    """Canonical curve key, e.g. ('usd','sofr') -> 'USD.SOFR'."""
-    return f"{currency.upper()}.{index_name.upper()}"
-
-
-# Funding (discount) curve aliases.  A ``funding_id`` is the label a trade carries to say
-# *which* curve it is collateralised/discounted on; ``STDCSA`` ("standard CSA") is the
-# market-standard OIS discount curve, which resolves per-currency to that ccy's OIS index.
-# A simple per-ccy map for now — graduates to a registry / on-curve alias later (the
-# ``FundingIndex`` stub in finance.conventions is the eventual home).
 STDCSA = "STDCSA"
-_FUNDING_ALIASES: dict[str, dict[str, str]] = {
-    STDCSA: {"USD": "SOFR", "EUR": "ESTR"},
-}
+"""The default funding id: the market-standard (cleared / standard CSA) discount curve."""
+
+
+def curve_name(currency: str, index_name: str, tenor: Term | str | None = None) -> str:
+    """Projection curve key, e.g. ``('usd', 'sofr') -> 'USD.SOFR.ON'``.
+
+    Parameters
+    ----------
+    currency : str
+    index_name : str
+        Family name, optionally with its tenor (``"CME-TERM-SOFR.3M"``).  A full key whose
+        currency matches is accepted too.
+    tenor : Term, str or None
+        Overrides a missing tenor; a bare family name defaults to overnight.
+
+    Returns
+    -------
+    str
+    """
+    family, embedded = _strip_currency(currency, index_name)
+    family, embedded = split_index_name(family, embedded)
+    if tenor is not None and embedded is not None:
+        raise ValueError(f"tenor given twice: in {index_name!r} and as {tenor!r}")
+    chosen = tenor if tenor is not None else embedded
+    return str(CurveKey.projection(currency, family, "ON" if chosen is None else chosen))
+
+
+def _strip_currency(currency: str, index_name: str) -> tuple[str, None]:
+    slots = str(index_name).strip().upper().split(".")
+    if len(slots) == 3:
+        if slots[0] != currency.upper():
+            raise ValueError(f"index {index_name!r} names currency {slots[0]} but the instrument is in {currency}")
+        return ".".join(slots[1:]), None
+    return ".".join(slots), None
 
 
 def funding_curve_name(currency: str, funding_id: str = STDCSA) -> str:
-    """Resolve a funding id to a discount curve name, e.g. ('USD','STDCSA') -> 'USD.SOFR'.
+    """Discount curve key: literally ``CCY.FUNDING_ID``, e.g. ``('USD', 'STDCSA') -> 'USD.STDCSA'``.
 
-    An aliased id (``STDCSA``) maps per-currency to its OIS index; an unrecognised id is
-    treated as a concrete index name and passed straight through to :func:`curve_name`
-    (so ``funding_id='SOFR'`` or ``'FEDFUNDS'`` also works).
+    A funding id is one slot (``STDCSA``, ``UST``, ``USDSTDCSA``); nothing resets off a
+    discount curve, so a tenor is rejected.
     """
-    aliases = _FUNDING_ALIASES.get(funding_id.upper())
-    if aliases is None:
-        return curve_name(currency, funding_id)
-    try:
-        index = aliases[currency.upper()]
-    except KeyError:
-        raise KeyError(f"no '{funding_id}' funding alias for currency '{currency}'") from None
-    return curve_name(currency, index)
+    if "." in funding_id:
+        raise ValueError(
+            f"funding id {funding_id!r} must be one slot (a discount curve has no tenor); "
+            "register the index curve under the discount key instead"
+        )
+    return str(CurveKey.discount(currency, funding_id))
 
 
 def resolve_conventions(
     currency: str, index_name: str, registry: ConventionRegistry = default_registry
 ) -> MarketConventions:
-    """Look up the MarketConventions bundle for a (currency, index) pair."""
-    return registry.get(currency, index_name)
+    """Look up the MarketConventions bundle for the family ``index_name`` names."""
+    family, _ = _strip_currency(currency, index_name)
+    return registry.get(currency, family)
 
 
 def roll_spot(as_of: Date, spot_lag: Term, calendar: str) -> Date:
@@ -65,6 +89,3 @@ def roll_spot(as_of: Date, spot_lag: Term, calendar: str) -> Date:
     else:
         eff = add_term(as_of.to_numpy(), spot_lag, BDC.Following, calendar)
     return Date.from_numpy(eff)
-
-
-__all__ = ["curve_name", "funding_curve_name", "resolve_conventions", "roll_spot", "STDCSA"]
