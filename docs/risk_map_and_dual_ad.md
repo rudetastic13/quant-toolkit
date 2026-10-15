@@ -3,6 +3,13 @@
 Two design conclusions from scoping the risk engine (July 2026). Both are validated by the
 reconciliation harness `research/risk_reconciliation.py`; this doc is the short rationale.
 
+> **2026-10-13:** §1 is superseded by the `RiskTemplate` design in
+> [risk_and_engine_design.md](risk_and_engine_design.md) §2. The `s = g · J_B⁺` map below is that
+> design's `LeastSquaresBasis` (basis `B = J_Tᵀ`); the default basis is now the tent (local
+> rebucketing) rule, `K > P` is refused instead of pseudo-inverted, and binding reports
+> conditioning and leverage before any number is printed. §2 (not JAX at runtime, hand-written
+> adjoints) stands unchanged.
+
 ---
 
 ## 1. Risk maps — a PV-preserving change of basis on the risk vector

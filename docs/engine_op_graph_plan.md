@@ -3,6 +3,12 @@
 > Companion to [pricing_architecture.md](pricing_architecture.md), [numba_engine.md](numba_engine.md),
 > [engine_selection.md](engine_selection.md) and [risk_map_and_dual_ad.md](risk_map_and_dual_ad.md).
 > This records a decision and a shape so the work can start cold later. Nothing here is implemented.
+>
+> **2026-10-13:** the implementation plan (representation, extended op vocabulary with reverse
+> rules, row maps, the `risk()` entry, migration gates) is §4 of
+> [risk_and_engine_design.md](risk_and_engine_design.md). "The math-upgrades doc" referred to
+> below is not in the repository; its item 1 became the `RiskTemplate` (§2 there) and item 2 is
+> this note.
 
 ## Why
 
