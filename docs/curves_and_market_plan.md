@@ -13,22 +13,24 @@
    spread is `CompositeCurve({"base": a, "spread": b})`, not a class of its own (`SpreadCurve`
    was removed on 2026-10-14 as pure delegation).
 2. **Finance vocabulary at the surface, engineering underneath.** Users write
-   `market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"] - 5 * bp`. The words atom, group, layout,
+   `market["USD.FEDFUND.ON"] = market["USD.SOFR.ON"] - 5 * bp`. The words atom, group, layout,
    definition, leaf never appear in a public signature or a report.
 3. **Sharing is by object identity, declared by construction.** Writing `sofr - 5 * bp` already
    says the Fed Funds curve is built on `sofr`. The engine deduplicates parameter blocks by the
    identity of the leaf curves it reaches; no name-based definitions table.
-4. **A registered name owns the parameters nobody else owns.** `ladder("USD.SOFR.1D")` is all
-   SOFR pillar risk however it arrived; `ladder("USD.FEDFUND.1D")` is the basis. A leaf reached
-   by several names belongs to the one reaching it by the shortest path; an equal-depth tie on
-   an unregistered leaf is a bind-time error.
+4. **A registered name owns the parameters nobody else owns.** `ladder("USD.SOFR.ON")` is all
+   SOFR pillar risk however it arrived; `ladder("USD.FEDFUND.ON")` is the basis. A leaf reached
+   by several names belongs to the one reaching it by the shortest path; at equal depth a
+   projection key beats a discount key; an equal-depth tie on an unregistered leaf is a bind-time error.
 5. **Scenarios propagate.** Replacing or bumping a curve rebuilds every registered curve that
    contains it. "Bump SOFR" moves Fed Funds and leaves the basis alone, because that is what the
    definition says.
-6. **Curve key grammar is `CCY.NAME[.TENOR]`.** Tenor is present exactly when the family is a
-   term family (`USD.CME-TERM-SOFR.3M`); overnight indices are the bare family name (`USD.SOFR`,
-   as in Strata's `OvernightIndex` and ISDA's `USD-SOFR`) and issuer curves have none (`USD.UST`).
-   Leg labels use the same grammar. Conventions are registered per **family** with its admissible tenors; the tenor is
+6. **Two key forms, told apart by slot count.** `CCY.INDEX.TENOR` is a projection curve
+   (`USD.SOFR.ON`, `USD.CME-TERM-SOFR.3M`; the tenor is always present, `ON` for overnight).
+   `CCY.NAME` is a discount curve: a funding or collateral regime or an issuer (`USD.STDCSA`,
+   `GBP.USDSTDCSA` = SONIA plus cross-currency basis, `USD.UST`). This is Strata's discount-map /
+   forward-map split written as keys. Leg labels use the projection grammar; the STDCSA alias
+   table goes; every market registers its discount keys explicitly. Conventions are registered per **family** with its admissible tenors; the tenor is
    a parameter of the index instance, so the registry does not grow with tenors.
 7. **On-the-run is a template, not a curve.** One fitted `USD.UST`; OTR is the instrument set
    used as knots and risk nodes. A second Treasury *fit* may be a second curve.
@@ -45,7 +47,7 @@
 graph LR
     A["A · DiscountCurve / CompositeCurve<br/><i>done</i>"]
     B["B · curve algebra<br/>+ − ×, bp, leaves(), replace()<br/><i>done</i>"]
-    C["C · key grammar<br/>CCY.NAME.TENOR, family registry"]
+    C["C · key grammar<br/>CCY.INDEX.TENOR projection, CCY.NAME discount"]
     D["D · MarketContext as Mapping<br/>setitem, propagation, bump, owned, to_mermaid"]
     E["E · engine layout by identity<br/>blocks per leaf, ownership ladders"]
     F["F · term indices<br/>advance-fixing legs, per-key fixings"]
@@ -89,49 +91,69 @@ module `__all__`, numpydoc).
 - Tests (`test_curve_algebra.py`): algebra equals explicit construction; `leaves` of a three-deep chain;
   `replace` propagates through nesting and leaves unrelated objects shared.
 
-### PR C — key grammar and family registry (≈2 days; inventory below, decisions settled)
+### PR C — key grammar: projection and discount keys (≈2–3 days)
 
-- `finance/conventions/keys.py`: `CurveKey(ccy, name, tenor: Term | None)` with `parse(str)` and
-  `str()` → `CCY.NAME[.TENOR]`; hyphens allowed inside a slot.
+**Grammar (settled 2026-10-15).** The slot count carries the kind of curve:
+
+| form | kind | examples |
+|---|---|---|
+| `CCY.INDEX.TENOR` | projection: what a floating leg resets off; the tenor is always present, `ON` for overnight | `USD.SOFR.ON`, `USD.FEDFUND.ON`, `USD.CME-TERM-SOFR.3M`, `GBP.SONIA.ON` |
+| `CCY.NAME` | discounting: a funding / collateral regime or an issuer; never a tenor, nothing resets off it | `USD.STDCSA`, `GBP.STDCSA`, `GBP.USDSTDCSA`, `USD.UST` |
+
+Dots separate slots, hyphens are allowed inside a slot. This is Strata's `RatesCurveGroup`
+split (discount curves keyed by currency and collateral, forward curves keyed by index) written
+as keys. `GBP.USDSTDCSA` reads "GBP cashflows discounted under a USD-collateral CSA" and is
+built as `market["GBP.SONIA.ON"] + xccy_basis`.
+
+- `finance/conventions/keys.py`: `CurveKey(ccy, name, tenor: Term | None)`; `parse(str)` /
+  `str()`; `kind` is `Projection` when a tenor is present, `Discount` otherwise; `ON` maps to the
+  overnight tenor inside the parser only (`Term` is untouched). Validation: a projection key's
+  family must be registered and must list the tenor; a discount key needs no conventions.
 - `IndexFamily(day_count, fixing_calendar, fixing_type, publication_lag, tenors: tuple[Term, ...])`
-  replaces the per-index `RateIndex` conventions; `RateIndex` = family + one tenor, created by
-  `registry.index(ccy, name, tenor=None)` (defaults to the sole tenor of a single-tenor family,
-  rejects a tenor the family does not list).
+  replaces the per-index `RateIndex` conventions; `RateIndex` = family + one tenor via
+  `registry.index(ccy, name, tenor)` (overnight families have the single tenor `ON`).
 - `SwapConventions.float_frequency` gains `MATCH_TENOR`.
 - Register `("USD", "CME-TERM-SOFR")` with tenors `1M 3M 6M 12M`, fixing in advance, Act/360.
-- `curve_name(ccy, name, tenor=None)`; `STDCSA → USD.SOFR` unchanged; bond `funding_id="UST" → USD.UST`.
-- Leg builders accept `rate_index="CME-TERM-SOFR.3M"` (family + tenor) and bare `"SOFR"` (overnight).
+- `curve_name(ccy, index, tenor)` for projection keys; `funding_curve_name(ccy, funding_id)` is
+  literally `f"{ccy}.{funding_id}"`: the `_FUNDING_ALIASES` table (STDCSA → SOFR) is deleted.
+  Discounting at SOFR is `market["USD.STDCSA"] = market["USD.SOFR.ON"]`, the same object under two
+  keys; the identity layout (PR E) gives it one parameter block.
+- **One grammar for leg labels.** `CommonInstrument.rate_index` holds the projection key string
+  (`"USD.SOFR.ON"`, `"USD.CME-TERM-SOFR.3M"`); `projection_curve_name` is `CurveKey.parse`; the
+  `"USD SOFR"` space label is retired. Builders accept `rate_index="SOFR"` (→ `.ON`) and
+  `"CME-TERM-SOFR.3M"` for convenience and normalise to the key.
+- Bonds carry `funding_id="UST"` → `USD.UST`; the Treasury curve is a discount key with no index.
+- **Ownership tie-break at depth zero (feeds PR D/E).** When one object is registered under
+  several keys at the same depth, a projection key owns it; discount keys own only what they add
+  on top. So `ladder("USD.SOFR.ON")` is all SOFR pillar risk and `ladder("USD.STDCSA")` is empty
+  for plain SOFR discounting and is the CSA spread when there is one.
+- **No implicit discounting.** A market must register the discount key a trade's `funding_id`
+  names; there is no default from `STDCSA` to the currency's overnight index. The explicit key is
+  the point.
+- Price indices (inflation) are not placed yet; when needed, a reserved tenor word such as
+  `USD.CPI.INDEX` keeps the three-slot rule.
 
 **Inventory (sweep of 2026-10-15, `7b499c9`).** Everything that spells a curve key or reads a
 `RateIndex` field outside tests:
 
 | where | what it does today | change |
 |---|---|---|
-| `instruments/resolution/resolver.py:15,26,40,45` | `curve_name(ccy, index)` → `CCY.INDEX`; `_FUNDING_ALIASES[STDCSA] = {"USD": "SOFR", "EUR": "ESTR"}` | gains optional `tenor`; aliases unchanged |
-| `markets/curves/yield_curve.py:128` | `name = f"{index.currency}.{index.name}"` | `str(CurveKey.from_index(index))` |
-| `pricing/pricers/legs.py:43-49` | `projection_curve_name` parses the leg's `rate_index` label `"USD SOFR"` (space-separated, two parts) | parse `"USD CME-TERM-SOFR 3M"` or move to `CurveKey.parse`; decide the label format (decision 1) |
-| `pricing/pricers/legs.py:84-87`, `pricers/futures.py:47-48`, `pricers/swaption.py:93` | `curve_name(instrument.currency, instrument.index_name)` | pass the instrument's tenor |
-| `instruments/resolution/builders.py:133,284`, `resolution/futures.py:99`, `swaption.py:46` | write `rate_index=idx.label` = `"USD SOFR"` onto legs | label carries the tenor |
-| `pricing/calibration/instruments.py:217-276` | helpers take `rate_index="SOFR"` and call `curve_name(currency, rate_index)` | accept `"SOFR"` (→ `.1D`) and `"CME-TERM-SOFR.3M"` |
+| `instruments/resolution/resolver.py:15,26,40,45` | `curve_name(ccy, index)` → `CCY.INDEX`; `_FUNDING_ALIASES[STDCSA] = {"USD": "SOFR", "EUR": "ESTR"}` | `curve_name` gains `tenor`; alias table deleted, `funding_curve_name` is the two-slot key |
+| `markets/curves/yield_curve.py:128` | `name = f"{index.currency}.{index.name}"` | `str(CurveKey)`; a discount-key `YieldCurve` has no `RateIndex` (`conventions` optional, only projection keys consult it) |
+| `pricing/pricers/legs.py:43-49` | `projection_curve_name` parses the leg's `rate_index` label `"USD SOFR"` | `CurveKey.parse` |
+| `pricing/pricers/legs.py:84-87`, `pricers/futures.py:47-48`, `pricers/swaption.py:93` | `curve_name(instrument.currency, instrument.index_name)` | projection key with the instrument's tenor; discount via `funding_curve_name` unchanged in shape |
+| `instruments/resolution/builders.py:133,284`, `resolution/futures.py:99`, `swaption.py:46` | write `rate_index=idx.label` = `"USD SOFR"` onto legs | write the projection key string |
+| `pricing/calibration/instruments.py:217-276` | helpers take `rate_index="SOFR"` and call `curve_name(currency, rate_index)` | normalise through `CurveKey` |
 | `conventions/rate_index.py:44` `FundingIndex` | unused stub | delete (design §6.1) |
-| `conventions/convention_registry.py` | key `(ccy, index)` | key stays per family; `index(ccy, name, tenor)` added |
-| `conventions/definitions.py` | `_usd_overnight_market(index_name)` builds a `RateIndex` with `tenor=None` | becomes an overnight `IndexFamily`; `is_overnight` unchanged |
-| `quant_toolkit_xl/api.py:71,98` and its README | `rate_index=str(rate_index)`, `curve_name(currency, index)` | accept the new grammar; README examples |
-| tests | 21 files spell `"USD.SOFR"` / `"USD.FEDFUND"` / `rate_index="SOFR"` | unchanged in meaning; only leg-label assertions on `"USD SOFR"` need the new form |
+| `conventions/convention_registry.py` | key `(ccy, index)` | key per family; `index(ccy, name, tenor)` added |
+| `conventions/definitions.py` | `_usd_overnight_market(index_name)` builds a `RateIndex` with `tenor=None` | overnight `IndexFamily` with tenors `("ON",)` |
+| `markets/context.py` / test fixtures | markets register `USD.SOFR` only; swaps discount through the alias | every market also registers its discount key (`USD.STDCSA`); 24 `MarketContext(...)` sites, mostly tests |
+| `quant_toolkit_xl/api.py:71,98` and README | `rate_index=str(rate_index)`, `curve_name(currency, index)` | accept the grammar; register the discount key; README examples |
+| tests | 21 files spell `"USD.SOFR"` / `"USD.FEDFUND"` / `rate_index="SOFR"` | `"USD.SOFR"` → `"USD.SOFR.ON"` (or `curve_name(...)`); add the discount-key registration |
 
-**Decisions settled 2026-10-15** (following Strata `FloatingRateName` / `OvernightIndex` vs
-`IborIndex`, and the ISDA 2021 FRO names `USD-SOFR` vs `USD-SOFR CME Term` + designated maturity):
-
-1. **One grammar.** Leg labels are curve key strings: `CommonInstrument.rate_index` holds
-   `"USD.SOFR"` or `"USD.CME-TERM-SOFR.3M"`; `projection_curve_name` becomes `CurveKey.parse`;
-   the `"USD SOFR"` space-separated label is retired (builders, futures, swaption, XL add-in).
-2. **Overnight is the bare family name.** `USD.SOFR` and `USD.FEDFUND` keep their keys and mean
-   the overnight index; nothing is renamed, so no compatibility window is needed. The tenor slot
-   is present if and only if the family is a term family (`USD.CME-TERM-SOFR.3M`). The registry
-   enforces the asymmetry: an overnight family renders without a tenor and rejects one, a term
-   family requires one.
-3. **No `1D`/`ON` spelling.** The overnight tenor stays internal to `RateIndex` (`is_overnight`
-   keeps working) and is never rendered.
+Gate: suite green; a Fed Funds swap (`USD.FEDFUND.ON` projection, `USD.STDCSA` discounting)
+prices identically to today; `GBP.USDSTDCSA = GBP.SONIA.ON + xccy` discounts a GBP leg and
+reports the basis under the discount key only (needs PR E for the ladder).
 
 ### PR D — `MarketContext` redesign (≈3 days)
 
@@ -166,7 +188,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
 - `NumbaProgram`: query table rows scattered through the layout; `params_from_market` reads
   leaves once; `compatible` compares leaf `x` and `scheme` per owning key.
 - `NumbaAdjointResult.curve_slice(key)` → the owned block; `instrument_gradient(key, role)`
-  unchanged in signature; `ladder("USD.FEDFUND.1D")` is basis risk.
+  unchanged in signature; `ladder("USD.FEDFUND.ON")` is basis risk.
 - `NumbaRisk.gamma(key)` over the owned block; cross-block gamma via `gamma(keys=...)`.
 - `Sensitivities.bumped_curve` → `market.bump(key, ...)`; the `TypeError` guard goes.
 - JAX oracle: unchanged scope (log-linear atoms only); a composite market raises as today.
@@ -180,7 +202,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
   = accrual period, no observation grid); `fixed_float_swap` chooses it when the index tenor is
   not `1D`.
 - Per-key fixings in the market; `RateGenerator.simple_rate` reads the key's fixings.
-- Tests: a 3M Term SOFR swap on `USD.CME-TERM-SOFR.3M = USD.SOFR.1D + s3m` has SOFR risk under
+- Tests: a 3M Term SOFR swap on `USD.CME-TERM-SOFR.3M = USD.SOFR.ON + s3m` has SOFR risk under
   SOFR and basis risk under the 3M key; 6M built on 1M shows three ladders.
 
 ### PR G — calibrate the owned leaf (≈2 days)
@@ -209,7 +231,7 @@ is fixed or explained in R1, since R1 generalises that routine.
 |---|---|---|---|
 | 1 | A commit | — | everything |
 | 2 | B algebra (done) | 1 | D |
-| 3 | C keys + families | 2 | D, F |
+| 3 | C keys: projection / discount | 2–3 | D, F |
 | 4 | D market | 3 | E, F, G |
 | 5 | E layout + ownership | 3 | G, R |
 | 6 | F term indices | 2 | — |
