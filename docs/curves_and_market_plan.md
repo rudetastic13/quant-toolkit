@@ -25,9 +25,10 @@
 5. **Scenarios propagate.** Replacing or bumping a curve rebuilds every registered curve that
    contains it. "Bump SOFR" moves Fed Funds and leaves the basis alone, because that is what the
    definition says.
-6. **Curve key grammar is `CCY.NAME[.TENOR]`.** Tenor is present exactly when the thing has a
-   designated maturity (`USD.SOFR.1D`, `USD.CME-TERM-SOFR.3M`); issuer curves have none
-   (`USD.UST`). Conventions are registered per **family** with its admissible tenors; the tenor is
+6. **Curve key grammar is `CCY.NAME[.TENOR]`.** Tenor is present exactly when the family is a
+   term family (`USD.CME-TERM-SOFR.3M`); overnight indices are the bare family name (`USD.SOFR`,
+   as in Strata's `OvernightIndex` and ISDA's `USD-SOFR`) and issuer curves have none (`USD.UST`).
+   Leg labels use the same grammar. Conventions are registered per **family** with its admissible tenors; the tenor is
    a parameter of the index instance, so the registry does not grow with tenors.
 7. **On-the-run is a template, not a curve.** One fitted `USD.UST`; OTR is the instrument set
    used as knots and risk nodes. A second Treasury *fit* may be a second curve.
@@ -88,7 +89,7 @@ module `__all__`, numpydoc).
 - Tests (`test_curve_algebra.py`): algebra equals explicit construction; `leaves` of a three-deep chain;
   `replace` propagates through nesting and leaves unrelated objects shared.
 
-### PR C — key grammar and family registry (≈2 days; inventory below, three decisions open)
+### PR C — key grammar and family registry (≈2 days; inventory below, decisions settled)
 
 - `finance/conventions/keys.py`: `CurveKey(ccy, name, tenor: Term | None)` with `parse(str)` and
   `str()` → `CCY.NAME[.TENOR]`; hyphens allowed inside a slot.
@@ -98,15 +99,15 @@ module `__all__`, numpydoc).
   rejects a tenor the family does not list).
 - `SwapConventions.float_frequency` gains `MATCH_TENOR`.
 - Register `("USD", "CME-TERM-SOFR")` with tenors `1M 3M 6M 12M`, fixing in advance, Act/360.
-- `curve_name(ccy, name, tenor)`; `STDCSA → USD.SOFR.1D`; bond `funding_id="UST" → USD.UST`.
-- Leg builders accept `rate_index="CME-TERM-SOFR.3M"`; bare `"SOFR"` keeps meaning `.1D`.
+- `curve_name(ccy, name, tenor=None)`; `STDCSA → USD.SOFR` unchanged; bond `funding_id="UST" → USD.UST`.
+- Leg builders accept `rate_index="CME-TERM-SOFR.3M"` (family + tenor) and bare `"SOFR"` (overnight).
 
 **Inventory (sweep of 2026-10-15, `7b499c9`).** Everything that spells a curve key or reads a
 `RateIndex` field outside tests:
 
 | where | what it does today | change |
 |---|---|---|
-| `instruments/resolution/resolver.py:15,26,40,45` | `curve_name(ccy, index)` → `CCY.INDEX`; `_FUNDING_ALIASES[STDCSA] = {"USD": "SOFR", "EUR": "ESTR"}` | gains `tenor`; alias values become keys with `.1D` |
+| `instruments/resolution/resolver.py:15,26,40,45` | `curve_name(ccy, index)` → `CCY.INDEX`; `_FUNDING_ALIASES[STDCSA] = {"USD": "SOFR", "EUR": "ESTR"}` | gains optional `tenor`; aliases unchanged |
 | `markets/curves/yield_curve.py:128` | `name = f"{index.currency}.{index.name}"` | `str(CurveKey.from_index(index))` |
 | `pricing/pricers/legs.py:43-49` | `projection_curve_name` parses the leg's `rate_index` label `"USD SOFR"` (space-separated, two parts) | parse `"USD CME-TERM-SOFR 3M"` or move to `CurveKey.parse`; decide the label format (decision 1) |
 | `pricing/pricers/legs.py:84-87`, `pricers/futures.py:47-48`, `pricers/swaption.py:93` | `curve_name(instrument.currency, instrument.index_name)` | pass the instrument's tenor |
@@ -114,21 +115,23 @@ module `__all__`, numpydoc).
 | `pricing/calibration/instruments.py:217-276` | helpers take `rate_index="SOFR"` and call `curve_name(currency, rate_index)` | accept `"SOFR"` (→ `.1D`) and `"CME-TERM-SOFR.3M"` |
 | `conventions/rate_index.py:44` `FundingIndex` | unused stub | delete (design §6.1) |
 | `conventions/convention_registry.py` | key `(ccy, index)` | key stays per family; `index(ccy, name, tenor)` added |
-| `conventions/definitions.py` | `_usd_overnight_market(index_name)` builds a `RateIndex` with `tenor=None` | `tenors=("1D",)`; `is_overnight` = `tenor == 1D` |
+| `conventions/definitions.py` | `_usd_overnight_market(index_name)` builds a `RateIndex` with `tenor=None` | becomes an overnight `IndexFamily`; `is_overnight` unchanged |
 | `quant_toolkit_xl/api.py:71,98` and its README | `rate_index=str(rate_index)`, `curve_name(currency, index)` | accept the new grammar; README examples |
-| tests | 21 files spell `"USD.SOFR"` / `"USD.FEDFUND"` / `rate_index="SOFR"` | mechanical sweep to `curve_name(...)` |
+| tests | 21 files spell `"USD.SOFR"` / `"USD.FEDFUND"` / `rate_index="SOFR"` | unchanged in meaning; only leg-label assertions on `"USD SOFR"` need the new form |
 
-**Decisions to settle before starting:**
+**Decisions settled 2026-10-15** (following Strata `FloatingRateName` / `OvernightIndex` vs
+`IborIndex`, and the ISDA 2021 FRO names `USD-SOFR` vs `USD-SOFR CME Term` + designated maturity):
 
-1. **Leg label format.** Legs carry `rate_index="USD SOFR"` (space-separated) while curves are
-   `USD.SOFR`. Either the leg label becomes the curve key string (`"USD.SOFR.1D"`, one grammar
-   everywhere) or `projection_curve_name` learns a three-part space label. One grammar is cleaner;
-   it changes what `CommonInstrument.rate_index` holds and what the XL add-in writes.
-2. **Compatibility window.** Whether `curve_name("USD", "SOFR")` and `"USD.SOFR"` in a market
-   lookup keep working for one release (alias to `.1D`), or the rename is a clean break on this
-   branch. A clean break is simpler; the alias protects research scripts and the add-in.
-3. **Overnight tenor spelling.** `1D` (parses as a `Term`, sorts) versus `ON` (market-speak, not a
-   `Term`). Plan assumes `1D`.
+1. **One grammar.** Leg labels are curve key strings: `CommonInstrument.rate_index` holds
+   `"USD.SOFR"` or `"USD.CME-TERM-SOFR.3M"`; `projection_curve_name` becomes `CurveKey.parse`;
+   the `"USD SOFR"` space-separated label is retired (builders, futures, swaption, XL add-in).
+2. **Overnight is the bare family name.** `USD.SOFR` and `USD.FEDFUND` keep their keys and mean
+   the overnight index; nothing is renamed, so no compatibility window is needed. The tenor slot
+   is present if and only if the family is a term family (`USD.CME-TERM-SOFR.3M`). The registry
+   enforces the asymmetry: an overnight family renders without a tenor and rejects one, a term
+   family requires one.
+3. **No `1D`/`ON` spelling.** The overnight tenor stays internal to `RateIndex` (`is_overnight`
+   keeps working) and is never rendered.
 
 ### PR D — `MarketContext` redesign (≈3 days)
 
