@@ -58,5 +58,3 @@ class Swaption:
             vol_name=vol_name,
         )
 
-
-__all__ = ["Swaption", "SwaptionModel"]

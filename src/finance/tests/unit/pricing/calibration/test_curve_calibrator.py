@@ -1,8 +1,8 @@
 """CurveCalibrator unit tests.
 
 Round-trip: build a synthetic 'true' curve whose nodes sit exactly on the calibration
-pillars, generate each instrument's quote from it, then calibrate from an empty market and
-recover the true node DFs.  Also: reprice consistency, global-vs-bootstrap agreement,
+pillars, generate each instrument's quote from it, then calibrate from an empty market (the target
+also serving as the ``USD.STDCSA`` discount curve) and recover the true node DFs.  Also: reprice consistency, global-vs-bootstrap agreement,
 validation failures, explicit market composition, and that the input market is never mutated.
 """
 import numpy as np
@@ -24,7 +24,7 @@ from finance.pricing.calibration import (
     swap_helper,
 )
 
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _helpers(as_of: Date):
@@ -60,7 +60,9 @@ class TestCurveCalibrator(UnitTest):
         self.true = ZeroCurve((nd.astype(np.int64) - self.origin.astype(np.int64)).astype(np.float64), dfs)
 
         ns = CurveNamespace()
-        ns.bind(YieldCurve.from_registry(self.origin, self.true, currency="USD", index_name="SOFR"))
+        sofr = YieldCurve.from_registry(self.origin, self.true, currency="USD", index_name="SOFR")
+        ns.bind(sofr)
+        ns.bind(sofr, "USD.STDCSA")
         true_mkt = MarketContext(as_of_date=self.as_of, curves=ns)
 
         # Quotes generated from the true curve.
@@ -68,7 +70,7 @@ class TestCurveCalibrator(UnitTest):
             h.quote = Quote(h.implied(true_mkt), h.quote.kind)
 
         self.base = MarketContext(as_of_date=self.as_of, curves=CurveNamespace())
-        self.defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+        self.defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
 
     def test_round_trip_recovers_true_dfs(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
@@ -96,7 +98,7 @@ class TestCurveCalibrator(UnitTest):
         self.assertNotIn(CURVE, self.base.curves)
 
     def test_bootstrap_rejects_global_interpolator(self):
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogCubicDF)
+        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogCubicDF, discount_keys=("USD.STDCSA",))
         with self.assertRaises(ValueError):
             CurveCalibrator(self.helpers, Bootstrapper(), defn).calibrate(self.base)
 
@@ -111,7 +113,7 @@ class TestCurveCalibrator(UnitTest):
             CurveCalibrator(dup, GlobalSolver(), self.defn).calibrate(self.base)
 
     def test_wrong_target_name_raises(self):
-        defn = CurveDefinition("USD", "NOTSOFR", CurveInterpolator.LogLinearDF)
+        defn = CurveDefinition("USD", "NOTSOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         with self.assertRaises(ValueError):
             CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base)
 
@@ -122,7 +124,7 @@ class TestCurveCalibrator(UnitTest):
     def test_jax_jacobian_rejects_non_loglinear_interpolation_up_front(self):
         # The JAX curve model only supports LogLinearDF; the guard must fire before any
         # jax import / tracing, with a message naming the offending interpolator.
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear)
+        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
         with self.assertRaises(NotImplementedError) as ctx:
             CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(
                 self.base, jacobian=True, jacobian_backend=Backend.Jax
@@ -135,7 +137,7 @@ class TestCurveCalibrator(UnitTest):
         h = 1e-6
         for scheme in (CurveInterpolator.RateLinear, CurveInterpolator.LogCubicDF, CurveInterpolator.RateCubic):
             with self.subTest(scheme=scheme.name):
-                defn = CurveDefinition("USD", "SOFR", scheme)
+                defn = CurveDefinition("USD", "SOFR", scheme, discount_keys=("USD.STDCSA",))
                 res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base, jacobian=True)
                 helpers = sorted(self.helpers, key=lambda hp: hp.pillar_date)
                 zc = res.zero_curve
@@ -147,13 +149,13 @@ class TestCurveCalibrator(UnitTest):
                     cols = []
                     for z in (z0 + e, z0 - e):
                         curve = zc.with_dfs(np.concatenate([[1.0], np.exp(-z * t)]))
-                        mkt = self.base.with_curve(defn.compose(res.origin, curve, self.base))
+                        mkt = defn.bind(self.base, defn.compose(res.origin, curve, self.base))
                         cols.append(np.array([hp.implied(mkt) for hp in helpers]))
                     fd[:, k] = (cols[0] - cols[1]) / (2.0 * h)
                 np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-9)
 
     def test_rate_linear_calibrates_without_jacobian(self):
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear)
+        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
         res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base)
         self.assertLess(np.abs(res.residuals).max(), 1e-10)
 
@@ -169,7 +171,9 @@ class TestWithCurve(UnitTest):
         self.c1 = ZeroCurve(x, np.array([1.0, 0.92]))
         self.c2 = ZeroCurve(x, np.array([1.0, 0.95]))
         ns = CurveNamespace()
-        ns.bind(YieldCurve.from_registry(self.origin, self.c1, currency="USD", index_name="SOFR"))
+        sofr = YieldCurve.from_registry(self.origin, self.c1, currency="USD", index_name="SOFR")
+        ns.bind(sofr)
+        ns.bind(sofr, "USD.STDCSA")
         self.mkt = MarketContext(as_of_date=self.as_of, curves=ns, vols=object())
 
     def test_with_curve_rebinds_and_leaves_original_intact(self):
@@ -183,5 +187,5 @@ class TestWithCurve(UnitTest):
     def test_with_curve_binds_new_name(self):
         fedfund = YieldCurve.from_registry(self.origin, self.c2, currency="USD", index_name="FEDFUND")
         out = self.mkt.with_curve(fedfund)
-        self.assertIs(out.zero_curve("USD.FEDFUND"), self.c2)
-        self.assertNotIn("USD.FEDFUND", self.mkt.curves)
+        self.assertIs(out.zero_curve("USD.FEDFUND.ON"), self.c2)
+        self.assertNotIn("USD.FEDFUND.ON", self.mkt.curves)

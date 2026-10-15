@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
+from finance.conventions import CurveKey
 from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.priceable import pricer_registry
@@ -41,12 +42,25 @@ def _business_days(term) -> int:
 
 
 def projection_curve_name(leg: CommonInstrument, default: str) -> str:
-    """The leg's projection curve: its ``"CCY INDEX"`` label when it carries one, else ``default``.
+    """The leg's projection curve: its ``rate_index`` key (``'USD.SOFR.ON'``) when set, else ``default``.
 
     Lets a basis swap's legs project off different indices without any product-level field.
+
+    Raises
+    ------
+    ValueError
+        If the label is not a projection key (``CCY.INDEX.TENOR``).
     """
-    parts = (leg.rate_index or "").split()
-    return curve_name(*parts) if len(parts) == 2 else default
+    label = leg.rate_index
+    if not label:
+        return default
+    try:
+        key = CurveKey.parse(label)
+    except ValueError as exc:
+        raise ValueError(f"leg rate_index {label!r} is not a curve key: {exc}") from None
+    if key.is_discount:
+        raise ValueError(f"leg rate_index {label!r} is a discount key; a floating leg projects off 'CCY.INDEX.TENOR'")
+    return str(key)
 
 
 def leg_spec(
@@ -103,5 +117,3 @@ class LegPricer:
 for _name in ("Swap", "Deposit", "Fra"):
     pricer_registry.register(_name, LegPricer, overwrite=True)
 
-
-__all__ = ["LegInstrument", "LegPricer", "leg_spec", "projection_curve_name"]

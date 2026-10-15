@@ -17,12 +17,12 @@ class TestCurveNamespaceBind(UnitTest):
         namespace = CurveNamespace()
         curve = _make_curve()
         namespace.bind(curve)
-        self.assertIs(namespace.resolve("USD.SOFR"), curve)
+        self.assertIs(namespace.resolve("USD.SOFR.ON"), curve)
 
     def test_initial_version_is_zero(self):
         namespace = CurveNamespace()
         namespace.bind(_make_curve())
-        self.assertEqual(namespace.version("USD.SOFR"), 0)
+        self.assertEqual(namespace.version("USD.SOFR.ON"), 0)
 
     def test_bind_duplicate_raises(self):
         namespace = CurveNamespace()
@@ -33,8 +33,8 @@ class TestCurveNamespaceBind(UnitTest):
     def test_contains(self):
         namespace = CurveNamespace()
         namespace.bind(_make_curve())
-        self.assertIn("USD.SOFR", namespace)
-        self.assertNotIn("USD.FEDFUND", namespace)
+        self.assertIn("USD.SOFR.ON", namespace)
+        self.assertNotIn("USD.FEDFUND.ON", namespace)
 
 
 class TestCurveNamespaceRebind(UnitTest):
@@ -46,20 +46,20 @@ class TestCurveNamespaceRebind(UnitTest):
         second = _make_curve(terminal_df=0.90)
         namespace.bind(first)
         namespace.rebind(second)
-        self.assertIs(namespace.resolve("USD.SOFR"), second)
+        self.assertIs(namespace.resolve("USD.SOFR.ON"), second)
 
     def test_rebind_increments_version(self):
         namespace = CurveNamespace()
         namespace.bind(_make_curve())
         namespace.rebind(_make_curve(terminal_df=0.94))
-        self.assertEqual(namespace.version("USD.SOFR"), 1)
+        self.assertEqual(namespace.version("USD.SOFR.ON"), 1)
         namespace.rebind(_make_curve(terminal_df=0.93))
-        self.assertEqual(namespace.version("USD.SOFR"), 2)
+        self.assertEqual(namespace.version("USD.SOFR.ON"), 2)
 
     def test_rebind_without_prior_bind(self):
         namespace = CurveNamespace()
         namespace.rebind(_make_curve())
-        self.assertEqual(namespace.version("USD.SOFR"), 0)
+        self.assertEqual(namespace.version("USD.SOFR.ON"), 0)
 
     def test_snapshot_captures_versions(self):
         namespace = CurveNamespace()
@@ -67,8 +67,36 @@ class TestCurveNamespaceRebind(UnitTest):
         namespace.bind(_make_curve("FEDFUND"))
         namespace.rebind(_make_curve("SOFR", terminal_df=0.94))
         snapshot = namespace.snapshot()
-        self.assertEqual(snapshot["USD.SOFR"][1], 1)
-        self.assertEqual(snapshot["USD.FEDFUND"][1], 0)
+        self.assertEqual(snapshot["USD.SOFR.ON"][1], 1)
+        self.assertEqual(snapshot["USD.FEDFUND.ON"][1], 0)
+
+
+class TestCurveNamespaceAliases(UnitTest):
+    COVERAGE = ["finance.markets.curves.namespace"]
+
+    def test_bind_same_object_under_a_discount_key(self):
+        namespace = CurveNamespace()
+        sofr = _make_curve()
+        namespace.bind(sofr)
+        namespace.bind(sofr, "USD.STDCSA")
+        self.assertIs(namespace.resolve("USD.STDCSA"), sofr)
+        self.assertEqual(namespace.names_of(sofr), ("USD.SOFR.ON", "USD.STDCSA"))
+        self.assertEqual(list(namespace), ["USD.SOFR.ON", "USD.STDCSA"])
+        self.assertEqual(len(namespace), 2)
+        with self.assertRaises(KeyError):
+            namespace.bind(_make_curve("FEDFUND"), "USD.STDCSA")
+
+    def test_rebind_under_a_name(self):
+        namespace = CurveNamespace()
+        sofr = _make_curve()
+        namespace.bind(sofr)
+        namespace.bind(sofr, "USD.STDCSA")
+        other = _make_curve(terminal_df=0.9)
+        namespace.rebind(other, "USD.STDCSA")
+        self.assertIs(namespace.resolve("USD.STDCSA"), other)
+        self.assertIs(namespace.resolve("USD.SOFR.ON"), sofr)
+        self.assertEqual(namespace.version("USD.STDCSA"), 1)
+        self.assertEqual(namespace.names_of(sofr), ("USD.SOFR.ON",))
 
 
 class TestCurveNamespaceErrors(UnitTest):

@@ -20,7 +20,7 @@ from finance.pricing.types import Backend, RateKind
 
 pytest.importorskip("numba")
 
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 ORIGIN = np.datetime64("2026-06-01", "D")
 
 
@@ -52,6 +52,7 @@ def _market() -> MarketContext:
     )
     curves = CurveNamespace()
     curves.bind(yield_curve)
+    curves.bind(yield_curve, "USD.STDCSA")
     return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves=curves)
 
 

@@ -177,14 +177,14 @@ program.reprice(sofr_only, backend=Backend.Numba).instrument_pv
 # [0.]
 
 risk = NumbaRisk(program, sofr_only)
-ladder = risk.zero_ladder("USD.SOFR")              # (n_instruments, P) · bp, adjoint
+ladder = risk.zero_ladder("USD.SOFR.ON")              # (n_instruments, P) · bp, adjoint
 ladder
 # [[    54.782212   -399.156099  -1503.399885 -44164.759033   -139.458284]]
 ladder.sum()
 # -46151.99108965049
-Sensitivities(program, sofr_only).key_rate_durations("USD.SOFR").krd     # bump-and-reprice oracle
+Sensitivities(program, sofr_only).key_rate_durations("USD.SOFR.ON").krd     # bump-and-reprice oracle
 # [[    54.782212   -399.1561    -1503.399891 -44164.760817   -139.458284]]
-risk.gamma("USD.SOFR")                             # ½ H bp², by central difference of the exact gradient
+risk.gamma("USD.SOFR.ON")                             # ½ H bp², by central difference of the exact gradient
 # [[-0.000015 -0.        0.        0.        0.      ]
 #  [-0.        0.019848  0.000219  0.        0.      ]
 #  [ 0.        0.000219  0.11738   0.081307 -0.      ]
@@ -198,21 +198,23 @@ falls past the 5Y pillar, into the segment that the 5Y and 10Y nodes share.
 
 ## 6. Composite curves split the ladder by block
 
-A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND`
-([04](04_yield_curve.md)) and discounted off `USD.SOFR`. The index ladder on `USD.FEDFUND` has
-six columns: the five SOFR pillars of its base block, then the spread parameter. The spread
+A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND.ON`
+([04](04_yield_curve.md)) and discounted off `USD.STDCSA`, the SOFR curve under its discount key.
+The index ladder on `USD.FEDFUND.ON` has six columns: the five SOFR pillars of its base block,
+then the spread parameter. The spread
 column is the parallel index risk, because a flat spread *is* a parallel move of the projection
 curve.
 
 ```python
 ff_market = MarketContext(as_of, CurveNamespace())
 ff_market.curves.bind(sofr_yc)
+ff_market.curves.bind(sofr_yc, "USD.STDCSA")
 ff_market.curves.bind(fedfund_yc)
 ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=as_of)
 ff_risk = NumbaRisk(SwapPricer().compile([ff_swap]), ff_market)
-ff_risk.index_ladder("USD.FEDFUND")                # [ base block (SOFR pillars) | spread ]
+ff_risk.index_ladder("USD.FEDFUND.ON")                # [ base block (SOFR pillars) | spread ]
 # [[    54.754828   -389.556882  -1472.34591  -44265.337577   -139.586974 -46212.072515]]
-ff_risk.funding_ladder("USD.SOFR")                 # discounting risk on the SOFR curve
+ff_risk.funding_ladder("USD.STDCSA")               # discounting risk; the SOFR block under its discount key
 # [[  0.        -2.695521  -4.811094 181.990268   0.292894]]
 ```
 

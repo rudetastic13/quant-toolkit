@@ -56,9 +56,13 @@ class JaxProgram:
         ki = inputs
         self.curve_names: list[str] = list(ki.curve_names)
 
-        # -- static curve geometry (gradient-free), one per curve name ------------------
+        # -- static curve geometry (gradient-free), one per distinct curve object ----------
+        # Keys bound to one curve (``USD.SOFR.ON`` / ``USD.STDCSA``) share a parameter block
+        # named after the owning key; ``block`` maps any program curve name onto it.
+        self._block_of: dict[str, str] = {name: market.curve_owner(name) for name in self.curve_names}
+        self.block_names: list[str] = list(dict.fromkeys(self._block_of.values()))
         self.geoms: dict[str, CurveGeometry] = {
-            name: curve_geometry(market.zero_curve(name)) for name in self.curve_names
+            name: curve_geometry(market.zero_curve(name)) for name in self.block_names
         }
         self._df = {name: make_df(g) for name, g in self.geoms.items()}
 
@@ -179,13 +183,20 @@ class JaxProgram:
             self.obs_active_pay = self.active_pay[jnp.asarray(flow_of_obs)]
 
     # -- parameter plumbing -------------------------------------------------------------
+    def block(self, curve_name: str) -> str:
+        """The parameter-block (owning) key of a program curve name."""
+        try:
+            return self._block_of[curve_name]
+        except KeyError:
+            raise KeyError(f"program has no curve named '{curve_name}'") from None
+
     def params_from_market(self, market) -> tuple[dict, dict]:
-        """Initial ``(disc_params, proj_params)`` — zero-rate vectors keyed by curve name.
+        """Initial ``(disc_params, proj_params)`` — zero-rate vectors keyed by block (owning key).
 
         Both dicts start from the same calibrated curves, but they are *separate* leaves:
         differentiating in ``disc_params`` gives funding risk, in ``proj_params`` index risk.
         """
-        z = {name: jnp.asarray(curve_geometry(market.zero_curve(name)).z0) for name in self.curve_names}
+        z = {name: jnp.asarray(curve_geometry(market.zero_curve(name)).z0) for name in self.block_names}
         return {k: v for k, v in z.items()}, {k: jnp.asarray(np.asarray(v)) for k, v in z.items()}
 
     # -- the differentiable valuation ---------------------------------------------------
@@ -193,8 +204,9 @@ class JaxProgram:
         """(F,) discount factor at each flow's pay date off its funding curve."""
         df = jnp.zeros(self.F)
         for ci, name in enumerate(self.curve_names):
+            block = self._block_of[name]
             mask = jnp.asarray(self.discount_curve == ci) & self.active_pay
-            df = jnp.where(mask, self._df[name](disc_params[name], self.pay_off), df)
+            df = jnp.where(mask, self._df[block](disc_params[block], self.pay_off), df)
         return df
 
     def _rate(self, proj_params: dict) -> jnp.ndarray:
@@ -206,9 +218,10 @@ class JaxProgram:
             is_float = jnp.asarray(self.is_float)
             idx = jnp.zeros(self.F)
             for ci, name in enumerate(self.curve_names):
+                block = self._block_of[name]
                 mm = jnp.asarray((self.proj_curve == ci) & self.is_float)
-                df_s = self._df[name](proj_params[name], self.reset_start_off)
-                df_e = self._df[name](proj_params[name], self.reset_end_off)
+                df_s = self._df[block](proj_params[block], self.reset_start_off)
+                df_e = self._df[block](proj_params[block], self.reset_end_off)
                 simple = (df_s / df_e - 1.0) / self.float_tau
                 simple = jnp.where(self.reset_is_fixed, self.reset_fixing, simple)
                 simple = jnp.where(self.active_pay, simple, 0.0)
@@ -220,8 +233,9 @@ class JaxProgram:
         if self.P:
             obs_rate = jnp.zeros(self.M)
             for ci, name in enumerate(self.curve_names):
+                block = self._block_of[name]
                 mm = jnp.asarray(self.obs_proj_of_obs == ci)
-                df_u = self._df[name](proj_params[name], self.obs_unique_off)  # once per unique date
+                df_u = self._df[block](proj_params[block], self.obs_unique_off)  # once per unique date
                 df_s = df_u[self.obs_inv_start]
                 df_e = df_u[self.obs_inv_end]
                 simple = (df_s / df_e - 1.0) / self.obs_tau
@@ -264,5 +278,3 @@ class JaxProgram:
         """Scalar total PV across the whole program (handy for grad/hessian)."""
         return jnp.sum(self.flow_pv(disc_params, proj_params))
 
-
-__all__ = ["JaxProgram"]

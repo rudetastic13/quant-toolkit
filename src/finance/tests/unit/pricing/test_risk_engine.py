@@ -10,7 +10,7 @@ from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import RiskEngine, Sensitivities
 
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
@@ -20,9 +20,9 @@ def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     curves = CurveNamespace()
     space, interpolator = interpolation.resolve()
-    curves.bind(
-        YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator)
-    )
+    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator)
+    curves.bind(sofr)
+    curves.bind(sofr, "USD.STDCSA")
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(0.01, VolUnits.Normal))
     return MarketContext(as_of, curves, vols=vols)

@@ -32,7 +32,7 @@ def _leg(**overrides) -> CommonInstrument:
 def _piecewise() -> CouponSchedule:
     return CouponSchedule(events=[
         FixedCouponEvent(start_date=EFFECTIVE, coupon_rate=0.03),
-        CompoundedCouponEvent(start_date=Date(2028, 1, 15), rate_index="USD SOFR", spread=0.001),
+        CompoundedCouponEvent(start_date=Date(2028, 1, 15), rate_index="USD.SOFR.ON", spread=0.001),
     ])
 
 
@@ -46,10 +46,10 @@ class TestFlatFieldsDeriveTheSchedule(UnitTest):
         self.assertFalse(leg.needs_observation_grid)
 
     def test_compounded_leg_lowers_to_one_compounded_event(self):
-        leg = _leg(coupon_type=CouponType.GeometricAveraged, rate_index="USD SOFR", spread=0.0005, cap=0.07)
+        leg = _leg(coupon_type=CouponType.GeometricAveraged, rate_index="USD.SOFR.ON", spread=0.0005, cap=0.07)
         [event] = leg.coupon_schedule.events
         self.assertIsInstance(event, CompoundedCouponEvent)
-        self.assertEqual((event.rate_index, event.spread, event.cap, event.floor), ("USD SOFR", 0.0005, 0.07, None))
+        self.assertEqual((event.rate_index, event.spread, event.cap, event.floor), ("USD.SOFR.ON", 0.0005, 0.07, None))
         self.assertTrue(leg.is_floating)
         self.assertTrue(leg.needs_observation_grid)
 
@@ -74,7 +74,7 @@ class TestSuppliedScheduleIsTheTruth(UnitTest):
 
     def test_supplied_schedule_tags_the_leg_custom(self):
         sched = _piecewise()
-        leg = _leg(coupon_schedule=sched, rate_index="USD SOFR")  # flat fields said Fixed 4%
+        leg = _leg(coupon_schedule=sched, rate_index="USD.SOFR.ON")  # flat fields said Fixed 4%
         self.assertIs(leg.coupon_schedule, sched)
         self.assertIs(leg.coupon_type, CouponType.Custom)
         self.assertTrue(leg.is_floating)
@@ -108,14 +108,14 @@ class TestReplaceKeepsTheScheduleHonest(UnitTest):
 
     def test_custom_leg_keeps_its_schedule_through_a_flat_field_change(self):
         sched = _piecewise()
-        leg = _leg(coupon_schedule=sched, rate_index="USD SOFR")
+        leg = _leg(coupon_schedule=sched, rate_index="USD.SOFR.ON")
         changed = leg.replace(coupon_rate=0.09)
         self.assertIs(changed.coupon_schedule, sched)
         self.assertIs(changed.coupon_type, CouponType.Custom)
         self.assertEqual(changed.coupon_rate, 0.09)
 
     def test_custom_leg_returns_to_flat_when_told_to(self):
-        leg = _leg(coupon_schedule=_piecewise(), rate_index="USD SOFR")
+        leg = _leg(coupon_schedule=_piecewise(), rate_index="USD.SOFR.ON")
         flat = leg.replace(coupon_schedule=None, coupon_type=CouponType.Fixed, coupon_rate=0.02)
         self.assertIs(flat.coupon_type, CouponType.Fixed)
         self.assertEqual(flat.coupon_schedule.events, [FixedCouponEvent(start_date=EFFECTIVE, coupon_rate=0.02)])
@@ -125,7 +125,7 @@ class TestSerialization(UnitTest):
     COVERAGE = ["finance.instruments.common_instrument", "finance.instruments.schedules.base_schedule"]
 
     def test_leg_with_piecewise_schedule_round_trips(self):
-        leg = _leg(coupon_schedule=_piecewise(), rate_index="USD SOFR", business_day_convention=BDC.ModifiedFollowing)
+        leg = _leg(coupon_schedule=_piecewise(), rate_index="USD.SOFR.ON", business_day_convention=BDC.ModifiedFollowing)
         back = CommonInstrument.from_json(leg.to_json())
         self.assertEqual(back, leg)
         self.assertIsInstance(back.coupon_schedule.events[1], CompoundedCouponEvent)
@@ -145,9 +145,9 @@ class TestPiecewiseCouponsReachThePricer(UnitTest):
         fixed = swap.receive_leg
         sched = CouponSchedule(events=[
             FixedCouponEvent(start_date=fixed.effective, coupon_rate=0.03),
-            CompoundedCouponEvent(start_date=Date(2028, 1, 15), rate_index="USD SOFR"),
+            CompoundedCouponEvent(start_date=Date(2028, 1, 15), rate_index="USD.SOFR.ON"),
         ])
-        piecewise = fixed.replace(coupon_schedule=sched, rate_index="USD SOFR", reset_frequency=Frequency.Daily,
+        piecewise = fixed.replace(coupon_schedule=sched, rate_index="USD.SOFR.ON", reset_frequency=Frequency.Daily,
                                   rate_calendar=swap.pay_leg.rate_calendar)
         program = SwapPricer().compile([Swap(receive_leg=piecewise, pay_leg=swap.pay_leg, currency="USD", index_name="SOFR")])
         ki = program.inputs
@@ -170,10 +170,10 @@ class TestLookbackStyleReachesTheGrid(UnitTest):
 
         leg = _leg(
             payment_frequency=Frequency.Quarterly, reset_frequency=Frequency.Monthly,
-            coupon_type=CouponType.GeometricAveraged, rate_index="USD SOFR",
+            coupon_type=CouponType.GeometricAveraged, rate_index="USD.SOFR.ON",
             lookback_style=LookbackStyle[style],
         )
-        return leg_spec(leg, 1.0, "USD.SOFR", "USD.SOFR", 0).schedule
+        return leg_spec(leg, 1.0, "USD.SOFR.ON", "USD.SOFR.ON", 0).schedule
 
     def test_observation_shift_reads_the_whole_sub_period(self):
         ps = self._inputs("ObservationShift")

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from finance.instruments.resolution import Swap, curve_name
+from finance.instruments.resolution import Swap, curve_name, funding_curve_name
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve, dates_to_x
 from finance.pricing.pricers import SwapPricer
@@ -89,23 +89,28 @@ def compile_program(swap_handles: object) -> str:
     return cache.store("Program", program, tuple(hs))
 
 
-def make_market(as_of: object, currency: object, rate_index: object, curve_handle: object) -> str:
-    """Bind a cached curve into a ``MarketContext`` under (ccy, index); return a Market handle."""
+def make_market(
+    as_of: object, currency: object, rate_index: object, curve_handle: object, funding_id: object = "STDCSA"
+) -> str:
+    """Bind a cached curve into a ``MarketContext``; return a Market handle.
+
+    The curve is registered under its projection key (``USD.SOFR.ON``) and, as the market's
+    discount curve, under the funding key the swaps name (``USD.STDCSA`` by default): one
+    curve, two keys.
+    """
     as_of_date = marshalling.to_date(as_of)
     origin, curve = _load_curve(curve_handle)
     currency_name = str(currency)
     index_name = str(rate_index)
     name = curve_name(currency_name, index_name)
-    yield_curve = YieldCurve.from_registry(
-        origin,
-        curve,
-        currency=currency_name,
-        index_name=index_name,
-    )
+    discount = funding_curve_name(currency_name, str(funding_id))
+    yield_curve = YieldCurve.from_registry(origin, curve, key=name)
     namespace = CurveNamespace()
     namespace.bind(yield_curve)
+    if discount != name:
+        namespace.bind(yield_curve, discount)
     market = MarketContext(as_of_date=as_of_date, curves=namespace)
-    return cache.store("Market", market, str(as_of_date), name, str(curve_handle))
+    return cache.store("Market", market, str(as_of_date), name, discount, str(curve_handle))
 
 
 def price(program_handle: object, market_handle: object) -> np.ndarray:

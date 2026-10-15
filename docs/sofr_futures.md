@@ -44,7 +44,7 @@ class ResolvedSofrFuture:
     day_count_method: DayCountMethod   # Actual360
     currency: str = "USD"
     index_name: str = "SOFR"
-    funding_id: str = "STDCSA"
+    funding_id: str = "STDCSA"         # discount key USD.STDCSA; projection key USD.SOFR.ON
     point_value: float = 25.0          # $/bp per contract (SR3 = $25; SR1 per its 1m spec)
 ```
 

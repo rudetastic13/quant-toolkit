@@ -11,7 +11,7 @@ from finance.pricing.pricers import FuturesPricer, LegPricer
 from finance.pricing.types import RateKind
 
 AS_OF = Date(2026, 6, 1)
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _market() -> MarketContext:
@@ -20,7 +20,9 @@ def _market() -> MarketContext:
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.041, 0.040, 0.042, 0.045])
     ns = CurveNamespace()
-    ns.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR"))
+    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
+    ns.bind(sofr)
+    ns.bind(sofr, "USD.STDCSA")
     return MarketContext(as_of_date=AS_OF, curves=ns)
 
 

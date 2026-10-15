@@ -17,7 +17,7 @@ from finance.pricing.engines.numpy.rates import compounded
 
 ACT360 = DayCountMethod.Actual360
 CAL = "no_holidays"
-CURVE = "USD.SOFR"
+CURVE = "USD.SOFR.ON"
 
 
 def _curve() -> YieldCurve:
@@ -34,7 +34,9 @@ class TestRealGridTelescopes(UnitTest):
 
     def setUp(self):
         ns = CurveNamespace()
-        ns.bind(_curve())
+        sofr = _curve()
+        ns.bind(sofr)
+        ns.bind(sofr, "USD.STDCSA")
         self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
         self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)

@@ -137,16 +137,16 @@ that is what `MarketContext` holds.
 
 ```python
 base      = Scenario.base()                                   # identity
-rates_up  = Scenario("rates+25bp",  {"USD.SOFR": parallel_zero(+25e-4)})
-steepener = Scenario("2s10s+10bp",  {"USD.SOFR": key_rate({"2Y": -5e-4, "10Y": +5e-4})})
-vol_up    = Scenario("vega+1bp",    {"USD.SOFR": vol_shift(+1e-4)})       # normal-vol surface
+rates_up  = Scenario("rates+25bp",  {"USD.SOFR.ON": parallel_zero(+25e-4)})
+steepener = Scenario("2s10s+10bp",  {"USD.SOFR.ON": key_rate({"2Y": -5e-4, "10Y": +5e-4})})
+vol_up    = Scenario("vega+1bp",    {"USD.SOFR.ON": vol_shift(+1e-4)})       # normal-vol surface
 combo     = rates_up | vol_up                                  # union, name auto-joined
 
-ladder    = ScenarioSet.ladder("USD.SOFR", steps_bp=(-50, -25, 0, +25, +50))
-# -> named scenarios "USD.SOFR-50bp", ..., "USD.SOFR+0bp", ..., auto-generated
+ladder    = ScenarioSet.ladder("USD.SOFR.ON", steps_bp=(-50, -25, 0, +25, +50))
+# -> named scenarios "USD.SOFR.ON-50bp", ..., "USD.SOFR.ON+0bp", ..., auto-generated
 ```
 
-- **Filters** select market data by name — exact (`"USD.SOFR"`) or pattern (`"USD.*"`),
+- **Filters** select market data by name — exact (`"USD.SOFR.ON"`) or pattern (`"USD.*"`),
   Strata's `MarketDataFilter` reduced to what our namespaces need. Curve names and vol
   surface names live in different namespaces, so a filter is (kind, pattern).
 - **Perturbations** are small closed vocabulary to start: `parallel_zero(bp)` (parallel

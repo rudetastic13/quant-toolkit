@@ -56,22 +56,27 @@ downstream consumes: geometry (`x`, `dfs`, `max_x`, `scheme`), a flat parameter 
 basis curves, turns, overlays; composites nest). Components may be labelled
 (`{"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)}`) and addressed by label.
 It is exactly affine in its concatenated parameters, so a composite prices and risks through
-the engines unchanged, with the ladder split per component block. Each *registered* curve is its own parameter block today; a
-shared-atom layout that reports an atom once across the composites referencing it is the pending
-piece ([risk_and_engine_design.md](risk_and_engine_design.md) §4.1).
+the engines unchanged, with the ladder split per component block. Each distinct *registered*
+curve object is one parameter block today (several keys on one object share it); a shared-atom
+layout that reports an atom once across the composites referencing it is the pending piece
+([curves_and_market_plan.md](curves_and_market_plan.md) PR E).
 
-`YieldCurve` composes an `origin` date and one `DiscountCurve` with a `MarketConventions`
-definition and optional `HistoricalFixings`. It is the only layer that sees dates:
-`discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`; `node_dates` and
-`node_index(Term | date)` map pillars back to the calendar. Its canonical name comes from the
-index definition, for example `USD.SOFR`, and it is the object stored by `CurveNamespace`
-and `MarketContext`. `YieldCurve.build(node_dates, dfs, ...)` is the dates-in constructor;
-`with_zero_curve(...)` creates a scenario curve while preserving origin, index definition and
-fixing history.
+`YieldCurve` composes an `origin` date and one `DiscountCurve` with a curve key
+(`finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that
+sees dates: `discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`;
+`node_dates` and `node_index(Term | date)` map pillars back to the calendar. Keys follow one
+grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.ON`, `USD.CME-TERM-SOFR.3M`; it
+carries its index family's conventions) and `CCY.NAME` is a discount curve (`USD.STDCSA`,
+`USD.UST`; no conventions, nothing resets off it). `YieldCurve.build(node_dates, dfs, ...)` is
+the dates-in constructor; `with_zero_curve(...)` creates a scenario curve while preserving
+origin, key and fixing history; `with_key(...)` re-registers the same state under another key.
 
 `MarketContext` owns registered market data. It resolves `yield_curve(name)` and
-`zero_curve(name)` and produces immutable curve scenarios through `with_curve(yield_curve)`.
-It does not calculate rates.
+`zero_curve(name)` and produces immutable curve scenarios through `with_curve(yield_curve)`,
+which moves every key holding the replaced object. A market registers every key its trades
+name; discounting at SOFR is `curves.bind(sofr, "USD.STDCSA")`, the same object under the
+discount key, and `curve_owner(name)` reports which key owns a shared object (the projection
+key). It does not calculate rates.
 
 `RateGenerator` gives financial meaning to discount-factor ratios. It generates simple
 index rates (including historical-fixing overlays), continuous interval forwards,
@@ -123,23 +128,20 @@ helpers = [
     swap_helper(rate=0.0409, tenor="10Y", as_of=as_of),
 ]
 base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
-definition = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+definition = CurveDefinition(
+    "USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
+)  # the curve being calibrated also discounts its own swaps
 result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     base,
     jacobian=True,
 )
 
-sofr_curve = YieldCurve.from_registry(
-    result.origin,
-    result.zero_curve,
-    currency="USD",
-    index_name="SOFR",
-)
+sofr_curve = YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
 # Optional for a seasoned book:
 # sofr_curve = sofr_curve.with_historical_fixings(
 #     HistoricalFixings(fixing_dates, fixing_rates)
 # )
-market = base.with_curve(sofr_curve)
+market = base.with_curve(sofr_curve).with_curve(sofr_curve, name="USD.STDCSA")
 ```
 
 The same boundary is used for scenarios:
@@ -177,11 +179,11 @@ swap = Swap.fixed_float_swap(
 program = SwapPricer().compile([swap], backend=Backend.Numba)
 price = program.price(market)
 risk = NumbaRisk(program, market)
-zero_dv01 = risk.zero_ladder("USD.SOFR")
-index_dv01 = risk.index_ladder("USD.SOFR")
-funding_dv01 = risk.funding_ladder("USD.SOFR")
-partial_dv01 = risk.partial_dv01("USD.SOFR", result.jacobian)
-gamma = risk.gamma("USD.SOFR")
+zero_dv01 = risk.zero_ladder("USD.SOFR.ON")
+index_dv01 = risk.index_ladder("USD.SOFR.ON")
+funding_dv01 = risk.funding_ladder("USD.SOFR.ON")
+partial_dv01 = risk.partial_dv01("USD.SOFR.ON", result.jacobian)
+gamma = risk.gamma("USD.SOFR.ON")
 ```
 
 For a complete runnable calibration, single-swap report, randomized N-swap aggregation,

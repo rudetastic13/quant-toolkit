@@ -8,6 +8,7 @@ import numpy as np
 from finance.dates import BDC, Date, DayCountMethod, Frequency
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
+from finance.instruments.resolution.resolver import curve_name
 
 _MONTH_CODES = {code: month for month, code in enumerate("FGHJKMNQUVXZ", start=1)}
 _QUARTERLY = frozenset({3, 6, 9, 12})
@@ -96,7 +97,7 @@ class SofrFuture:
             effective=self.ref_start, maturity=self.ref_end, currency=self.currency, notional=1.0,
             payment_frequency=Frequency.Once, day_count_method=self.day_count_method,
             business_day_convention=BDC.NoAdjustment, pay_calendar="no_holidays",
-            coupon_type=self.coupon_type, rate_index=f"{self.currency} {self.index_name}",
+            coupon_type=self.coupon_type, rate_index=curve_name(self.currency, self.index_name),
             reset_frequency=Frequency.Daily, rate_calendar="no_holidays",
         )
         return ((leg, 1.0),)
@@ -150,5 +151,3 @@ class SofrFuture:
             convexity=float(convexity),
         )
 
-
-__all__ = ["SofrFuture", "imm_date", "next_quarterly_imm"]

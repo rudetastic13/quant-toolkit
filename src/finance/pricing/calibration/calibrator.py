@@ -12,7 +12,9 @@ Parameterisation is continuously-compounded zero rates at the pillars (``DF = ex
 curve geometry (pillar offsets, space, interpolator) is built once as a template and each
 solver iteration only rebinds discount factors through ``ZeroCurve.with_dfs``.
 Helpers reference a single curve name (their forecast curve); a multi-name basis helper is a
-multi-curve follow-up that reuses ``MarketContext.with_curve`` the same way.
+multi-curve follow-up that reuses ``MarketContext.with_curve`` the same way.  The target's
+``discount_keys`` say which discount keys the curve under calibration also serves
+(``USD.STDCSA`` for a SOFR OIS curve); nothing is discounted implicitly.
 """
 
 from __future__ import annotations
@@ -25,6 +27,7 @@ import numpy as np
 from common.math.interpolation import Flat, Interpolator, Linear
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, CurveSpace, RateExtrapolator, YieldCurve, ZeroCurve
+from finance.instruments.resolution.resolver import curve_name
 from finance.pricing.calibration.instruments import CalibrationInstrument
 from finance.pricing.calibration.solvers import Solver, SolverResult
 from finance.pricing.types import Backend
@@ -44,6 +47,12 @@ class CurveDefinition:
 
     ``interpolation`` is either a named :class:`CurveInterpolator` (which carries its own
     space, so ``space`` is ignored) or an interpolator instance combined with ``space``.
+
+    The target is a projection curve, ``CCY.INDEX.TENOR`` (``index_name`` ``'SOFR'`` means
+    overnight; ``'CME-TERM-SOFR.3M'`` a term tenor).  ``discount_keys`` are the discount keys
+    the curve being calibrated is bound under while its quotes are priced — ``('USD.STDCSA',)``
+    for an OIS curve that funds its own swaps.  Leave it empty when the market already holds
+    the discount curve (a basis calibration); a market never discounts implicitly.
     """
 
     currency: str
@@ -51,10 +60,11 @@ class CurveDefinition:
     interpolation: CurveInterpolator | Interpolator = CurveInterpolator.LogLinearDF
     space: CurveSpace = CurveSpace.LogDF
     extrapolation: RateExtrapolator = RateExtrapolator.FlatForward
+    discount_keys: tuple[str, ...] = ()
 
     @property
     def name(self) -> str:
-        return f"{self.currency.upper()}.{self.index_name.upper()}"
+        return curve_name(self.currency, self.index_name)
 
     @property
     def scheme(self) -> tuple[CurveSpace, Interpolator]:
@@ -98,6 +108,13 @@ class CurveDefinition:
             historical_fixings=historical_fixings,
         )
 
+    def bind(self, market: MarketContext, curve: YieldCurve) -> MarketContext:
+        """``market`` with ``curve`` under the target key and under every ``discount_keys`` entry."""
+        out = market.with_curve(curve)
+        for key in self.discount_keys:
+            out = out.with_curve(curve, name=key)
+        return out
+
 
 @dataclass
 class CalibrationResult:
@@ -106,7 +123,7 @@ class CalibrationResult:
     ``zero_curve`` is deliberately mathematical state, not a market registration. The
     caller composes it with ``MarketConventions`` to create a ``YieldCurve``::
 
-        YieldCurve.from_registry(result.origin, result.zero_curve, currency=..., index_name=...)
+        YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
 
     ``jacobian`` (populated only when ``calibrate(..., jacobian=True)``) is the exact
     ``J_ij = ∂impliedᵢ/∂zⱼ`` at the solution, computed by the Numba analytic adjoint by
@@ -197,7 +214,7 @@ class CurveCalibrator:
             return template.with_dfs(node_dfs(z))
 
         def residual_fn(z: FloatArray) -> FloatArray:
-            trial = market.with_curve(self.target.compose(origin, build_curve(z), market))
+            trial = self.target.bind(market, self.target.compose(origin, build_curve(z), market))
             return np.array([h.residual(trial) for h in helpers], dtype=np.float64)
 
         sr = self.solver.solve(residual_fn, x0)
@@ -206,7 +223,7 @@ class CurveCalibrator:
 
         curve = build_curve(sr.x)
         calibrated = self.target.compose(origin, curve, market)
-        out = market.with_curve(calibrated)
+        out = self.target.bind(market, calibrated)
 
         residuals = np.array([h.residual(out) for h in helpers], dtype=np.float64)
 
@@ -230,5 +247,3 @@ class CurveCalibrator:
             jacobian=jac,
         )
 
-
-__all__ = ["CurveDefinition", "CalibrationResult", "CurveCalibrator", "LOCAL_INTERPOLATORS"]
