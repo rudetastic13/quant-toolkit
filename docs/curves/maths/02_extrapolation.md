@@ -74,6 +74,6 @@ nodes.
 
 A `CompositeCurve` does not extrapolate; each component does, by its own rule. A two-node
 flat-forward spread atom therefore continues its constant spread for ever, while a base with
-`NotAllowed` still rejects a query past its last pillar ([04](../04_composite_curve.md)).
+`NotAllowed` still rejects a query past its last pillar ([03](../03_composite_curve.md)).
 
 Next: [maths/03 · Discount factors](03_discount_factors.md).

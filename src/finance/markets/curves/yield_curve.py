@@ -1,8 +1,8 @@
 """Convention-aware market curve: an origin date, a pure :class:`DiscountCurve`, and an index.
 
-This is the only layer that sees dates.  Discount curves (``ZeroCurve``, ``CompositeCurve``,
-``SpreadCurve``) work on float day offsets; every date-based query here converts through
-:func:`dates_to_x` against ``origin``.
+This is the only layer that sees dates.  Discount curves (``ZeroCurve``, ``CompositeCurve``)
+work on float day offsets; every date-based query here converts through :func:`dates_to_x`
+against ``origin``.
 """
 
 from __future__ import annotations
@@ -37,7 +37,7 @@ class YieldCurve:
     A ``DiscountCurve`` is unaware of dates, currency, calendars, fixing rules or coupon
     conventions.  ``YieldCurve`` is the market object registered in ``MarketContext`` and
     supplies those definitions to ``RateGenerator``.  The field is still called ``zero_curve``
-    although any ``DiscountCurve`` (a ``SpreadCurve`` over another index's atom, say) can sit there.
+    although any ``DiscountCurve`` (a spread composite over another index's atom, say) can sit there.
     """
 
     origin: np.datetime64

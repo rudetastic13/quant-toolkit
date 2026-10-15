@@ -14,7 +14,7 @@ one row per instrument. For a set of `K` quotes (par rates, futures prices) the 
 the **template Jacobian** `J_T` of shape `(K, P)`. The whole risk layer of the library is linear
 algebra on these two matrices and on `H`; this document shows where they come from.
 
-Continues from [01](01_discount_curve.md) (`sofr`, `x`) and [05](05_yield_curve.md) (`as_of`,
+Continues from [01](01_discount_curve.md) (`sofr`, `x`) and [04](04_yield_curve.md) (`as_of`,
 `sofr_yc`, `fedfund_yc`).
 
 ## 1. The affine map is the whole derivative of the curve
@@ -198,8 +198,8 @@ falls past the 5Y pillar, into the segment that the 5Y and 10Y nodes share.
 
 ## 6. Composite curves split the ladder by block
 
-A Fed Funds swap projected off the `SpreadCurve` registered as `USD.FEDFUND`
-([05](05_yield_curve.md)) and discounted off `USD.SOFR`. The index ladder on `USD.FEDFUND` has
+A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND`
+([04](04_yield_curve.md)) and discounted off `USD.SOFR`. The index ladder on `USD.FEDFUND` has
 six columns: the five SOFR pillars of its base block, then the spread parameter. The spread
 column is the parallel index risk, because a flat spread *is* a parallel move of the projection
 curve.

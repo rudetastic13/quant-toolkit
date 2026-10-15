@@ -69,8 +69,8 @@ sofr.zero_rate(np.array([0.0])), sofr.instantaneous_forward(np.array([0.0]))
 ## Zero rates of a composite
 
 Because `ln DF` adds across components and `z = −ln DF / t` is linear in `ln DF`, zero rates add
-with the same weights: `z_total(t) = Σ wᵢ zᵢ(t)`. A `SpreadCurve`'s `spread_rate(t)` is exactly
-the zero rate of its spread component, the continuously compounded spread to `t`
-([03](../03_spread_curve.md)).
+with the same weights: `z_total(t) = Σ wᵢ zᵢ(t)`. For a spread composite, `curve["spread"].zero_rate(t)` is the
+continuously compounded spread to `t`, and `curve.zero_rate(t) - curve["base"].zero_rate(t)`
+recovers the same number ([03](../03_composite_curve.md)).
 
 Next: [maths/06 · Forward rates](06_forward_rates.md).

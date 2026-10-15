@@ -12,7 +12,7 @@ DiscountCurve (02–04)  +  origin  +  (currency, index) conventions  +  fixings
     YieldCurve  ──registered by name──▶  CurveNamespace / MarketContext  ──▶  RateGenerator, pricers
 ```
 
-Continues from [01](01_discount_curve.md) and [03](03_spread_curve.md) (`sofr`, `fedfund`,
+Continues from [01](01_discount_curve.md) and [03](03_composite_curve.md) (`sofr`, `fedfund`,
 `dfs`).
 
 ## Construction
@@ -94,13 +94,13 @@ seasoned.historical_fixings.get_value(np.array(["2026-05-30", "2026-05-29"], dty
 ## A spread curve as its own index
 
 `USD.FEDFUND` is registered with `funding_id="SOFR"`: a Fed Funds swap projects off
-`USD.FEDFUND` and discounts off `USD.SOFR`. Its discount curve is the `SpreadCurve` from
-[03](03_spread_curve.md), sharing the SOFR atom by reference.
+`USD.FEDFUND` and discounts off `USD.SOFR`. Its discount curve is the labelled spread composite from
+[03](03_composite_curve.md), sharing the SOFR atom by reference.
 
 ```python
 fedfund_yc = YieldCurve.from_registry(origin, fedfund, currency="USD", index_name="FEDFUND")
 fedfund_yc
-# YieldCurve(name='USD.FEDFUND', origin=2026-06-01, zero_curve=SpreadCurve(base=ZeroCurve(nodes=6, ...), spread=ZeroCurve(nodes=2, ...)))
+# YieldCurve(name='USD.FEDFUND', origin=2026-06-01, zero_curve=CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...)))
 fedfund_yc.node_dates                              # the composite's union of pillars
 # ['2026-06-01' '2026-08-30' '2027-06-01' '2028-05-31' '2031-05-31' '2036-05-29']
 ```
@@ -121,7 +121,7 @@ market = MarketContext(as_of, ns)
 ns
 # CurveNamespace({USD.SOFR(v0), USD.FEDFUND(v0)})
 market.zero_curve("USD.FEDFUND")
-# SpreadCurve(base=ZeroCurve(nodes=6, ...), spread=ZeroCurve(nodes=2, ...))
+# CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...))
 ```
 
 `RateGenerator` gives discount-factor ratios their financial meaning. A window that starts before
@@ -143,11 +143,11 @@ market.zero_curve("USD.SOFR") is sofr
 # True
 ```
 
-Note what the scenario did *not* do: it did not change `USD.FEDFUND`. Its `SpreadCurve` still
+Note what the scenario did *not* do: it did not change `USD.FEDFUND`. Its spread composite still
 holds a reference to the original `sofr` object. Moving the SOFR atom "through" every composite
 that references it is the job of the shared-atom parameter layout
 ([risk_and_engine_design.md](../risk_and_engine_design.md) §4.1), not of `with_curve`; until
-then, a scenario on a shared atom rebuilds each dependent composite with `with_base`.
+then, a scenario on a shared atom rebuilds each dependent composite with `with_component("base", ...)`.
 
 ## What `YieldCurve` deliberately does not do
 
@@ -156,4 +156,4 @@ compounded and averaged observation rates and par swap rates; pricers own PV. It
 calibrate: `CurveCalibrator` returns a `ZeroCurve` plus its origin, and registration through
 `from_registry` is an explicit step ([curve_architecture.md](../curve_architecture.md)).
 
-Next: [06 · Risk: Jacobian and Hessian](06_risk_jacobian_hessian.md).
+Next: [05 · Risk: Jacobian and Hessian](05_risk_jacobian_hessian.md).

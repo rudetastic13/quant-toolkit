@@ -62,7 +62,7 @@ np.mean(sofr.instantaneous_forward(np.linspace(365.0, 730.0, 20001)))
 ```
 
 `RateGenerator.simple_rate` and `continuous_forward_rate` are these two formulas over dates,
-with the index's day count and the historical-fixing overlay ([05](../05_yield_curve.md)).
+with the index's day count and the historical-fixing overlay ([04](../04_yield_curve.md)).
 
 ## Compounded and averaged forwards
 
@@ -70,14 +70,14 @@ An overnight index swap coupon compounds daily forwards: `(Π(1 + Lₘ τₘ) �
 `Lₘ τₘ = DF(tₘ)/DF(tₘ₊₁) − 1`, the product telescopes to `DF(t_start)/DF(t_end) − 1` when there
 are no spreads, floors or weights, which is why a plain compounded leg has the same value as a
 single forward over the whole period and why the floating leg of a par swap in
-[06](../06_risk_jacobian_hessian.md) §4 collapses to `1 − DF(T)`. Weights, spreads, caps and
+[05](../05_risk_jacobian_hessian.md) §4 collapses to `1 − DF(T)`. Weights, spreads, caps and
 fixings break the telescoping, and the engine then does the product explicitly.
 
 ## Forwards of a composite
 
 Forwards add with the composite's weights, `f_total = Σ wᵢ fᵢ`, because the derivative of a sum
 is the sum of derivatives. A flat spread adds a constant to every forward; a turn adds a spike in
-one window and nothing elsewhere ([04](../04_composite_curve.md)).
+one window and nothing elsewhere ([03](../03_composite_curve.md)).
 
 ## Forwards and risk
 
@@ -85,4 +85,4 @@ The forward is the first derivative of `ln DF` in *time*. Risk is the first deri
 in the *parameters*. The two are unrelated except through the scheme: a global scheme (cubic)
 makes both the forward and the parameter Jacobian non-local, which is why a cubic curve shows
 smooth forwards and dense risk ladders while a log-linear curve shows stepped forwards and
-banded ladders. [06](../06_risk_jacobian_hessian.md) takes the parameter derivative from here.
+banded ladders. [05](../05_risk_jacobian_hessian.md) takes the parameter derivative from here.

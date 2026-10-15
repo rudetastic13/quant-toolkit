@@ -15,7 +15,7 @@ calibration quotes
        |
        | in log-DF or zero-rate space, DF invariants
        v
-   DiscountCurve         protocol: ZeroCurve (atom) | SpreadCurve | CompositeCurve (sums in log-DF)
+   DiscountCurve         protocol: ZeroCurve (atom) | CompositeCurve (weighted sums in log-DF)
        |
        | + origin date + USD SOFR conventions
        v
@@ -52,11 +52,11 @@ It has no dates, currency, index, fixing, forward-rate, coupon, or par-rate beha
 downstream consumes: geometry (`x`, `dfs`, `max_x`, `scheme`), a flat parameter vector
 (`params`, `with_params`), the queries above, and `log_df_affine`, the exact
 `(offset, jacobian)` of `ln DF` in the parameters that the engines differentiate through.
-`CompositeCurve(components, weights)` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves (basis
-curves, turns, overlays; composites nest) and `SpreadCurve(base, spread)` is the two-component
-case with named roles and a `flat(base, spread)` constructor. Both are exactly affine in their
-concatenated parameters, so a composite prices and risks through the engines unchanged, with the
-ladder split per component block. Each *registered* curve is its own parameter block today; a
+`CompositeCurve(components, weights)` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves (spreads,
+basis curves, turns, overlays; composites nest). Components may be labelled
+(`{"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)}`) and addressed by label.
+It is exactly affine in its concatenated parameters, so a composite prices and risks through
+the engines unchanged, with the ladder split per component block. Each *registered* curve is its own parameter block today; a
 shared-atom layout that reports an atom once across the composites referencing it is the pending
 piece ([risk_and_engine_design.md](risk_and_engine_design.md) §4.1).
 

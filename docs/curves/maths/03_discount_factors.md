@@ -62,7 +62,7 @@ PV = Σᵢ cᵢ · DF(tᵢ)
 
 Linear in the cash flows, and, for fixed times, linear in the discount factors. That linearity is
 why the gradient of a fixed leg with respect to the curve parameters is a weighted sum of the
-discount factors' gradients ([06](../06_risk_jacobian_hessian.md) §2).
+discount factors' gradients ([05](../05_risk_jacobian_hessian.md) §2).
 
 ## Why the curve does not interpolate discount factors directly
 

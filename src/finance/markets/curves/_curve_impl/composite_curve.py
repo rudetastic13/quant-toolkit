@@ -3,23 +3,28 @@
 ``ln DF(x) = Σᵢ wᵢ · ln DFᵢ(x)``, i.e. ``DF = Π DFᵢ^{wᵢ}``.  Zero rates and instantaneous
 forwards add with the same weights.  This is the *only* composition that keeps ``ln DF`` affine
 in the parameters (the engine contract in :mod:`.discount_curve`), and it covers every
-production case: a base plus a spread (:class:`~finance.markets.curves.SpreadCurve`), a basis
-between two indices (weights ``(1, -1)``), a turn-of-year atom added to a smooth curve, or a
-scenario overlay.  Components are any :class:`DiscountCurve`, so composites nest.
+production case: a base plus a spread, a basis between two indices (weights ``(1, -1)``), a
+turn-of-year atom added to a smooth curve, or a scenario overlay.  Components are any
+:class:`DiscountCurve`, so composites nest.
+
+Components may be labelled by passing a mapping (``{"base": sofr, "spread": s3m}``); labels
+address components in ``curve["spread"]``, ``component_slice("spread")`` and
+``with_component("spread", ...)`` and name the parameter blocks in risk reports.  Labels never
+affect the arithmetic, so they are not part of :attr:`scheme`.
 
 Parameters are the components' parameters concatenated in component order; ``param_offsets``
 recovers each block, which is how risk on a composite is reported per component (index risk vs
 spread risk vs turn risk) rather than as one undifferentiated ladder.
 
 Extrapolation is each component's own: a query beyond one component's last pillar uses that
-component's rule, so a two-node flat-forward spread atom continues its constant spread for ever
-while a base curve with ``NotAllowed`` still rejects.
+component's rule, so a two-node flat-forward spread atom (``ZeroCurve.constant``) continues its
+constant spread for ever while a base curve with ``NotAllowed`` still rejects.
 """
 
 from __future__ import annotations
 
 from functools import reduce
-from typing import Hashable, Sequence
+from typing import Hashable, Mapping, Sequence
 
 import numpy as np
 
@@ -31,8 +36,9 @@ class CompositeCurve:
 
     Parameters
     ----------
-    components : sequence of DiscountCurve
-        At least one.  Any curve satisfying the protocol, including other composites.
+    components : sequence of DiscountCurve, or mapping of str to DiscountCurve
+        At least one.  Any curve satisfying the protocol, including other composites.  A
+        mapping labels the components (insertion order is component order).
     weights : sequence of float, optional
         One per component, finite and non-zero.  Default: all ``1.0``.
 
@@ -41,8 +47,8 @@ class CompositeCurve:
     TypeError
         If a component does not satisfy :class:`DiscountCurve`.
     ValueError
-        If ``components`` is empty, ``weights`` has the wrong length, or a weight is zero or
-        not finite.
+        If ``components`` is empty, ``weights`` has the wrong length, a weight is zero or not
+        finite, or labels are not unique.
 
     Notes
     -----
@@ -52,16 +58,30 @@ class CompositeCurve:
 
     Examples
     --------
-    A funding basis as the difference of two atoms, and a turn added to a smooth curve:
+    A spread curve, a funding basis as the difference of two curves, and a turn added to a
+    smooth curve:
 
-    >>> basis = CompositeCurve((fedfund, sofr), weights=(1.0, -1.0))   # doctest: +SKIP
-    >>> with_turn = CompositeCurve((smooth, turn))                      # doctest: +SKIP
+    >>> fedfund = CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)})  # doctest: +SKIP
+    >>> basis = CompositeCurve((fedfund, sofr), weights=(1.0, -1.0))                                  # doctest: +SKIP
+    >>> with_turn = CompositeCurve({"smooth": sofr, "turn": turn})                                     # doctest: +SKIP
+    >>> fedfund["spread"].zero_rate(x)                                                                 # doctest: +SKIP
     """
 
-    __slots__ = ("_components", "_weights", "_x", "_offsets")
+    __slots__ = ("_components", "_weights", "_labels", "_x", "_offsets")
 
-    def __init__(self, components: Sequence[DiscountCurve], weights: Sequence[float] | None = None) -> None:
-        components = tuple(components)
+    def __init__(
+        self,
+        components: Sequence[DiscountCurve] | Mapping[str, DiscountCurve],
+        weights: Sequence[float] | None = None,
+    ) -> None:
+        if isinstance(components, Mapping):
+            labels: tuple[str, ...] | None = tuple(str(k) for k in components)
+            components = tuple(components.values())
+            if len(set(labels)) != len(labels):
+                raise ValueError(f"component labels must be unique; got {labels}.")
+        else:
+            labels = None
+            components = tuple(components)
         if not components:
             raise ValueError("CompositeCurve needs at least one component.")
         for i, component in enumerate(components):
@@ -74,19 +94,24 @@ class CompositeCurve:
             raise ValueError(f"{len(components)} components but {len(weights)} weights.")
         if not all(np.isfinite(w) and w != 0.0 for w in weights):
             raise ValueError(f"weights must be finite and non-zero; got {weights}.")
-        self._init(components, weights)
+        self._init(components, weights, labels)
 
-    def _init(self, components: tuple[DiscountCurve, ...], weights: tuple[float, ...]) -> None:
+    def _init(
+        self, components: tuple[DiscountCurve, ...], weights: tuple[float, ...], labels: tuple[str, ...] | None
+    ) -> None:
         self._components = components
         self._weights = weights
+        self._labels = labels
         self._x = reduce(np.union1d, (c.x for c in components))
         self._offsets = np.concatenate([[0], np.cumsum([c.n_params for c in components])]).astype(np.intp)
 
     @classmethod
-    def _from_parts(cls, components: tuple[DiscountCurve, ...], weights: tuple[float, ...]) -> CompositeCurve:
+    def _from_parts(
+        cls, components: tuple[DiscountCurve, ...], weights: tuple[float, ...], labels: tuple[str, ...] | None
+    ) -> CompositeCurve:
         """Rebuild without re-validating; the rebinding paths pass parts that are already valid."""
         curve = object.__new__(cls)
-        curve._init(components, weights)
+        curve._init(components, weights, labels)
         return curve
 
     # -- state ----------------------------------------------------------------------------
@@ -100,6 +125,47 @@ class CompositeCurve:
     def weights(self) -> tuple[float, ...]:
         """The log-DF weight of each component."""
         return self._weights
+
+    @property
+    def labels(self) -> tuple[str, ...] | None:
+        """Component labels in component order, or ``None`` when built from a plain sequence."""
+        return self._labels
+
+    def _index(self, key: int | str) -> int:
+        if isinstance(key, str):
+            if self._labels is None:
+                raise KeyError(f"this composite has no labels; address components by index (got {key!r}).")
+            try:
+                return self._labels.index(key)
+            except ValueError:
+                raise KeyError(f"no component labelled {key!r}; labels are {self._labels}.") from None
+        n = len(self._components)
+        if not -n <= key < n:
+            raise IndexError(f"component index {key} out of range for {n} components.")
+        return key % n
+
+    def __getitem__(self, key: int | str) -> DiscountCurve:
+        """Component by index or label.
+
+        Parameters
+        ----------
+        key : int or str
+
+        Returns
+        -------
+        DiscountCurve
+
+        Raises
+        ------
+        KeyError
+            Unknown label, or a label on an unlabelled composite.
+        IndexError
+            Index out of range.
+        """
+        return self._components[self._index(key)]
+
+    def __len__(self) -> int:
+        return len(self._components)
 
     @property
     def x(self) -> FloatArray:
@@ -124,10 +190,11 @@ class CompositeCurve:
 
     @property
     def scheme(self) -> Hashable:
-        """Weights plus each component's pillars and scheme.
+        """Weights plus each component's pillars and scheme; labels excluded.
 
         Component pillar positions are part of the identity: the union :attr:`x` alone does not
-        say which component owns a pillar, and the affine rows depend on that.
+        say which component owns a pillar, and the affine rows depend on that.  Labels do not
+        change the arithmetic, so two composites that differ only in labels share a scheme.
         """
         return (
             "composite",
@@ -158,18 +225,19 @@ class CompositeCurve:
         """
         return self._offsets
 
-    def component_slice(self, i: int) -> slice:
-        """Slice of :attr:`params` (and of any Jacobian's columns) owned by component ``i``.
+    def component_slice(self, key: int | str) -> slice:
+        """Slice of :attr:`params` (and of any Jacobian's columns) owned by one component.
 
         Parameters
         ----------
-        i : int
-            Component index.
+        key : int or str
+            Component index or label.
 
         Returns
         -------
         slice
         """
+        i = self._index(key)
         return slice(int(self._offsets[i]), int(self._offsets[i + 1]))
 
     @property
@@ -193,7 +261,7 @@ class CompositeCurve:
         Returns
         -------
         CompositeCurve
-            Same components' geometry and the same weights.
+            Same components' geometry, the same weights and labels.
 
         Raises
         ------
@@ -204,15 +272,15 @@ class CompositeCurve:
         if params.shape != (self.n_params,):
             raise ValueError(f"expected {self.n_params} parameters; got shape {params.shape}.")
         components = tuple(c.with_params(params[self.component_slice(i)]) for i, c in enumerate(self._components))
-        return self._from_parts(components, self._weights)
+        return self._from_parts(components, self._weights, self._labels)
 
-    def with_component(self, i: int, component: DiscountCurve) -> CompositeCurve:
-        """Replace component ``i`` with a curve of any geometry; weights are kept.
+    def with_component(self, key: int | str, component: DiscountCurve) -> CompositeCurve:
+        """Replace one component with a curve of any geometry; weights and labels are kept.
 
         Parameters
         ----------
-        i : int
-            Component index.
+        key : int or str
+            Component index or label.
         component : DiscountCurve
             The replacement.
 
@@ -220,9 +288,12 @@ class CompositeCurve:
         -------
         CompositeCurve
         """
+        i = self._index(key)
         components = list(self._components)
         components[i] = component
-        return CompositeCurve(components, self._weights)
+        if self._labels is None:
+            return CompositeCurve(components, self._weights)
+        return CompositeCurve(dict(zip(self._labels, components)), self._weights)
 
     # -- queries --------------------------------------------------------------------------
 
@@ -285,5 +356,8 @@ class CompositeCurve:
         return offset, np.hstack(blocks)
 
     def __repr__(self) -> str:
-        parts = ", ".join(f"{w:+g}*{c!r}" for w, c in zip(self._weights, self._components))
+        if self._labels is None:
+            parts = ", ".join(f"{w:+g}*{c!r}" for w, c in zip(self._weights, self._components))
+        else:
+            parts = ", ".join(f"{lb}={w:+g}*{c!r}" for lb, w, c in zip(self._labels, self._weights, self._components))
         return f"CompositeCurve({parts})"

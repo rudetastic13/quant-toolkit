@@ -7,8 +7,9 @@ origin date and converts dates to ``x``.  Queries before the origin are rejected
 last pillar the terminal instantaneous forward is continued (or the query is rejected).
 
 It is the atom of the :class:`~finance.markets.curves.DiscountCurve` protocol: its parameters
-are the non-origin pillar zero rates, and composites (:class:`~finance.markets.curves.CompositeCurve`,
-:class:`~finance.markets.curves.SpreadCurve`) are weighted sums of atoms in log-DF space.
+are the non-origin pillar zero rates, and :class:`~finance.markets.curves.CompositeCurve` builds
+spreads, bases and turns as weighted sums of atoms in log-DF space.  :meth:`ZeroCurve.constant`
+is the two-node atom a flat spread is made of.
 """
 
 from __future__ import annotations
@@ -92,6 +93,42 @@ class ZeroCurve:
             right = Extrapolation.Flat  # placeholder: flat-forward is applied in the DF transform
         line = Line1d(x, _to_space(space, x, dfs), interpolator, left=Extrapolation.NotAllowed, right=right)
         self._init(x, dfs, space, interpolator, extrapolation, line)
+
+    @classmethod
+    def constant(
+        cls, rate: float, horizon: float, *, extrapolation: RateExtrapolator = RateExtrapolator.FlatForward
+    ) -> ZeroCurve:
+        """Two-node log-linear curve whose zero rate and forward equal ``rate`` for every ``x``.
+
+        The single parameter *is* ``rate``.  Flat-forward extrapolation continues it unchanged
+        beyond ``horizon``, so the horizon only names the pillar.  This is the atom a constant
+        spread is made of: ``CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)})``.
+
+        Parameters
+        ----------
+        rate : float
+            Act/365 continuously compounded rate, decimal (``0.00085`` for 8.5 bp; may be negative).
+        horizon : float
+            Day offset of the single non-origin pillar, ``> 0``.
+        extrapolation : RateExtrapolator, optional
+            Default ``FlatForward``.
+
+        Returns
+        -------
+        ZeroCurve
+            ``n_params == 1``, ``params[0] == rate``.
+
+        Raises
+        ------
+        ValueError
+            If ``horizon`` is not positive.
+        """
+        horizon = float(horizon)
+        if not horizon > 0.0:
+            raise ValueError(f"horizon must be positive; got {horizon}.")
+        x = np.array([0.0, horizon])
+        dfs = np.array([1.0, np.exp(-float(rate) * horizon / DAYS_PER_YEAR)])
+        return cls(x, dfs, extrapolation=extrapolation)
 
     def _init(self, x, dfs, space, interpolator, extrapolation, line) -> None:
         self._x = x

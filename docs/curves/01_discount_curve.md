@@ -5,13 +5,12 @@
 knows whether it is a single interpolated line or a sum of several, so a composite prices and
 risks through exactly the same path as an atom.
 
-Three implementations exist:
+Two implementations exist:
 
 | Class | Doc | What it is |
 |---|---|---|
 | `ZeroCurve` | [02](02_zero_curve.md) | the atom: one `Line1d` in log-DF or zero-rate space |
-| `SpreadCurve` | [03](03_spread_curve.md) | base + spread, `ln DF = ln DF_base + ln DF_spread` |
-| `CompositeCurve` | [04](04_composite_curve.md) | `ln DF = Σ wᵢ ln DFᵢ` over any discount curves |
+| `CompositeCurve` | [03](03_composite_curve.md) | `ln DF = Σ wᵢ ln DFᵢ` over any discount curves: spreads, bases, turns |
 
 ## Setup used by every document
 
@@ -20,7 +19,7 @@ discount factors they imply. Everything that follows reuses `x`, `z`, `dfs`, `so
 
 ```python
 import numpy as np
-from finance.markets.curves import CompositeCurve, CurveSpace, DiscountCurve, SpreadCurve, ZeroCurve
+from finance.markets.curves import CompositeCurve, CurveSpace, DiscountCurve, ZeroCurve
 
 x = np.array([0.0, 90.0, 365.0, 730.0, 1825.0, 3650.0])          # 3M 1Y 2Y 5Y 10Y, in days
 z = np.array([0.0, 0.0410, 0.0400, 0.0390, 0.0410, 0.0430])      # Act/365 cc zero rates at the pillars
@@ -147,14 +146,14 @@ Two consequences that shape the rest of the library:
   and scatters adjoints back through `jacobian`. Cubic, mixed, zero-rate-space: no kernel
   change.
 - **`ln DF` has zero second-order sensitivity to the parameters.** All curvature of a PV lives
-  downstream, in `exp`, in compounding, in par-rate quotients. [06](06_risk_jacobian_hessian.md)
+  downstream, in `exp`, in compounding, in par-rate quotients. [05](05_risk_jacobian_hessian.md)
   builds exact Hessians from this fact.
 
 ## Why a protocol and not a base class
 
-Composition over inheritance. `SpreadCurve` *wraps* a `CompositeCurve` and `CompositeCurve`
-*holds* its components; neither inherits from `ZeroCurve`. The protocol states what a curve must
-do, `isinstance` checks it at runtime (`CompositeCurve.__init__` rejects a component that does
-not satisfy it), and each class remains free to implement storage and rebinding its own way.
+Composition over inheritance. `CompositeCurve` *holds* its components and does not inherit from
+`ZeroCurve`. The protocol states what a curve must do, `isinstance` checks it at runtime
+(`CompositeCurve.__init__` rejects a component that does not satisfy it), and each class remains
+free to implement storage and rebinding its own way.
 
 Next: [02 · `ZeroCurve`](02_zero_curve.md).

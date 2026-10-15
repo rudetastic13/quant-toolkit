@@ -81,7 +81,7 @@ Consequence: `y(x) = Σᵢ yᵢ · φᵢ(x)` for basis functions `φᵢ` that de
 only. In a `ZeroCurve` the node values are linear in the zero rates, so `ln DF` is affine in the
 parameters, which is the engine contract of [01](../01_discount_curve.md) and the reason the
 second derivative of `ln DF` with respect to the parameters is zero
-([06](../06_risk_jacobian_hessian.md)).
+([05](../05_risk_jacobian_hessian.md)).
 
 Schemes that are **not** linear in `y`, and therefore are not in the library: Hagan–West monotone
 convex (the forward construction has data-dependent clamps), tension splines with

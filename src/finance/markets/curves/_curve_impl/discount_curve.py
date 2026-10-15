@@ -1,10 +1,10 @@
 """The discount-curve contract every curve object in a market satisfies.
 
 :class:`~finance.markets.curves.ZeroCurve` is the atom: one ``Line1d`` in a declared space.
-:class:`~finance.markets.curves.CompositeCurve` and :class:`~finance.markets.curves.SpreadCurve`
-are weighted sums of other discount curves in log-DF space.  ``YieldCurve``, ``MarketContext``
-and the pricing engines consume only this protocol, so a composite prices and risks through
-exactly the same path as an atom.
+:class:`~finance.markets.curves.CompositeCurve` is a weighted sum of other discount curves in
+log-DF space (spreads, bases, turns).  ``YieldCurve``, ``MarketContext`` and the pricing engines
+consume only this protocol, so a composite prices and risks through exactly the same path as an
+atom.
 
 Parameters
     Every discount curve exposes a flat float64 vector ``params`` that the engines
@@ -37,8 +37,8 @@ FloatArray = NDArray[np.float64]
 class DiscountCurve(Protocol):
     """Discount factors on a float day-offset axis, differentiable in a flat parameter vector.
 
-    Implementations: :class:`~finance.markets.curves.ZeroCurve` (atom),
-    :class:`~finance.markets.curves.CompositeCurve`, :class:`~finance.markets.curves.SpreadCurve`.
+    Implementations: :class:`~finance.markets.curves.ZeroCurve` (atom) and
+    :class:`~finance.markets.curves.CompositeCurve`.
     All queries take and return float64 arrays of day offsets from the origin; ``x[0] == 0``
     is the origin itself and queries before it are rejected.
     """

@@ -2,7 +2,7 @@
 
 A `ZeroCurve` is a `common.math.line.Line1d` in a declared `CurveSpace`, plus the
 discount-factor invariants. It knows nothing about dates, indices, fixings or coupons; its axis is
-float days from the origin. `YieldCurve` ([05](05_yield_curve.md)) adds the calendar.
+float days from the origin. `YieldCurve` ([04](04_yield_curve.md)) adds the calendar.
 
 Continues from the setup in [01](01_discount_curve.md) (`x`, `z`, `dfs`, `sofr`, `xq`).
 
@@ -113,4 +113,4 @@ More in [maths/02](maths/02_extrapolation.md).
 | `log_df_affine` | probed one pillar at a time, reconstruction checked |
 | `line` | the underlying `Line1d`; `line.coefficients` are PPoly coefficients for a kernel that wants to evaluate the curve itself |
 
-Next: [03 · `SpreadCurve`](03_spread_curve.md).
+Next: [03 · `CompositeCurve`](03_composite_curve.md).

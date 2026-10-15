@@ -3,7 +3,7 @@
 `ln DF(t)` is the natural coordinate for a discount curve. Three facts make it so.
 
 Continues from [maths/03](03_discount_factors.md) (`df1`, `df2`, `t1`, `t2`) and
-[03](../03_spread_curve.md) (`fedfund`).
+[03](../03_composite_curve.md) (`fedfund`).
 
 ## 1. It turns the chaining rule into addition
 
@@ -45,12 +45,11 @@ ln DF_total = ln DF_base + ln DF_spread          ⇔          DF_total = DF_base
 ```
 
 ```python
-np.allclose(fedfund.log_discount_factor(xq), sofr.log_discount_factor(xq) + fedfund.spread.log_discount_factor(xq))
+np.allclose(fedfund.log_discount_factor(xq), sofr.log_discount_factor(xq) + fedfund["spread"].log_discount_factor(xq))
 # True
 ```
 
-This is the whole mathematics of `SpreadCurve` and `CompositeCurve` ([03](../03_spread_curve.md),
-[04](../04_composite_curve.md)): `ln DF = Σ wᵢ ln DFᵢ`.
+This is the whole mathematics of `CompositeCurve` ([03](../03_composite_curve.md)): `ln DF = Σ wᵢ ln DFᵢ`.
 
 ## Linearity in the parameters
 
