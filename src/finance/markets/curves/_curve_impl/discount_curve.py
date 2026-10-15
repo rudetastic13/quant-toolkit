@@ -25,12 +25,32 @@ Affine contract
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Hashable, Protocol, runtime_checkable
 
 import numpy as np
 from numpy.typing import NDArray
 
 FloatArray = NDArray[np.float64]
+
+
+@dataclass(frozen=True)
+class Leaf:
+    """One atom reached from a curve, with how it enters that curve's parameters.
+
+    Parameters
+    ----------
+    curve : DiscountCurve
+        The atom (a ``ZeroCurve``).
+    weight : float
+        Product of the composite weights along the path from the root to this atom.
+    columns : slice
+        The atom's columns in the root's ``params`` and ``log_df_affine`` Jacobian.
+    """
+
+    curve: DiscountCurve
+    weight: float
+    columns: slice
 
 
 @runtime_checkable
@@ -153,6 +173,28 @@ class DiscountCurve(Protocol):
 
     def instantaneous_forward(self, xq: FloatArray) -> FloatArray:
         """Annualised instantaneous forward ``-d ln DF / dt`` (Act/365) at ``xq``."""
+        ...
+
+    # -- structure ----------------------------------------------------------------------
+
+    def leaves(self) -> tuple[Leaf, ...]:
+        """The atoms this curve is built from, in parameter order.
+
+        Returns
+        -------
+        tuple of Leaf
+            A ``ZeroCurve`` returns itself with weight ``1`` and all its columns; a composite
+            returns its components' leaves with accumulated weights and shifted columns.  The
+            same atom object may appear more than once when composites share it.
+        """
+        ...
+
+    def replace(self, old: DiscountCurve, new: DiscountCurve) -> DiscountCurve:
+        """This curve with ``new`` substituted wherever ``old`` appears (by identity).
+
+        Returns ``self`` when ``old`` does not appear.  This is how a market propagates a
+        replaced curve through every composite built on it.
+        """
         ...
 
     # -- engine hand-off ----------------------------------------------------------------

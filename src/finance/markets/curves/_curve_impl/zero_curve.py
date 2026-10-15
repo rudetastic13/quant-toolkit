@@ -19,6 +19,8 @@ from numpy.typing import NDArray
 
 from common.math.interpolation import Interpolator, Linear
 from common.math.line import Extrapolation, Line1d
+from finance.markets.curves._curve_impl.algebra import CurveArithmetic
+from finance.markets.curves._curve_impl.discount_curve import Leaf
 from finance.markets.curves.types import CurveSpace, RateExtrapolator
 
 FloatArray = NDArray[np.float64]
@@ -50,7 +52,7 @@ def _check_dfs(x: FloatArray, dfs: FloatArray) -> None:
         raise ValueError("the first node (the origin) must have DF = 1.0.")
 
 
-class ZeroCurve:
+class ZeroCurve(CurveArithmetic):
     """Discount factors on a day-offset axis, interpolated in a declared space.
 
     Parameters
@@ -237,6 +239,16 @@ class ZeroCurve:
             self._line.with_y(_to_space(self._space, self._x, dfs)),
         )
         return curve
+
+    # -- structure ----------------------------------------------------------------------
+
+    def leaves(self) -> tuple[Leaf, ...]:
+        """An atom is its own single leaf: weight ``1``, all columns."""
+        return (Leaf(self, 1.0, slice(0, self.n_params)),)
+
+    def replace(self, old: ZeroCurve, new: ZeroCurve) -> ZeroCurve:
+        """``new`` if ``old is self``, else ``self``."""
+        return new if old is self else self
 
     # -- queries (xq: float64 day offsets) ---------------------------------------------
 

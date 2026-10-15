@@ -31,6 +31,76 @@ again. Every production need fits the sum:
 There is deliberately no separate spread class. A spread *is* arithmetic on a base curve, so it
 is a labelled two-component composite, and everything a desk wants from it is one label away.
 
+## Arithmetic
+
+Because a spread is arithmetic, the arithmetic is the API. Every operator builds a
+`CompositeCurve`, so nothing outside the weighted-sum family can be written.
+
+```python
+from finance.markets.curves import bp          # bp = 1e-4
+
+fedfund = sofr - 5 * bp                        # Fed Funds is SOFR minus 5
+fedfund
+# CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...))
+fedfund.labels
+# ('base', 'spread')
+termsofr_3m = sofr + s3m                       # base plus a term structure of spread; left operand is the base
+basis = fedfund - sofr                         # a basis has no base: unlabelled, weights (1, -1)
+basis.weights, basis.labels, basis.zero_rate(xq)
+# ((1.0, -1.0), None, array([-0.0005, -0.0005, -0.0005]))
+(0.5 * sofr).weights
+# (0.5,)
+sofr * fedfund
+# TypeError: curves multiply only by scalars: a product of curves is not affine in the parameters.
+```
+
+| expression | builds |
+|---|---|
+| `a + b` | `CompositeCurve({"base": a, "spread": b})` |
+| `a + s`, `s + a` | `CompositeCurve({"base": a, "spread": ZeroCurve.constant(s, a.max_x)})` |
+| `a - b` | `CompositeCurve((a, b), (1, -1))` |
+| `a - s` | base plus `ZeroCurve.constant(-s, a.max_x)` |
+| `w * a`, `a * w`, `-a` | `CompositeCurve((a,), (w,))` |
+| `a * b`, `a / w` | `TypeError` |
+
+**Operators define curves; they do not move them.** `sofr + 10 * bp` is a new curve with one
+more parameter, a 10bp spread. `sofr.with_params(sofr.params + 10 * bp)` is the same five
+parameters at new values. Both price identically today; they report different risk and the
+first is a different `scheme`:
+
+```python
+defined = sofr + 10 * bp
+moved = sofr.with_params(sofr.params + 10 * bp)
+np.allclose(defined.discount_factor(xq), moved.discount_factor(xq)), defined.n_params, moved.n_params
+# (True, 6, 5)
+```
+
+A scenario is `with_params` (or, once the market knows how to propagate, its `bump`); a
+definition is an operator.
+
+## Leaves and replacement
+
+Two structural methods make the sharing between composites usable. `leaves()` lists the atoms a
+curve is built from, with the weight accumulated along the path and the columns they occupy in
+the curve's own parameters and Jacobian. `replace(old, new)` rebuilds a composite with one
+object substituted wherever it appears, by identity, leaving everything else shared.
+
+```python
+term6m = (sofr + ZeroCurve.constant(8 * bp, sofr.max_x)) + ZeroCurve.constant(4 * bp, sofr.max_x)   # 6M over 1M over SOFR
+[(type(lf.curve).__name__, lf.weight, lf.columns) for lf in term6m.leaves()]
+# [('ZeroCurve', 1.0, slice(0, 5)), ('ZeroCurve', 1.0, slice(5, 6)), ('ZeroCurve', 1.0, slice(6, 7))]
+[lf.columns for lf in (term6m - sofr).leaves()]                   # sofr reached twice: once inside, once directly
+# [slice(0, 5), slice(5, 6), slice(6, 7), slice(7, 12)]
+
+new6m = term6m.replace(sofr, moved)
+new6m["base"]["base"] is moved, new6m["spread"] is term6m["spread"], new6m.zero_rate(xq) - term6m.zero_rate(xq)
+# (True, True, array([0.001, 0.001, 0.001]))
+```
+
+These are what a market uses to move SOFR through every curve built on it, and what the engine
+uses to give a shared atom one parameter block instead of one per registered curve
+([curves_and_market_plan.md](../curves_and_market_plan.md), PRs D and E).
+
 ## A constant spread
 
 The common case: an index that trades at a roughly fixed margin to another. The spread

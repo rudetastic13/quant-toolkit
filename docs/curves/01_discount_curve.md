@@ -103,6 +103,19 @@ sofr.instantaneous_forward(xq)         # -d ln DF / dt
 The maths behind each is in [maths/03](maths/03_discount_factors.md) to
 [maths/06](maths/06_forward_rates.md).
 
+### Structure: `leaves` and `replace`
+
+`leaves()` returns the atoms a curve is built from, each with the weight accumulated along the
+path and the columns it occupies in this curve's parameters; an atom returns itself. `replace(old,
+new)` returns the curve with `new` substituted for `old` wherever it appears, by identity, or the
+curve itself when `old` is absent. Both are trivial on an atom and are what make composites
+([03](03_composite_curve.md)) usable by a market and an engine.
+
+### Arithmetic
+
+`+`, `-`, unary `-` and scalar `*` are defined on every curve and build composites
+([03](03_composite_curve.md), *Arithmetic*). `sofr - 5 * bp` is a spread curve.
+
 ### The engine hand-off: `log_df_affine`
 
 This is the member that makes the whole stack differentiable without the engines ever seeing an

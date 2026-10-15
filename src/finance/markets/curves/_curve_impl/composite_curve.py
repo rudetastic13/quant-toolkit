@@ -28,10 +28,11 @@ from typing import Hashable, Mapping, Sequence
 
 import numpy as np
 
-from finance.markets.curves._curve_impl.discount_curve import DiscountCurve, FloatArray
+from finance.markets.curves._curve_impl.algebra import CurveArithmetic
+from finance.markets.curves._curve_impl.discount_curve import DiscountCurve, FloatArray, Leaf
 
 
-class CompositeCurve:
+class CompositeCurve(CurveArithmetic):
     """Weighted sum of discount curves in log-DF space: ``ln DF = Σ wᵢ ln DFᵢ``.
 
     Parameters
@@ -59,12 +60,12 @@ class CompositeCurve:
     Examples
     --------
     A spread curve, a funding basis as the difference of two curves, and a turn added to a
-    smooth curve:
+    smooth curve.  The operators (:mod:`.algebra`) build the same objects:
 
-    >>> fedfund = CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)})  # doctest: +SKIP
-    >>> basis = CompositeCurve((fedfund, sofr), weights=(1.0, -1.0))                                  # doctest: +SKIP
-    >>> with_turn = CompositeCurve({"smooth": sofr, "turn": turn})                                     # doctest: +SKIP
-    >>> fedfund["spread"].zero_rate(x)                                                                 # doctest: +SKIP
+    >>> fedfund = sofr - 5 * bp              # CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-5bp)})  # doctest: +SKIP
+    >>> basis = fedfund - sofr               # CompositeCurve((fedfund, sofr), weights=(1.0, -1.0))                # doctest: +SKIP
+    >>> with_turn = CompositeCurve({"smooth": sofr, "turn": turn})                                                 # doctest: +SKIP
+    >>> fedfund["spread"].zero_rate(x)                                                                             # doctest: +SKIP
     """
 
     __slots__ = ("_components", "_weights", "_labels", "_x", "_offsets")
@@ -294,6 +295,46 @@ class CompositeCurve:
         if self._labels is None:
             return CompositeCurve(components, self._weights)
         return CompositeCurve(dict(zip(self._labels, components)), self._weights)
+
+    # -- structure ------------------------------------------------------------------------
+
+    def leaves(self) -> tuple[Leaf, ...]:
+        """Components' leaves with accumulated weights and columns shifted into this curve's layout.
+
+        Returns
+        -------
+        tuple of Leaf
+            In parameter order.  A shared atom appears once per path that reaches it.
+        """
+        out: list[Leaf] = []
+        for i, (w, c) in enumerate(zip(self._weights, self._components)):
+            start = int(self._offsets[i])
+            for leaf in c.leaves():
+                out.append(
+                    Leaf(leaf.curve, w * leaf.weight, slice(start + leaf.columns.start, start + leaf.columns.stop))
+                )
+        return tuple(out)
+
+    def replace(self, old: DiscountCurve, new: DiscountCurve) -> DiscountCurve:
+        """This composite with ``new`` substituted for ``old`` wherever it appears, recursively.
+
+        Parameters
+        ----------
+        old, new : DiscountCurve
+            Matched by identity (``is``), never by value.
+
+        Returns
+        -------
+        DiscountCurve
+            ``new`` if ``old is self``; ``self`` if ``old`` appears nowhere below; otherwise a
+            rebuilt composite with the same weights and labels.
+        """
+        if old is self:
+            return new
+        components = tuple(c.replace(old, new) for c in self._components)
+        if all(a is b for a, b in zip(components, self._components)):
+            return self
+        return self._from_parts(components, self._weights, self._labels)
 
     # -- queries --------------------------------------------------------------------------
 

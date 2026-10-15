@@ -43,7 +43,7 @@
 ```mermaid
 graph LR
     A["A · DiscountCurve / CompositeCurve<br/><i>done</i>"]
-    B["B · curve algebra<br/>+ − ×, bp, leaves(), replace()"]
+    B["B · curve algebra<br/>+ − ×, bp, leaves(), replace()<br/><i>done</i>"]
     C["C · key grammar<br/>CCY.NAME.TENOR, family registry"]
     D["D · MarketContext as Mapping<br/>setitem, propagation, bump, owned, to_mermaid"]
     E["E · engine layout by identity<br/>blocks per leaf, ownership ladders"]
@@ -75,18 +75,18 @@ B and C are independent of each other and of everything else; start both.
 integration; `docs/curves/` (13 documents, snippets verified); conventions in CLAUDE.md (no
 module `__all__`, numpydoc).
 
-### PR B — curve algebra (≈1 day)
+### PR B — curve algebra (done 2026-10-15)
 
-- `common.constants.bp = 1e-4` (or `finance.units`).
+- `finance.markets.curves.units`: `bp = 1e-4`, `pct = 1e-2`.
 - On every `DiscountCurve`: `a + b` → `CompositeCurve({"base": a, "spread": b})` (left operand
   is the base); `a - b` → `CompositeCurve((a, b), (1, -1))`; `a ± float` → base plus
   `ZeroCurve.constant(±float, a.max_x)` labelled `spread`; `w * a` → weight; `-a`; `a * b` →
   `TypeError`. Operators *define* curves; moving parameters is `with_params` / the market's `bump`.
-- Labels and `ZeroCurve.constant` landed in PR A.
-- `leaves()` → `(leaf, accumulated_weight, column_slice)` on all three classes;
+- Labels and `ZeroCurve.constant` landed in PR A; the operators (`_curve_impl/algebra.py`, a stateless mixin), `Leaf`, `leaves()` and `replace()` in PR B.
+- `leaves()` → `tuple[Leaf]` (`curve`, accumulated `weight`, `columns`) on both classes and in the protocol;
   `replace(old, new)` → same structure with `old` substituted wherever it appears (identity).
-- Tests: algebra equals explicit construction; `leaves` of a three-deep chain; `replace`
-  propagates through nesting and leaves unrelated objects shared.
+- Tests (`test_curve_algebra.py`): algebra equals explicit construction; `leaves` of a three-deep chain;
+  `replace` propagates through nesting and leaves unrelated objects shared.
 
 ### PR C — key grammar and family registry (≈2 days)
 
@@ -177,7 +177,7 @@ is fixed or explained in R1, since R1 generalises that routine.
 | # | PR | Days | Unblocks |
 |---|---|---|---|
 | 1 | A commit | — | everything |
-| 2 | B algebra | 1 | D |
+| 2 | B algebra (done) | 1 | D |
 | 3 | C keys + families | 2 | D, F |
 | 4 | D market | 3 | E, F, G |
 | 5 | E layout + ownership | 3 | G, R |
