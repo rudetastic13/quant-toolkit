@@ -1,8 +1,8 @@
 # Curves and market: the next book of work
 
-> **Status: AGREED PLAN (2026-10-14, updated 2026-10-16).** Decisions taken in design discussion on
-> `feature/carlos/more_curves`; PRs A and B are merged (#22), PR C is implemented on
-> `feature/curve_grammar`, nothing else is.
+> **Status: AGREED PLAN (2026-10-14, updated 2026-10-15).** Decisions taken in design discussion on
+> `feature/carlos/more_curves`. PRs A–D are merged (#22, #23, #24); PR E is built on
+> `feature/carlos/engine_params`; G, the RiskTemplate PRs and then F remain.
 > Companion to [risk_and_engine_design.md](risk_and_engine_design.md) (the `RiskTemplate` that
 > lands on top of this) and [curves/](curves/README.md) (the user-facing documentation).
 
