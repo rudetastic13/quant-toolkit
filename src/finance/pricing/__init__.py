@@ -1,5 +1,5 @@
 """Pricing layer: market context bundling, compiled kernels, and product pricers."""
-from finance.pricing.types import Backend, ProductKind, RateKind
+from finance.pricing.types import Backend, RateKind
 from finance.pricing.results import PricingResult, CashflowReport
 
 # NOTE: ``finance.pricing.risk`` (Sensitivities) and ``finance.pricing.calibration``
@@ -11,7 +11,6 @@ from finance.pricing.pricers import FuturesPricer, PricingProgram, SwaptionPrice
 
 __all__ = [
     "Backend",
-    "ProductKind",
     "RateKind",
     "PricingResult",
     "CashflowReport",

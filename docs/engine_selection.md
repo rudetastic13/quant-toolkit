@@ -86,21 +86,21 @@ via the cached `PricingProgram.prepare(market, backend=Backend.Numba)`. The §2 
 *model*-level invariant, not an implementation-level one: numpy and numba are two builds of
 the same closed forms, held to machine-precision agreement in CI.
 
-`Backend.Rust` is a fourth registered seam (`engines/rust/`, contract documented, no kernel
-implemented yet): a PyO3/maturin kernel would register under
-the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays zero-copy. It
-would slot into the same rows as `Numba` when it lands.
+A compiled kernel in another language (PyO3/maturin, or the existing C++ core) would register
+under the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays
+zero-copy, and slot into the same rows as `Numba`. The registry readmits a backend when one
+exists; there is no placeholder member for one that does not.
 
 ---
 
 ## 4. How it binds to the existing seam
 
 Nothing new structurally — this is what `engine_registry` keyed `(kernel_id, Backend)` and the
-`ProductKind`/pricer dispatch were built for.
+`pricer_registry` dispatch (keyed by contract class name) were built for.
 
 ```mermaid
 flowchart LR
-    PROD["Product / model<br/>(ProductKind)"]
+    PROD["Product / model<br/>(contract class)"]
     PRICER["Pricer<br/>declares default_backend"]
     REG["engine_registry<br/>(kernel_id, Backend)"]
     PV["PV"]
@@ -273,3 +273,26 @@ srisk.dv01("USD.SOFR.ON")            # [15,969.52, -5,146.63]; bump agrees to ~1
 The wiring demonstrates every §4 rule: the pricer bound the pricing backend (`compile`),
 the risk layer derived its method from the program + market rather than choosing ad hoc,
 and both methods reconcile because they differentiate the same model.
+
+### 7.3 Risk on a template — one base curve, a trader's view of it
+
+```python
+from finance.pricing.calibration import swap_helper
+from finance.pricing.risk import RiskEngine, RiskTemplate
+
+template = RiskTemplate(
+    [swap_helper(rate=float("nan"), tenor=t, as_of=as_of) for t in ("1Y", "2Y", "3Y", "5Y", "7Y", "10Y")],
+    labels=("1Y", "2Y", "3Y", "5Y", "7Y", "10Y"), name="SOFR par",
+)
+engine = RiskEngine(program, market, template=template)
+risk = engine.quote_risk(labels=("recv 5Y", "pay 10Y"))
+risk.dv01                  # (2, 6) PV change per +1bp of each par quote, other quotes held
+risk.unexplained           # (2, P) pillar risk the template cannot hedge (always reported)
+risk.template_parallel     # all quotes +1  vs  risk.pillar_parallel: all pillars +1
+engine.bound().hedge(risk) # unit-swap notionals that flatten the book on the template
+```
+
+`bind` refuses a template it cannot stand behind (`TemplateError` with a reason code: nodes
+finer than the base, more nodes than pillars, an ill-conditioned response, excessive leverage)
+and carries the diagnostics on every report.  The template rebinds automatically when the
+market's curves move (`RiskEngine.with_market`), never on a plain reprice.

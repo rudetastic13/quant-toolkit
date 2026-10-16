@@ -100,11 +100,6 @@ class CouponSchedule(BaseSchedule):
     """Defines a schedule of coupon payment events, anchored to the accrual grid."""
     events: list[CouponEvent] = field(default_factory=list)
 
-    def add_event(self, event: CouponEvent) -> None:
-        """Add a coupon event to the schedule, maintaining sorted order."""
-        self.events.append(event)
-        self.events.sort()
-
     # -- what the schedule pays ---------------------------------------------------------
 
     @property

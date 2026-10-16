@@ -8,9 +8,4 @@ class DayCountMethod(Enum):
     Thirty360 = auto()
     ThirtyE360 = auto()
     ThirtyE360ISDA = auto()
-    ThirtyE365 = auto()
     Thirty365 = auto()
-    Bus252 = auto()
-
-    def is_supported(self) -> bool:
-        return self.value >= 0

@@ -78,15 +78,6 @@ class SofrFuture:
     convexity: float = 0.0
 
     @property
-    def rate_kind(self):
-        """Pricing discriminator, imported lazily to keep contracts above the pricing layer."""
-        from finance.pricing.types import RateKind
-
-        if self.coupon_type == CouponType.GeometricAveraged:
-            return RateKind.Compounded
-        return RateKind.Averaged
-
-    @property
     def legs(self) -> tuple[tuple[CommonInstrument, float], ...]:
         """The reference period as one unit-notional leg: daily fixings compounded or averaged over it.
 

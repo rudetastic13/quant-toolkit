@@ -141,7 +141,9 @@ def add_business_days(dt: Date, days: int, bdc: BdcLike, calendar: CalendarLike)
     if not bdc:
         return dt + Term(days, TermType.Days)
     dt = adjust_date(dt, bdc, calendar)
-    func = lambda x, y: x + Term(y, TermType.Days) if y > 0 else x - Term(y, TermType.Days)
+    def func(x, y):
+        return x + Term(y, TermType.Days) if y > 0 else x - Term(y, TermType.Days)
+
     days = abs(days)
     while days != 0 and calendar.is_business_day(dt):
         dt = func(dt, 1)

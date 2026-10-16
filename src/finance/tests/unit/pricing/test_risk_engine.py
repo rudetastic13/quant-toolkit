@@ -1,4 +1,5 @@
 """RiskEngine dispatch: adjoint vs bump agreement, method resolution, and guardrails."""
+
 import numpy as np
 
 from common.testing import UnitTest
@@ -19,7 +20,9 @@ def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     space, interpolator = interpolation.resolve()
-    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator)
+    sofr = YieldCurve.build(
+        dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator
+    )
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(0.01, VolUnits.Normal))
     return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
@@ -61,8 +64,13 @@ class TestRiskEngine(UnitTest):
 
     def test_swaption_adjoint_matches_bump(self):
         option = Swaption.european(
-            notional=1e6, strike=0.04, expiry="1Y", swap_tenor="5Y", as_of=self.as_of,
-            payer=True, model=SwaptionModel.Bachelier,
+            notional=1e6,
+            strike=0.04,
+            expiry="1Y",
+            swap_tenor="5Y",
+            as_of=self.as_of,
+            payer=True,
+            model=SwaptionModel.Bachelier,
         )
         program = SwaptionPricer().compile([option])
         adjoint = RiskEngine(program, self.market)
@@ -82,3 +90,41 @@ class TestRiskEngine(UnitTest):
         future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of)
         with self.assertRaisesRegex(TypeError, "FuturesProgram"):
             RiskEngine(FuturesPricer().compile([future]), self.market)
+
+
+class TestRiskEngineTemplate(UnitTest):
+    COVERAGE = ["finance.pricing.risk.engine", "finance.pricing.risk.template"]
+
+    def setUp(self):
+        from finance.pricing.calibration import Quote, swap_helper
+        from finance.pricing.risk.template import RiskTemplate
+
+        self.as_of = Date(2026, 6, 1)
+        self.market = _market(self.as_of)
+        self.program = SwapPricer().compile(
+            [Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=self.as_of)]
+        )
+        helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of) for t in ("1Y", "3Y", "7Y", "12Y")]
+        for h in helpers:
+            h.quote = Quote(float(h.implied(self.market)), h.quote.kind)
+        self.template = RiskTemplate.identity(helpers, name="par 1Y-12Y")
+
+    def test_quote_risk_through_the_engine_and_rebinding(self):
+        engine = RiskEngine(self.program, self.market, template=self.template)
+        risk = engine.quote_risk(labels=("5Y recv",))
+        self.assertEqual(risk.values.shape, (1, 4))
+        self.assertLess(risk.dv01.sum(), 0.0)
+        np.testing.assert_allclose(risk.unexplained, 0.0, atol=1e-9 * np.abs(engine.pillar_risk().values).max())
+        bound = engine.bound()
+        self.assertIs(engine.bound(), bound)  # same market: no rebind
+        self.assertTrue(bound.matches(self.market))
+        moved = engine.with_market(self.market.bump(CURVE, 1e-4))
+        self.assertFalse(bound.matches(moved.market))
+        self.assertIsNot(moved.bound(), bound)  # the curve moved: rebound
+        self.assertIs(moved.bound(), moved.bound())
+        other = RiskEngine(self.program, self.market)
+        with self.assertRaisesRegex(ValueError, "template"):
+            other.quote_risk()
+        np.testing.assert_allclose(other.quote_risk(self.template).values, risk.values)
+        # the engine's pillar view and the quote view agree on the parallel reconciliation
+        np.testing.assert_allclose(risk.pillar_parallel, engine.ladder(CURVE).dv01 / 1e-4, rtol=1e-10)

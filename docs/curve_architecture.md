@@ -180,8 +180,14 @@ risk = NumbaRisk(program, market)
 zero_dv01 = risk.zero_ladder("USD.SOFR.ON")
 index_dv01 = risk.index_ladder("USD.SOFR.ON")
 funding_dv01 = risk.funding_ladder("USD.SOFR.ON")
-partial_dv01 = risk.partial_dv01("USD.SOFR.ON", result.jacobian)
 gamma = risk.gamma("USD.SOFR.ON")
+
+# risk to the quotes of real instruments: a RiskTemplate view over the same pillar risk
+from finance.pricing.risk import RiskEngine, RiskTemplate
+template = RiskTemplate.identity(helpers, name="calibration set")   # or any par-swap strip
+quote_risk = RiskEngine(program, market, template=template).quote_risk()
+quote_risk.dv01            # (1, K): PV change per +1bp of each template quote
+quote_risk.unexplained     # (1, P): the pillar risk left after the template hedge
 ```
 
 For a complete runnable calibration, single-swap report, randomized N-swap aggregation,

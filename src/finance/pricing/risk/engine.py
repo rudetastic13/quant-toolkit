@@ -12,9 +12,14 @@ program and market support, never chosen ad hoc at the call site.
 
 ``method="auto"`` (default) resolves per the above; pass ``"adjoint"`` / ``"bump"`` to pin
 one explicitly (``bump`` is how the adjoint is cross-checked in CI).  Futures are not
-routed here — their measures are rate/price/P&L, not PV; use ``FuturesProgram.risk``.
-The JAX validation oracle stays separate in ``risk/autodiff.py``.
+routed here — their measures are rate/price/P&L, not PV; use ``FuturesProgram.risk`` or
+``pillar_risk`` directly.  The JAX validation oracle stays separate in ``risk/autodiff.py``.
+
+With a :class:`~finance.pricing.risk.template.RiskTemplate` the engine also reports
+``quote_risk``: pillar risk re-expressed as risk to the template's quotes.  The template is
+bound to the market by object identity and rebound automatically when the market changes.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -24,6 +29,8 @@ import numpy as np
 from finance.pricing.engines.layout import ParamLayout
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swaption import SwaptionProgram
+from finance.pricing.risk.pillar import PillarRisk, pillar_risk
+from finance.pricing.risk.template import BoundRiskTemplate, QuoteRisk, RiskTemplate
 
 FloatArray = np.ndarray
 BP = 1e-4
@@ -33,10 +40,10 @@ BP = 1e-4
 class CurveRiskReport:
     """Per-pillar ladder: ``ladder[i, p]`` is instrument i's PV change for +1 ``bp`` at pillar p."""
 
-    pillar_dates: np.ndarray   # (P,) datetime64[D]
-    pillar_years: FloatArray   # (P,)
-    ladder: FloatArray         # (n_instruments, P)
-    method: str                # 'adjoint' | 'bump'
+    pillar_dates: np.ndarray  # (P,) datetime64[D]
+    pillar_years: FloatArray  # (P,)
+    ladder: FloatArray  # (n_instruments, P)
+    method: str  # 'adjoint' | 'bump'
 
     @property
     def dv01(self) -> FloatArray:
@@ -45,9 +52,20 @@ class CurveRiskReport:
 
 
 class RiskEngine:
-    """Curve risk for a compiled PV-measured program (linear book or swaptions)."""
+    """Curve risk for a compiled PV-measured program (linear book or swaptions).
 
-    def __init__(self, program, market, *, bp: float = BP, method: str = "auto"):
+    Parameters
+    ----------
+    program : PricingProgram or SwaptionProgram
+    market : MarketContext
+    template : RiskTemplate, optional
+        The default template for :meth:`quote_risk`.
+    bp : float
+        Bump size for the bump method and the ladder scaling.
+    method : {"auto", "adjoint", "bump"}
+    """
+
+    def __init__(self, program, market, *, template: RiskTemplate | None = None, bp: float = BP, method: str = "auto"):
         if not isinstance(program, (PricingProgram, SwaptionProgram)):
             raise TypeError(
                 f"RiskEngine handles PV-measured programs, not {type(program).__name__}; "
@@ -55,8 +73,34 @@ class RiskEngine:
             )
         self.program = program
         self.market = market
+        self.template = template
         self.bp = float(bp)
         self.method = self._resolve(method)
+        self._bound: BoundRiskTemplate | None = None
+
+    def with_market(self, market) -> RiskEngine:
+        """The same program, template and method against another market; the template rebinds if the curves moved."""
+        out = RiskEngine(self.program, market, template=self.template, bp=self.bp, method=self.method)
+        out._bound = self._bound
+        return out
+
+    # -- template ------------------------------------------------------------------------
+    def pillar_risk(self, *, labels=None) -> PillarRisk:
+        """``∂PV/∂z`` per curve block from the analytic adjoint (the only thing a template consumes)."""
+        return pillar_risk(self.program, self.market, labels=labels)
+
+    def bound(self, template: RiskTemplate | None = None) -> BoundRiskTemplate:
+        """The template bound to this engine's market, rebound only when the market's curves moved."""
+        template = self.template if template is None else template
+        if template is None:
+            raise ValueError("RiskEngine needs a template: pass template= here or at construction")
+        if self._bound is None or self._bound.template is not template or not self._bound.matches(self.market):
+            self._bound = template.bind(self.market)
+        return self._bound
+
+    def quote_risk(self, template: RiskTemplate | None = None, *, labels=None) -> QuoteRisk:
+        """Risk to the template's quotes, with the unexplained pillar risk and reconciliation lines."""
+        return self.bound(template).quote_risk(self.pillar_risk(labels=labels))
 
     def _inputs(self):
         inner = self.program.program if isinstance(self.program, SwaptionProgram) else self.program

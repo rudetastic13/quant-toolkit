@@ -1,24 +1,7 @@
 from __future__ import annotations
 
-from common.containers.enums import CaseInsensitiveEnum, SupportedIntEnum
+from common.containers.enums import CaseInsensitiveEnum
 from common.testing import UnitTest
-
-
-class MySupported(SupportedIntEnum):
-    Unsupported = -1
-    Zero = 0
-    One = 1
-
-
-class TestSupportedIntEnum(UnitTest):
-    COVERAGE = ["common.containers.enums"]
-
-    def test_is_supported_positive(self):
-        self.assertTrue(MySupported.One.is_supported())
-        self.assertTrue(MySupported.Zero.is_supported())
-
-    def test_is_supported_negative(self):
-        self.assertFalse(MySupported.Unsupported.is_supported())
 
 
 class MyCI(CaseInsensitiveEnum):

@@ -304,12 +304,13 @@ class MarketContext(Mapping[str, DiscountCurve]):
   concatenated parameter vector and can come with the RiskTemplate. Test: OIS → 1M basis → 6M/1M
   recovers flat 10bp and 5bp spreads to 1e-9 with the chain's object identities intact.
 
-### PR R1–R3 — `RiskTemplate`
+### PR R1–R3 — `RiskTemplate` (done 2026-10-15, `feature/carlos/engine_params`)
 
 As specified in [risk_and_engine_design.md](risk_and_engine_design.md) §2.12, with
-`PillarRisk.curves` being owning keys and `J_T` columns being leaf parameters. The LogCubicDF
-calibration-Jacobian subtest that fails today (pre-existing, `test_curve_calibrator.py:153`)
-is fixed or explained in R1, since R1 generalises that routine.
+`PillarRisk.curves` being owning keys and `J_T` columns being leaf parameters; the as-built
+differences are noted there under §2.12. The LogCubicDF calibration-Jacobian subtest was
+explained in R1: the affine map is exact, the finite-difference oracle carried spline-refit
+roundoff on a 1e-6 far-pillar coupling, so the test's absolute floor is 1e-8.
 
 ### Housekeeping (any time)
 
@@ -326,7 +327,7 @@ is fixed or explained in R1, since R1 generalises that routine.
 | 4 | D market | 3 | E, F, G |
 | 5 | E layout + ownership | 3 | G, R |
 | 6 | G calibrate leaf | 2 | R |
-| 7 | R1–R3 template | 3–4 | trading milestone |
+| 7 | R1–R3 template (done) | 3–4 | trading milestone |
 | 8 | F term indices | 2 | — (after the trading milestone) |
 
 About three weeks to the "one snapped SOFR family, par-swap template, Fed Funds and Term SOFR

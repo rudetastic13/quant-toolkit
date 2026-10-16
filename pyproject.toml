@@ -99,19 +99,13 @@ markers = [
     "unit: mark for unit test",
     "hypothesis: mark for hypothesis test",
     "datemath: mark test for date math",
-    "market_data: mark test for market data",
-    "instruments: mark test for instruments",
     "risk: market test for risk analytics",
     "performance: performance tests",
     "integration: mark for integration tests",
     "regression: mark for regression tests",
 
     # Groups
-    "calculators: tests for pricing calculators",
     "calibration: tests for model calibration",
-
-    # others
-    "slow: slow tests",
 ]
 
 [tool.coverage.run]
@@ -140,17 +134,16 @@ exclude = ["build", "dist", ".venv", ".eggs"]
 line-length = 120
 indent-width = 4
 target-version = "py311"
+
+[tool.ruff.lint]
 # enable pyflakes 'F' and subset of pycodestyle 'E' by default
 select = ["E4", "E7", "E9", "F"]
 ignore = []
-
 # allow anything to be fixed when ruff --fix
-fixable=["ALL"]
-unfixable=[]
-
-
-# allow unsued varaibles when underscore-prefixed
-dummy-variable-rgx="^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+fixable = ["ALL"]
+unfixable = []
+# allow unused variables when underscore-prefixed
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.per-file-ignores]
 

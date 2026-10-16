@@ -14,7 +14,7 @@ from finance.dates import (
 from finance.dates.enums import FixingType
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
 from finance.instruments.schedules.observation import LookbackStyle
-from .enums import AmortizationType, CouponType, PrincipalExchange
+from .enums import CouponType, PrincipalExchange
 
 # Flat coupon fields: the single-coupon convenience.  Changing one through ``replace`` on a
 # leg whose schedule was derived from them rebuilds the schedule; see ``replace``.
@@ -42,8 +42,7 @@ class CommonInstrument(CommonObject):
     ``rate_calendar``) and ``rate_index`` apply to every floating segment.
 
     The same "flat type, or ``Custom`` + a supplied schedule" pattern is the intended shape
-    for amortization: ``amortization_type`` names a generator (straight-line, level-pay, ...)
-    or is ``Custom`` with a notional schedule attached.
+    for amortization when it lands (a generator name, or ``Custom`` with a notional schedule).
 
     Designated refactor (when a second leg-bearing product lands — Bond/Loan): split the
     field groups below into ``kw_only`` dataclass mixins the products compose, defining
@@ -68,10 +67,6 @@ class CommonInstrument(CommonObject):
     last_regular_accrual_date: Date | None = field(default=None)
 
     # balance info
-    original_notional: float | None = field(default=None)
-    amortization_type: AmortizationType = field(default=AmortizationType.Unused)
-    amortization_start: Date | None = field(default=None)
-    amortization_end: Date | None = field(default=None)
     principal_exchange: PrincipalExchange = field(default=PrincipalExchange.Unused)
 
     # coupon info — leg-level projection parameters ...

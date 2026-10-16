@@ -186,17 +186,17 @@ class Date:
         return self.to_ymd()
 
     def __eq__(self, other: Date) -> bool:
-        if type(other) != Date:
+        if type(other) is not Date:
             raise TypeError(f"Compare object is type {other.__class__.__name__}, expected Date")
         return self._cmp_key() == other._cmp_key()
 
     def __lt__(self, other: Date) -> bool:
-        if type(other) != Date:
+        if type(other) is not Date:
             raise TypeError(f"Compare object is type {other.__class__.__name__}, expected Date")
         return self.to_int() < other.to_int()
 
     def __gt__(self, other: Date) -> bool:
-        if type(other) != Date:
+        if type(other) is not Date:
             raise TypeError(f"Compare object is type {other.__class__.__name__}, expected Date")
         return self.to_int() > other.to_int()
 

@@ -137,16 +137,20 @@ class SwaptionProgram:
             greeks=monetary,
         )
 
-    def risk(self, market, curve: str, *, bp: float = 1e-4) -> SwaptionRiskResult:
+    def risk(self, market, curve: str | None = None, *, bp: float = 1e-4) -> SwaptionRiskResult:
         """Chain option delta through the underlying forward and annuity adjoints.
 
-        Always runs on the Numba adjoint regardless of the reprice backend (numpy has no
-        analytic adjoint), and holds the quoted vol fixed under curve moves (sticky
-        strike) — there is no dvol/dforward cross term.
+        Over the block ``curve`` reports under, or over every parameter block of the prepared
+        program when ``curve`` is ``None``.  Always runs on the Numba adjoint regardless of the
+        reprice backend (numpy has no analytic adjoint), and holds the quoted vol fixed under
+        curve moves (sticky strike) — there is no dvol/dforward cross term.
         """
         numba_program = self.program.prepare(market, backend=Backend.Numba)
         adjoint = numba_program.value_and_grad(market)
-        flow_gradient = adjoint.cashflow_gradient(curve, role="total")
+        if curve is None:
+            flow_gradient = adjoint.cashflow_index_gradient + adjoint.cashflow_funding_gradient
+        else:
+            flow_gradient = adjoint.cashflow_gradient(curve, role="total")
         leg_gradient = np.add.reduceat(flow_gradient, self.program.inputs.leg_offsets, axis=0)
         fixed_gradient = leg_gradient[self.fixed_leg]
         float_gradient = leg_gradient[self.float_leg]

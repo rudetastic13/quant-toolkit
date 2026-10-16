@@ -63,7 +63,7 @@ class Term(Generic[IntType], NDArrayOperatorsMixin):
 
         if not is_int:
             raise TypeError(f"Input term_length must be int like, got {term_length_dtype}")
-        if not type(term_type) is TermType:
+        if type(term_type) is not TermType:
             raise TypeError(f"Input term_type must be of type TermType, got {type(term_type)}")
         self.term_info = (term_length, term_type)
 

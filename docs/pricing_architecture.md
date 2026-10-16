@@ -245,8 +245,8 @@ single-fixing floats.
 
 ## 7. Extension points
 
-- **Backends.** Register `(kernel_id, Backend.Numba)` / `Backend.Rust` kernels with the same
-  `KernelInputs`/`KernelResult` contract — no pricer changes.
+- **Backends.** Register `(kernel_id, Backend)` kernels with the same `KernelInputs` /
+  `KernelResult` contract — no pricer changes; the registry readmits a backend when one exists.
 - **Options / vols.** Implemented for European swaptions: Black-76 / Bachelier kernels with
   full analytic greeks (value/delta/gamma/vega/vanna/volga) registered under
   `(KERNEL_BLACK|KERNEL_BACHELIER, Numpy|Numba)`, and `SwaptionPricer` pricing off the
@@ -261,8 +261,9 @@ single-fixing floats.
   `RiskEngine` front door that dispatches between them per
   [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
   rebuild-per-pillar KRD.
-- **Dynamic notionals.** `RateDependentNotional` is a designed seam for amortizing / MSR
-  exposures (time-step across periods, vectorized across the population).
+- **Dynamic notionals.** `NotionalProvider` is the seam for amortising notionals (only the
+  bullet `StaticNotional` exists; a scheduled or rate-dependent provider materialises the same
+  per-period array).
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
@@ -544,3 +545,23 @@ The leg iterator is what the calibration section (§8) calls out: *"read par off
 PVs by iterating the instrument's legs (fixed vs floating), never by positional index."*
 `SwapHelper.__post_init__` builds `_fixed_idx` / `_float_idx` by walking the iterator
 once; `implied` sums `leg_pv` through those index tuples on every reprice.
+
+### 9.7 Risk to the template quotes
+
+Pillar risk is what the engines produce; a desk reports risk to the quotes of instruments it
+trades. A `RiskTemplate` is that view: a strip of calibration instruments (par swaps, deposits,
+futures) and a rule for how the base curve moves between their nodes. It changes no PV and
+triggers no recalibration; it re-expresses `G = ∂PV/∂z` as `R = G B (J_T B)⁻¹` and reports the
+remainder `U = G − R J_T` alongside.
+
+```python
+from finance.pricing.risk import RiskEngine, RiskTemplate
+
+template = RiskTemplate.identity(helpers, name="calibration set")   # square: R = G J⁻¹ exactly
+risk = RiskEngine(program, market, template=template).quote_risk()
+risk.to_pandas()           # dv01 per quote with the reconciliation lines as columns
+```
+
+See [engine_selection.md](engine_selection.md) §7.3 for a par-swap template on a futures
+strip, and [risk_and_engine_design.md](risk_and_engine_design.md) §2 for the maths and the
+safety checklist `bind` enforces.

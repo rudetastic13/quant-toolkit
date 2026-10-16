@@ -89,7 +89,7 @@ class TestEngineRegistryDispatch(UnitTest):
             engine((RATE_COMPOUNDED, Backend.Numpy), obs_rate, obs_w, offsets),
         )
 
-    def test_rust_backend_absent_raises(self):
-        self.assertFalse(has_engine(RATE_COMPOUNDED, Backend.Rust))
+    def test_unregistered_backend_raises(self):
+        self.assertFalse(has_engine(RATE_COMPOUNDED, Backend.Jax))
         with self.assertRaises(KeyError):
-            engine((RATE_COMPOUNDED, Backend.Rust), np.array([0.04]), np.array([1.0]), np.array([0]))
+            engine((RATE_COMPOUNDED, Backend.Jax), np.array([0.04]), np.array([1.0]), np.array([0]))

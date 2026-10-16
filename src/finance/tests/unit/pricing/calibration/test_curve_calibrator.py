@@ -148,7 +148,10 @@ class TestCurveCalibrator(UnitTest):
                         mkt = defn.bind(self.base, curve)
                         cols.append(np.array([hp.implied(mkt) for hp in helpers]))
                     fd[:, k] = (cols[0] - cols[1]) / (2.0 * h)
-                np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-9)
+                # The affine map is exact (to 1e-18); the finite difference is not: under a global
+                # cubic each refit carries ~1e-16 of spline roundoff, which the 2h divisor turns
+                # into ~5e-11 on a far-pillar coupling of size ~1e-6.  Hence the absolute floor.
+                np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-8)
 
     def test_rate_linear_calibrates_without_jacobian(self):
         defn = CurveDefinition("USD.SOFR.ON", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))

@@ -65,21 +65,24 @@ class FuturesProgram:
                 )
         return FuturesPricingResult(model_rate=rate, model_price=price, pnl=pnl)
 
-    def risk(self, market, curve: str) -> FuturesRiskResult:
+    def risk(self, market, curve: str | None = None) -> FuturesRiskResult:
         """Analytic rate, price, and P&L gradients from the Numba projection adjoint.
 
-        Always runs on the Numba adjoint regardless of the reprice backend (numpy has no
-        analytic adjoint).
+        Over the block ``curve`` reports under, or over every parameter block of the prepared
+        program when ``curve`` is ``None`` (the layout is ``self.program.prepare(market,
+        backend=Backend.Numba).layout``).  Always runs on the Numba adjoint regardless of the
+        reprice backend (numpy has no analytic adjoint).  An expired contract (settled before the
+        origin) has a zero gradient.
         """
         numba_program = self.program.prepare(market, backend=Backend.Numba)
         adjoint = numba_program.value_and_grad(market)
-        flow_grad = adjoint.cashflow_gradient(curve, role="index")
+        flow_grad = adjoint.cashflow_index_gradient if curve is None else adjoint.cashflow_gradient(curve, role="index")
         ki = self.program.inputs
-        discount = np.empty(ki.n_flows, dtype=np.float64)
-        for ci, name in enumerate(ki.curve_names):
-            mask = ki.discount_curve == ci
-            discount[mask] = market.yield_curve(name).discount_factor(ki.pay_dates[mask])
-        rate_grad = flow_grad / (ki.period_frac * discount)[:, None]
+        discount = adjoint.primal.df  # zero for an expired flow: its gradient row is zero too
+        scale = ki.period_frac * discount
+        live = scale != 0.0
+        rate_grad = np.zeros_like(flow_grad)
+        rate_grad[live] = flow_grad[live] / scale[live][:, None]
         price_grad = -100.0 * rate_grad
         pnl_grad = np.empty_like(price_grad)
         for i, future in enumerate(self.futures):
