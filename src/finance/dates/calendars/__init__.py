@@ -1,5 +1,4 @@
 """Module for calendar definitions and singleton calendar instances"""
-from typing import TypeVar, Generic
 from common.singleton import Singleton
 from finance.dates.calendars.calendar import Calendar, StaticCalendar
 

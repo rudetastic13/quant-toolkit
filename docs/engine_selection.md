@@ -86,21 +86,21 @@ via the cached `PricingProgram.prepare(market, backend=Backend.Numba)`. The §2 
 *model*-level invariant, not an implementation-level one: numpy and numba are two builds of
 the same closed forms, held to machine-precision agreement in CI.
 
-`Backend.Rust` is a fourth registered seam (`engines/rust/`, contract documented, no kernel
-implemented yet): a PyO3/maturin kernel would register under
-the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays zero-copy. It
-would slot into the same rows as `Numba` when it lands.
+A compiled kernel in another language (PyO3/maturin, or the existing C++ core) would register
+under the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays
+zero-copy, and slot into the same rows as `Numba`. The registry readmits a backend when one
+exists; there is no placeholder member for one that does not.
 
 ---
 
 ## 4. How it binds to the existing seam
 
 Nothing new structurally — this is what `engine_registry` keyed `(kernel_id, Backend)` and the
-`ProductKind`/pricer dispatch were built for.
+`pricer_registry` dispatch (keyed by contract class name) were built for.
 
 ```mermaid
 flowchart LR
-    PROD["Product / model<br/>(ProductKind)"]
+    PROD["Product / model<br/>(contract class)"]
     PRICER["Pricer<br/>declares default_backend"]
     REG["engine_registry<br/>(kernel_id, Backend)"]
     PV["PV"]

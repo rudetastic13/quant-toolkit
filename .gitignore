@@ -9,6 +9,7 @@ __pycache__/
 # OTHERS
 .idea/*
 pytest-reports/*.xml
+research/*.png            # figures the research scripts regenerate
 
 # Distribution / packaging
 .Python

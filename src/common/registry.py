@@ -6,8 +6,6 @@ from typing import (
     Generic,
     Hashable,
     Sequence,
-    TypeVar,
-    Union,
     Optional,
     Any
 )
@@ -80,7 +78,7 @@ def create_factory(
         all_kwargs = {**default_kwargs, **kwargs}
         return get_and_execute(registry, key, *all_args, **all_kwargs)
     _factory.__name__ = f"{registry.name.lower().replace(' ', '_')}_factory"
-    _factory__doc__ = f"Factory function under registry '{registry.name}'"
+    _factory.__doc__ = f"Factory function under registry '{registry.name}'"
     return _factory
 
 def register_with(

@@ -21,7 +21,7 @@ class TestDate(UnitTest):
     def test_simple(self):
 
         # test constructor
-        date = Date(2025, 2, 13)
+        Date(2025, 2, 13)
 
         # test boundaries
         cases = [

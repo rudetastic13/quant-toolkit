@@ -245,8 +245,8 @@ single-fixing floats.
 
 ## 7. Extension points
 
-- **Backends.** Register `(kernel_id, Backend.Numba)` / `Backend.Rust` kernels with the same
-  `KernelInputs`/`KernelResult` contract — no pricer changes.
+- **Backends.** Register `(kernel_id, Backend)` kernels with the same `KernelInputs` /
+  `KernelResult` contract — no pricer changes; the registry readmits a backend when one exists.
 - **Options / vols.** Implemented for European swaptions: Black-76 / Bachelier kernels with
   full analytic greeks (value/delta/gamma/vega/vanna/volga) registered under
   `(KERNEL_BLACK|KERNEL_BACHELIER, Numpy|Numba)`, and `SwaptionPricer` pricing off the
@@ -261,8 +261,9 @@ single-fixing floats.
   `RiskEngine` front door that dispatches between them per
   [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
   rebuild-per-pillar KRD.
-- **Dynamic notionals.** `RateDependentNotional` is a designed seam for amortizing / MSR
-  exposures (time-step across periods, vectorized across the population).
+- **Dynamic notionals.** `NotionalProvider` is the seam for amortising notionals (only the
+  bullet `StaticNotional` exists; a scheduled or rate-dependent provider materialises the same
+  per-period array).
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).

@@ -3,9 +3,7 @@ from __future__ import annotations
 from enum import Enum, IntEnum, EnumMeta
 
 class SupportedIntEnum(IntEnum):
-
-    def is_supported(self) -> bool:
-        return self.value >= 0
+    """IntEnum base for the library's enumerations."""
 
 
 class CaseInsensitiveEnumMeta(EnumMeta):

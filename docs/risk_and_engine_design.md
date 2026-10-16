@@ -972,6 +972,11 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 
 ### 6.1 Delete (no consumers, or superseded)
 
+> Swept 2026-10-15: every row below is done except three kept on purpose. `PricingRequest` /
+> `requests` stays (a public API change for no behaviour gain); the `NumbaRisk = None` fallback
+> stays because numba is an optional dependency and `risk/adjoint.py` imports it at module
+> level, so the fallback does trigger; `IntegrationTest` stays as the base class.
+
 | Item | Where | Evidence | Action |
 |---|---|---|---|
 | Stale bytecode directories | `src/finance/markets/conventions/`, `src/finance/pricing/conventions/`, `src/finance/coupons/`, `src/finance/tests/unit/coupons/`, `instruments/enums/__pycache__/leg_type*.pyc`, `markets/curves/_curve_impl/__pycache__/interpolators*.pyc` | untracked `__pycache__` only; sources moved in `8a35eba` / deleted in `1bf5c1d`, `d46bb7b` | `rm -r` from disk (not a git change); add `find src -name __pycache__ -prune -exec rm -r {} +` to `bin/` |

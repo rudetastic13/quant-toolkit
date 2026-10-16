@@ -29,17 +29,10 @@ NO_CURVE = -1
 
 
 # ---------------------------------------------------------------------------
-# Notional providers — notionals are not always static (amortization).
+# Notional providers — the seam for amortising notionals; only the bullet exists today.
 # ---------------------------------------------------------------------------
 class NotionalProvider:
-    """Produces the per-period notional array for a leg.
-
-    Precomputable providers implement ``materialize(n_periods) -> (n_periods,)`` (one-shot,
-    no rate dependence — the fast path).  Rate-dependent providers leave it unimplemented
-    and are time-stepped by the pricer via ``step``; ``is_rate_dependent`` selects the path.
-    """
-
-    is_rate_dependent: bool = False
+    """Produces the per-period notional array for a leg: ``materialize(n_periods) -> (n_periods,)``."""
 
     def materialize(self, n_periods: int) -> FloatArray:  # pragma: no cover
         raise NotImplementedError
@@ -53,36 +46,6 @@ class StaticNotional(NotionalProvider):
 
     def materialize(self, n_periods: int) -> FloatArray:
         return np.full(int(n_periods), float(self.amount), dtype=np.float64)
-
-
-@dataclass
-class ScheduledNotional(NotionalProvider):
-    """Precomputed per-period notional (straight-line, custom schedule, etc.)."""
-
-    schedule: FloatArray
-
-    def materialize(self, n_periods: int) -> FloatArray:
-        sched = np.asarray(self.schedule, dtype=np.float64)
-        if sched.shape[0] != n_periods:
-            raise ValueError(f"notional schedule has {sched.shape[0]} periods, expected {n_periods}")
-        return sched
-
-
-@dataclass
-class RateDependentNotional(NotionalProvider):
-    """Notional whose paydown depends on realized rates (level-pay, prepayment).
-
-    DESIGNED seam: no one-shot ``materialize``; the pricer time-steps it across periods
-    (vectorized across the population) — the MSR/balance-sheet hook.
-    """
-
-    original_notional: float
-    is_rate_dependent: bool = True
-
-    def step(self, t: int, prev_notional: FloatArray, prev_rate: FloatArray) -> FloatArray:  # pragma: no cover
-        raise NotImplementedError(
-            "RateDependentNotional time-stepping is a designed seam; implement in the pricer."
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -152,8 +115,6 @@ class KernelResult:
 __all__ = [
     "NotionalProvider",
     "StaticNotional",
-    "ScheduledNotional",
-    "RateDependentNotional",
     "KernelInputs",
     "KernelResult",
     "NO_CAP",

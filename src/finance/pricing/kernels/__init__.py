@@ -2,8 +2,6 @@
 from finance.pricing.kernels.inputs import (
     NotionalProvider,
     StaticNotional,
-    ScheduledNotional,
-    RateDependentNotional,
     KernelInputs,
     KernelResult,
     NO_CAP,
@@ -15,8 +13,6 @@ from finance.pricing.kernels.compiler import LegSpec, compile_portfolio, reprice
 __all__ = [
     "NotionalProvider",
     "StaticNotional",
-    "ScheduledNotional",
-    "RateDependentNotional",
     "KernelInputs",
     "KernelResult",
     "NO_CAP",

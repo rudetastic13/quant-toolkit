@@ -1,6 +1,6 @@
 """Define the registry and factories for the term math operations"""
 
-from typing import Callable, cast
+from typing import Callable
 import numpy as np
 from common.registry import Registry, register_with, create_factory
 from finance.dates import Date
@@ -45,7 +45,7 @@ def _add_years(dt: Date, value: IntScalar) -> Date:
     year = dt.year + value
     try:
         return Date(year, dt.month, dt.day)
-    except:
+    except Exception:  # Feb 29 landing on a non-leap year
         return Date(year, dt.month, 28)
 
 @register_with(_date_based_registry, TermType.BusinessDays)

@@ -31,12 +31,13 @@ def get_is_leap_year() -> np.ndarray:
 def get_month_to_days_offset() -> np.ndarray:
     return _MONTH_TO_DAYS_OFFSET
 
-from finance.dates.date import Date
-from finance.dates.term import Term, TermType
-from finance.dates.enums import BDC, Roll, Direction, Frequency, DayCountMethod
-from finance.dates.calendars import Calendars, Calendar
-from finance.dates.day_counts import period_fractions
-from finance.dates.utils import (
+# the helpers above must exist before the subpackages import this module
+from finance.dates.date import Date  # noqa: E402
+from finance.dates.term import Term, TermType  # noqa: E402
+from finance.dates.enums import BDC, Roll, Direction, Frequency, DayCountMethod  # noqa: E402
+from finance.dates.calendars import Calendars, Calendar  # noqa: E402
+from finance.dates.day_counts import period_fractions  # noqa: E402
+from finance.dates.utils import (  # noqa: E402
     date_based_utils_module,
     np_date_based_utils_module,
     is_good_bd,
@@ -49,7 +50,7 @@ from finance.dates.utils import (
     next_imm_date,
     prior_imm_date,
 )
-from common.object.serializer import register_type
+from common.object.serializer import register_type  # noqa: E402
 
 _ = Calendars() # instantiate the singleton at import
 

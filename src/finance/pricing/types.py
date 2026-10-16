@@ -14,7 +14,7 @@ from common.containers.enums import SupportedIntEnum
 
 
 class Backend(SupportedIntEnum):
-    """Numeric kernel backend. numpy is implemented; numba/rust are reserved seams.
+    """Numeric kernel backend: numpy (reference), numba (fused kernels and the analytic adjoint), jax (oracle).
 
     ``Jax`` is the autodiff backend: the same columnar ``KernelInputs`` repriced through a
     pure ``jax.numpy`` valuation, so risk comes from ``jax.grad``/``jacobian``/``hessian``
@@ -24,7 +24,6 @@ class Backend(SupportedIntEnum):
 
     Numpy = 1
     Numba = 2
-    Rust = 3
     Jax = 4
 
 
@@ -42,17 +41,6 @@ class RateKind(IntEnum):
     Averaged = 3     # arithmetic average of daily fixings
 
 
-class ProductKind(SupportedIntEnum):
-    """Discriminator used to dispatch to a product pricer."""
-
-    Swap = 1
-    Bond = 2
-    Future = 3
-    FRA = 4
-    Loan = 5
-    Swaption = 6
-
-
 # -- kernel ids -------------------------------------------------------------
 KERNEL_DCF = "dcf"               # discounted-cashflow PV reducer
 KERNEL_BACHELIER = "bachelier"   # normal-vol option model (reserved, not implemented)
@@ -67,7 +55,6 @@ RATE_AVERAGED = "rate_averaged"      # arithmetic average of daily fixings
 
 __all__ = [
     "Backend",
-    "ProductKind",
     "KERNEL_DCF",
     "KERNEL_BACHELIER",
     "KERNEL_BLACK",

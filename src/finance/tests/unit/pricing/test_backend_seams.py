@@ -14,10 +14,9 @@ class TestBackendSeams(UnitTest):
         self.assertTrue(has_engine(KERNEL_DCF, Backend.Numpy))
         self.assertTrue(has_engine(RATE_COMPOUNDED, Backend.Numpy))
 
-    def test_numba_kernels_registered_and_rust_absent(self):
+    def test_numba_kernels_registered(self):
         for kernel in (KERNEL_DCF, RATE_COMPOUNDED):
             self.assertTrue(has_engine(kernel, Backend.Numba))
-            self.assertFalse(has_engine(kernel, Backend.Rust))
 
     def test_option_kernels_registered(self):
         self.assertTrue(has_engine(KERNEL_BACHELIER, Backend.Numpy))
@@ -30,4 +29,3 @@ class TestBackendSeams(UnitTest):
 
     def test_seam_packages_import(self):
         import finance.pricing.engines.numba  # noqa: F401
-        import finance.pricing.engines.rust  # noqa: F401

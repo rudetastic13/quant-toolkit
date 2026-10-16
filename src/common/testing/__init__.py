@@ -1,6 +1,6 @@
 """Types and reusable methods for testing"""
 import re
-from unittest import TestCase, skip, skipIf
+from unittest import TestCase
 import pytest
 import pandas as pd
 
