@@ -151,7 +151,7 @@ LogLinearDF curve and two flat vol surfaces — one per quoting convention, beca
 import numpy as np
 from finance.dates import Date
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 
 as_of  = Date(2026, 6, 1)
@@ -160,14 +160,13 @@ dates  = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 3 * 365, 7 
 t      = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
 zeros  = np.array([0.0, 0.035, 0.040, 0.045, 0.047])
 
-curves = CurveNamespace()
 sofr = YieldCurve.build(dates, np.exp(-zeros * t), currency="USD", index_name="SOFR")
-curves.bind(sofr)                                                     # USD.SOFR.ON, the projection key
-curves.bind(sofr, "USD.STDCSA")                                       # the same curve as the discount curve
 vols = VolNamespace()
 vols.bind("USD.SOFR.ON", FlatVolSurface(0.0095, VolUnits.Normal))     # 95bp normal — Bachelier
 vols.bind("USD.SOFR.LN", FlatVolSurface(0.24,   VolUnits.Lognormal))  # 24%  lognormal — Black
-market = MarketContext(as_of, curves, vols=vols)
+market = MarketContext(as_of, vols=vols)
+market["USD.SOFR.ON"] = sofr                                          # the projection key
+market["USD.STDCSA"] = sofr                                           # the same curve as the discount curve
 ```
 
 ### 7.1 Swaps — linear rates, engines interchangeable behind one program

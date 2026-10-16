@@ -369,16 +369,15 @@ rates.simple_rate("USD.SOFR.ON", starts, starts + np.timedelta64(1, "D"))
 ```python
 from finance.dates import Date
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 
-ns = CurveNamespace()
-ns.bind(yc)                                # keyed by yc.name == "USD.SOFR.ON"
-ns.bind(yc, "USD.STDCSA")                  # the same curve is the discount curve
-market = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
+market = MarketContext(Date(2026, 6, 1))
+market["USD.SOFR.ON"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
+market["USD.STDCSA"] = yc                  # the same curve is the discount curve
 
-market.yield_curve("USD.SOFR.ON")             # the YieldCurve
-market.zero_curve("USD.SOFR.ON")              # its ZeroCurve
-market.with_curve(yc.with_zero_curve(bumped))   # new market, original untouched
+market.yield_curve("USD.SOFR.ON")             # the YieldCurve view
+market["USD.SOFR.ON"]                         # its ZeroCurve
+market.with_curve("USD.SOFR.ON", bumped)      # frozen copy, original untouched; USD.STDCSA follows
+market.bump("USD.SOFR.ON", 1e-4)              # +1bp on every pillar the key owns
 
 rates = RateGenerator(market)
 starts = np.array(["2027-06-01"], dtype="datetime64[D]")

@@ -11,7 +11,7 @@ import numpy as np
 
 from finance.instruments.resolution import Swap, curve_name, funding_curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve, dates_to_x
+from finance.markets.curves import CurveInterpolator, ZeroCurve, dates_to_x
 from finance.pricing.pricers import SwapPricer
 
 from quant_toolkit_xl import cache, marshalling
@@ -104,12 +104,9 @@ def make_market(
     index_name = str(rate_index)
     name = curve_name(currency_name, index_name)
     discount = funding_curve_name(currency_name, str(funding_id))
-    yield_curve = YieldCurve.from_registry(origin, curve, key=name)
-    namespace = CurveNamespace()
-    namespace.bind(yield_curve)
-    if discount != name:
-        namespace.bind(yield_curve, discount)
-    market = MarketContext(as_of_date=as_of_date, curves=namespace)
+    if np.datetime64(origin, "D") != np.datetime64(as_of_date.to_numpy(), "D"):
+        raise ValueError(f"curve origin {origin} is not the market as-of {as_of_date}")
+    market = MarketContext(as_of_date, {name: curve, discount: curve}).freeze()
     return cache.store("Market", market, str(as_of_date), name, discount, str(curve_handle))
 
 

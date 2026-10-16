@@ -11,7 +11,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import SwapPricer
 
 jax = pytest.importorskip("jax")
@@ -34,11 +34,8 @@ def _market(as_of: Date) -> MarketContext:
     z = np.interp(t, [0.0, t[-1]], [0.035, 0.048])
     dfs = np.exp(-z * t)
     dfs[0] = 1.0
-    ns = CurveNamespace()
     sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=as_of, curves=ns)
+    return MarketContext(as_of_date=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 @pytest.mark.risk

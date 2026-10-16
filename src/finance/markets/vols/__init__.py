@@ -5,8 +5,8 @@ option pricers (swaptions, options on treasury futures) slot in without
 reworking the market layer.  Only ``FlatVolSurface`` is implemented today;
 calibrated surfaces are future work.
 
-Mirrors ``CurveNamespace`` (versioned bind/resolve/snapshot) so the option
-pricers resolve a surface by name exactly as linear pricers resolve a curve.
+A versioned bind/resolve store so the option pricers resolve a surface by name much as
+linear pricers resolve a curve from ``MarketContext``.
 """
 from __future__ import annotations
 
@@ -56,10 +56,9 @@ class FlatVolSurface:
 
 
 class VolNamespace:
-    """Name -> VolSurface store with a version counter, mirroring CurveNamespace.
+    """Name -> VolSurface store with a version counter.
 
-    Not a singleton; one per scenario is fine. See
-    ``finance.markets.curves.CurveNamespace`` for the pattern.
+    Not a singleton; one per scenario is fine.
     """
 
     def __init__(self) -> None:

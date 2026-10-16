@@ -12,7 +12,6 @@ from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod
 from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.engines.numpy.rates import compounded
 from finance.pricing.engines.numpy.dcf import dcf
@@ -52,11 +51,8 @@ class TestParSwapPricesToZero(UnitTest):
 
     def setUp(self):
         self.origin = "2026-06-01"
-        ns = CurveNamespace()
         sofr = _curve(self.origin)
-        ns.bind(sofr)
-        ns.bind(sofr, "USD.STDCSA")
-        self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
+        self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves={sofr.name: sofr, "USD.STDCSA": sofr})
         self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)
         # 2y annual swap, effective = curve origin

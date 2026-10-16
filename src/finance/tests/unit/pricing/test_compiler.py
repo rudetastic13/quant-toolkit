@@ -11,7 +11,6 @@ from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod, Frequency, BDC
 from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.instruments.schedules.coupon_schedule import (
     CouponSchedule,
@@ -30,11 +29,8 @@ CURVE = "USD.SOFR.ON"
 def _market(origin="2026-06-01"):
     dates = np.array([origin, "2028-06-01", "2031-06-01"], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
-    ns = CurveNamespace()
     yield_curve = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    ns.bind(yield_curve)
-    ns.bind(yield_curve, "USD.STDCSA")
-    return MarketContext(as_of_date=Date(2026, 6, 1), curves=ns), yield_curve
+    return MarketContext(as_of_date=Date(2026, 6, 1), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve}), yield_curve
 
 
 def _annual_schedule(years=4, build_obs=False):

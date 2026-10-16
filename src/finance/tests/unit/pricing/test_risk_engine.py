@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap, SofrFuture, Swaption, SwaptionModel
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
+from finance.markets.curves import CurveInterpolator, YieldCurve
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import RiskEngine, Sensitivities
@@ -18,14 +18,11 @@ def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 3 * 365, 7 * 365, 12 * 365)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
-    curves = CurveNamespace()
     space, interpolator = interpolation.resolve()
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator)
-    curves.bind(sofr)
-    curves.bind(sofr, "USD.STDCSA")
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(0.01, VolUnits.Normal))
-    return MarketContext(as_of, curves, vols=vols)
+    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
 
 
 class TestRiskEngine(UnitTest):

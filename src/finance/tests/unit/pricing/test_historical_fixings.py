@@ -13,7 +13,7 @@ from finance.dates import Date, Term, TermType
 from finance.instruments.resolution import Swap
 from finance.markets import HistoricalFixings
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import SwapPricer
 from finance.pricing.risk import NumbaRisk, bumped_curve
 from finance.pricing.types import Backend, RateKind
@@ -50,10 +50,7 @@ def _market() -> MarketContext:
         index_name="SOFR",
         historical_fixings=_sofr_history(),
     )
-    curves = CurveNamespace()
-    curves.bind(yield_curve)
-    curves.bind(yield_curve, "USD.STDCSA")
-    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves=curves)
+    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve})
 
 
 def _seasoned_book() -> list[Swap]:

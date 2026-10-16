@@ -10,7 +10,6 @@ from finance.dates import Date, Frequency, DayCountMethod
 from finance.instruments.enums import CouponType
 from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.instruments.resolution import Swap
 from finance.pricing.pricers import SwapPricer
 
@@ -23,11 +22,8 @@ def _market():
                       origin + np.timedelta64(5 * 365, "D"),
                       origin + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
-    ns = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=AS_OF, curves=ns)
+    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestSwapResolution(UnitTest):
@@ -88,13 +84,10 @@ class TestSwapPricing(UnitTest):
         compiled = SwapPricer().compile([Swap.fixed_float_swap(notional=100, rate_index="SOFR", fixed_rate=0.045, tenor="10Y", as_of=AS_OF)])
         pv1 = compiled.price(mkt).pv
 
-        ns2 = CurveNamespace()
         o = AS_OF.to_numpy()
         d = np.array([o, o + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
         sofr = YieldCurve.build(d, np.array([1.0, np.exp(-0.05 * 12)]), currency="USD", index_name="SOFR")
-        ns2.bind(sofr)
-        ns2.bind(sofr, "USD.STDCSA")
-        mkt2 = MarketContext(as_of_date=AS_OF, curves=ns2)
+        mkt2 = MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
         pv2 = compiled.price(mkt2).pv
         self.assertNotAlmostEqual(pv1, pv2, places=4)  # different curve -> different PV, same compiled form
 

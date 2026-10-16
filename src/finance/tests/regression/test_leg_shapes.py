@@ -31,7 +31,7 @@ from finance.instruments.schedules import CompoundedCouponEvent, CouponSchedule,
 from finance.instruments.schedules.observation import LookbackStyle
 from finance.markets import HistoricalFixings
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import LegPricer
 from finance.pricing.types import RateKind
@@ -61,11 +61,8 @@ def market() -> MarketContext:
     t = (dates.astype(np.int64) - origin.astype(np.int64)) / 365.0
     z = np.array([0.0, 0.041, 0.040, 0.039, 0.040, 0.042])
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([FIXING_1Y]))
-    ns = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=AS_OF, curves=ns)
+    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def leg(**fields) -> CommonInstrument:

@@ -98,7 +98,7 @@ Product coverage and the facts the design relies on. File references are `path:l
   (finite-difference Jacobian); `Bootstrapper` is per-pillar `brentq`, local schemes only.
   `CurveDefinition.interpolation` accepts an `Interpolator` instance, so `Mixed` is reachable
   through `GlobalSolver` even though `CurveInterpolator` has no `Mixed` entry.
-- **Market context.** `MarketContext(as_of_date, curves: CurveNamespace, vols: object | None, conventions)`
+- **Market context.** `MarketContext(as_of, curves: Mapping[str, DiscountCurve], vols: object | None, conventions)`
   with `with_curve`, `yield_curve`, `zero_curve`, `convention`. `with_curve` rebuilds the
   namespace and **resets every curve version to 0** (`markets/context.py:30-43`), so namespace
   versions cannot key a cache. `ZeroCurve` compares by identity.

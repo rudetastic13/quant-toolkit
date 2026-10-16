@@ -6,7 +6,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import YieldCurve, ZeroCurve
 from finance.pricing.engines.numba import NumbaProgram
 from finance.pricing.engines.numba.program import _execute
 from finance.pricing.pricers import SwapPricer
@@ -24,11 +24,8 @@ def _market(as_of):
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 182, 365, 730, 1825, 3650)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.032, 0.035, 0.039, 0.043, 0.046])
-    ns = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of, ns)
+    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def _book(as_of, n):
