@@ -60,13 +60,13 @@ class TestCurveCalibrator(UnitTest):
         self.true = ZeroCurve((nd.astype(np.int64) - self.origin.astype(np.int64)).astype(np.float64), dfs)
 
         sofr = YieldCurve.from_registry(self.origin, self.true, currency="USD", index_name="SOFR")
-        true_mkt = MarketContext(as_of_date=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+        true_mkt = MarketContext(as_of=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
         # Quotes generated from the true curve.
         for h in self.helpers:
             h.quote = Quote(h.implied(true_mkt), h.quote.kind)
 
-        self.base = MarketContext(as_of_date=self.as_of)
+        self.base = MarketContext(as_of=self.as_of)
         self.defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
 
     def test_round_trip_recovers_true_dfs(self):
@@ -90,7 +90,7 @@ class TestCurveCalibrator(UnitTest):
             res.origin, res.zero_curve, currency="USD", index_name="SOFR"
         )
         out = self.base.with_curve(yield_curve)
-        self.assertIs(out.zero_curve(CURVE), res.zero_curve)
+        self.assertIs(out[CURVE], res.zero_curve)
         # Calibration returns mathematical state and never mutates the input market.
         self.assertNotIn(CURVE, self.base)
 
@@ -168,18 +168,18 @@ class TestWithCurve(UnitTest):
         self.c1 = ZeroCurve(x, np.array([1.0, 0.92]))
         self.c2 = ZeroCurve(x, np.array([1.0, 0.95]))
         sofr = YieldCurve.from_registry(self.origin, self.c1, currency="USD", index_name="SOFR")
-        self.mkt = MarketContext(as_of_date=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr}, vols=object())
+        self.mkt = MarketContext(as_of=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr}, vols=object())
 
     def test_with_curve_rebinds_and_leaves_original_intact(self):
         replacement = self.mkt.yield_curve(CURVE).with_zero_curve(self.c2)
         out = self.mkt.with_curve(replacement)
-        self.assertIs(out.zero_curve(CURVE), self.c2)
-        self.assertIs(self.mkt.zero_curve(CURVE), self.c1)  # original unchanged
+        self.assertIs(out[CURVE], self.c2)
+        self.assertIs(self.mkt[CURVE], self.c1)  # original unchanged
         # vols remain shared by reference; curve composition preserves curve-owned fixings.
         self.assertIs(out.vols, self.mkt.vols)
 
     def test_with_curve_binds_new_name(self):
         fedfund = YieldCurve.from_registry(self.origin, self.c2, currency="USD", index_name="FEDFUND")
         out = self.mkt.with_curve(fedfund)
-        self.assertIs(out.zero_curve("USD.FEDFUND.ON"), self.c2)
+        self.assertIs(out["USD.FEDFUND.ON"], self.c2)
         self.assertNotIn("USD.FEDFUND.ON", self.mkt)

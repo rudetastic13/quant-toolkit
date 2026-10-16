@@ -134,7 +134,7 @@ def _eval_curve(
 
 
 def _rate_generator(curve: YieldCurve) -> RateGenerator:
-    market = MarketContext(as_of_date=Date.from_numpy(curve.origin), curves={curve.name: curve})
+    market = MarketContext(as_of=Date.from_numpy(curve.origin), curves={curve.name: curve})
     return RateGenerator(market)
 
 

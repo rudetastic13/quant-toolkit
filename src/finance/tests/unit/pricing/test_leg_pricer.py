@@ -20,7 +20,7 @@ def _market() -> MarketContext:
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.041, 0.040, 0.042, 0.045])
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def _window(instrument):

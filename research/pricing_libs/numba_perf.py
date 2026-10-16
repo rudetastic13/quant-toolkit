@@ -59,7 +59,7 @@ def build_market(as_of):
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of)
+    base = MarketContext(as_of=as_of)
     result = CurveCalibrator(
         helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)

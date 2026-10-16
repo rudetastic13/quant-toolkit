@@ -96,7 +96,7 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of)
+    base = MarketContext(as_of=as_of)
     target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"
@@ -158,7 +158,7 @@ def zero_rates_from_curve(curve: ZeroCurve) -> tuple[np.ndarray, np.ndarray, np.
     """Decompose a ZeroCurve into the (origin-inclusive day grid, pillar years, pillar zeros).
 
     The parameter vector ``z`` is the continuously-compounded zero rate at each non-origin
-    pillar — *exactly* what ``Sensitivities.bumped_curve`` shifts, so JAX gradients in ``z``
+    pillar — *exactly* what ``market.bump`` shifts, so JAX gradients in ``z``
     are directly comparable to the engine's key-rate ladder.
     """
     x_nodes = curve.x  # incl. origin (0.0)
@@ -341,10 +341,8 @@ def main() -> None:
 
 
 def _bump(curve: ZeroCurve, bp: float) -> ZeroCurve:
-    """Parallel zero-rate shift — same parameterisation Sensitivities.bumped_curve uses."""
-    from finance.pricing.risk import bumped_curve
-
-    return bumped_curve(curve, bp)
+    """Parallel zero-rate shift of the pillar zero rates — the parameterisation ``market.bump`` uses."""
+    return curve.with_params(curve.params + bp)
 
 
 def _timings(pv_fn, grad_fn, hess_fn, z, sens, cn) -> None:

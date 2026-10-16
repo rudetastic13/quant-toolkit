@@ -55,7 +55,7 @@ def build_market() -> MarketContext:
         swap_helper(rate=0.0425, tenor="20Y", as_of=AS_OF),
         swap_helper(rate=0.0430, tenor="30Y", as_of=AS_OF),
     ]
-    base = MarketContext(as_of_date=AS_OF)
+    base = MarketContext(as_of=AS_OF)
     target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration did not converge"

@@ -159,7 +159,7 @@ save(fig, "zero_curve_schemes")
 # 4. YieldCurve: pseudo cash rates (3M and 1Y simple, index day count) by scheme
 # ---------------------------------------------------------------------------------------
 def market_for(yc: YieldCurve) -> MarketContext:
-    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves={yc.name: yc})
+    return MarketContext(as_of=Date.from_numpy(ORIGIN), curves={yc.name: yc})
 
 
 STARTS = ORIGIN + np.arange(0, int(X_NODES[-1]) - 365, 3).astype("timedelta64[D]")

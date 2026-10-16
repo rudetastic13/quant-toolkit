@@ -106,12 +106,9 @@ class MarketContext(Mapping[str, DiscountCurve]):
         conventions: ConventionRegistry = default_registry,
         vols: Any | None = None,
         fixings: Mapping[str, HistoricalFixings] | None = None,
-        as_of_date: Date | None = None,
     ) -> None:
         if as_of is None:
-            as_of = as_of_date
-        if as_of is None or (as_of_date is not None and as_of_date is not as_of):
-            raise ValueError("MarketContext needs one valuation date: as_of=")
+            raise ValueError("MarketContext needs a valuation date: as_of")
         self._as_of = as_of
         self._origin = np.datetime64(as_of.to_numpy(), "D")
         self._curves: dict[str, DiscountCurve] | MappingProxyType = {}
@@ -132,11 +129,6 @@ class MarketContext(Mapping[str, DiscountCurve]):
     @property
     def as_of(self) -> Date:
         """Valuation date; the origin of every registered curve."""
-        return self._as_of
-
-    @property
-    def as_of_date(self) -> Date:
-        """Alias of :attr:`as_of`."""
         return self._as_of
 
     @property
@@ -265,33 +257,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
         self._yield_cache[name] = (id(curve), id(history), view)
         return view
 
-    def zero_curve(self, key: str) -> DiscountCurve:
-        """``market[key]``: the registered mathematical curve (any ``DiscountCurve``)."""
-        return self[key]
-
-    def convention(self, currency: str, index_name: str):
-        """The registered market conventions for ``(currency, index family)``."""
-        return self._conventions.get(currency, index_name)
-
     # -- ownership ----------------------------------------------------------------------
-
-    def curve_aliases(self, key: str) -> tuple[str, ...]:
-        """Every key registered to the same object as ``key``'s, in registration order."""
-        target = self[key]
-        return tuple(name for name, curve in self._curves.items() if curve is target)
-
-    def curve_owner(self, key: str) -> str:
-        """The key that owns the object registered under ``key``.
-
-        Among the keys holding one object a projection key wins (``USD.SOFR.ON`` over
-        ``USD.STDCSA``), then the first registered.  The engines lay parameters out per owner,
-        so two keys on one object share one parameter block.
-        """
-        names = self.curve_aliases(key)
-        for candidate in names:
-            if CurveKey.parse(candidate).is_projection:
-                return candidate
-        return names[0]
 
     def leaf_owner(self) -> dict[int, str]:
         """Which registered key owns each atom: ``{id(atom): key}``.
@@ -359,6 +325,14 @@ class MarketContext(Mapping[str, DiscountCurve]):
         }
         return out
 
+    def _object_owner(self, obj: DiscountCurve) -> str:
+        """Among the keys registered to exactly ``obj``: a projection key first, then the first registered."""
+        names = [name for name, curve in self._curves.items() if curve is obj]
+        for candidate in names:
+            if CurveKey.parse(candidate).is_projection:
+                return candidate
+        return names[0]
+
     def _replaced(self, old: DiscountCurve, new: DiscountCurve) -> MarketContext:
         """A frozen copy with ``new`` substituted for ``old`` wherever it appears, by identity."""
         return self._copy({name: curve.replace(old, new) for name, curve in self._curves.items()}, self._fixings)
@@ -368,8 +342,9 @@ class MarketContext(Mapping[str, DiscountCurve]):
 
         ``with_curve(yield_curve)`` alone registers it under its own key.
 
-        When ``key`` owns the object it held (:meth:`curve_owner`), that object *moved*: every
-        other key holding it follows, and every composite built on it is rebuilt on ``curve``.
+        When ``key`` owns the object it held (a projection key over a discount key, then the
+        first registered), that object *moved*: every other key holding it follows, and every
+        composite built on it is rebuilt on ``curve``.
         When ``key`` is an alias (``USD.STDCSA`` on the SOFR object) or new, only ``key`` changes.
 
         Raises
@@ -397,7 +372,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
                 f"'{name}' would be redefined in terms of the curve it holds; that is an assembly step "
                 "(market[key] = ...), not a scenario"
             )
-        if self.curve_owner(name) == name:
+        if self._object_owner(previous) == name:
             out = self._replaced(previous, curve)
             return out if history is None else out._copy(out._curves, fixings)
         curves = dict(self._curves)

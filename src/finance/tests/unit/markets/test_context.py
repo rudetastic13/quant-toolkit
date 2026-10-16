@@ -53,7 +53,6 @@ class TestMarketContext(UnitTest):
         with self.assertRaises(KeyError):
             self.market[FEDFUND]
         self.assertEqual(self.market.as_of, self.as_of)
-        self.assertEqual(self.market.as_of_date, self.as_of)
         self.assertEqual(self.market.origin, self.origin)
         self.assertIn("USD.SOFR.ON", repr(self.market))
 
@@ -62,7 +61,7 @@ class TestMarketContext(UnitTest):
         self.assertEqual(view.name, CURVE)
         self.assertEqual(view.origin, self.origin)
         self.assertIs(view.zero_curve, self.market[CURVE])
-        self.assertIs(self.market.zero_curve(CURVE), self.sofr)
+        self.assertIs(self.market[CURVE], self.sofr)
         self.assertIs(self.market.yield_curve(CURVE), view)  # cached until the curve or fixings change
         self.assertIsNone(self.market.yield_curve(DISCOUNT).conventions)
 
@@ -98,13 +97,13 @@ class TestMarketContext(UnitTest):
 
     # -- ownership ----------------------------------------------------------------------
 
-    def test_curve_owner_prefers_the_projection_key(self):
-        self.assertEqual(self.market.curve_owner(DISCOUNT), CURVE)
-        self.assertEqual(self.market.curve_owner(CURVE), CURVE)
-        self.assertEqual(self.market.curve_aliases(DISCOUNT), (CURVE, DISCOUNT))
+    def test_an_atom_under_two_discount_keys_belongs_to_the_first_registered(self):
         ust = _zero_curve(0.03)
         market = MarketContext(self.as_of, {"USD.UST": ust, DISCOUNT: ust})
-        self.assertEqual(market.curve_owner(DISCOUNT), "USD.UST")  # no projection key: first registered
+        self.assertEqual(market.leaf_owner()[id(ust)], "USD.UST")
+        moved = _zero_curve(0.035)
+        self.assertIs(market.with_curve("USD.UST", moved)[DISCOUNT], moved)   # the owner moved: the alias follows
+        self.assertIs(market.with_curve(DISCOUNT, moved)["USD.UST"], ust)     # the alias rebinds alone
 
     def _chain(self) -> MarketContext:
         market = MarketContext(self.as_of, {CURVE: self.sofr, DISCOUNT: self.sofr})
@@ -289,11 +288,6 @@ class TestMarketContext(UnitTest):
         par = self.rates.par_swap_rate(template)
         swap = Swap.fixed_float_swap(notional=1e6, rate_index="SOFR", fixed_rate=par, tenor="3Y", as_of=self.as_of)
         self.assertAlmostEqual(SwapPricer().price([swap], self.market).pv, 0.0, places=8)
-
-    def test_convention_helper(self):
-        conv = self.market.convention("USD", "SOFR")
-        self.assertEqual(conv.index().label, "USD.SOFR.ON")
-        self.assertEqual(conv.swap.spot_calendar, "no_holidays")
 
     def test_simple_rate_on_a_discount_curve_needs_a_day_count(self):
         from finance.dates.enums import DayCountMethod

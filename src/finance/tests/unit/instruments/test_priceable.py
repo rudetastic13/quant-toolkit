@@ -16,7 +16,7 @@ def _market(as_of: Date, level: float = 0.04) -> MarketContext:
     dfs = np.exp(-level * t)
     dfs[0] = 1.0
     sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestPriceableFunctor(UnitTest):

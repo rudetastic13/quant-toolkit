@@ -164,7 +164,7 @@ from finance.pricing.risk import NumbaRisk
 from finance.pricing.risk.sensitivities import Sensitivities
 from finance.pricing.types import Backend
 
-sofr_only = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc})
+sofr_only = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc, "USD.STDCSA": sofr_yc})   # the swaps discount at SOFR
 template = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.0, tenor="5Y", as_of=as_of)
 par_engine = RateGenerator(sofr_only).par_swap_rate(template)
 par_engine
@@ -195,28 +195,44 @@ The small positive 3M risk and the non-zero 10Y risk that the hand-built leg did
 floating leg: its compounded coupons reach into the first interval, and its last payment date
 falls past the 5Y pillar, into the segment that the 5Y and 10Y nodes share.
 
-## 6. Composite curves split the ladder by block
+## 6. Composite curves: one block per owning key
 
 A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND.ON`
 ([04](04_yield_curve.md)) and discounted off `USD.STDCSA`, the SOFR curve under its discount key.
-The index ladder on `USD.FEDFUND.ON` has six columns: the five SOFR pillars of its base block,
-then the spread parameter. The spread
-column is the parallel index risk, because a flat spread *is* a parallel move of the projection
-curve.
+The engine lays its parameters out by ownership (`ParamLayout`, built from
+`market.leaf_owner()`): the SOFR atom is one block named `USD.SOFR.ON`, reached three ways (the
+projection key, the discount alias, the base of the Fed Funds composite), and `USD.FEDFUND.ON`
+owns only its spread. So the SOFR ladder of a Fed Funds swap is one ladder, and the Fed Funds
+ladder is one number, the basis.
 
 ```python
 ff_market = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc, "USD.STDCSA": sofr_yc, "USD.FEDFUND.ON": fedfund_yc})
 ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=as_of)
 ff_risk = NumbaRisk(SwapPricer().compile([ff_swap]), ff_market)
-ff_risk.index_ladder("USD.FEDFUND.ON")                # [ base block (SOFR pillars) | spread ]
-# [[    54.754828   -389.556882  -1472.34591  -44265.337577   -139.586974 -46212.072515]]
-ff_risk.funding_ladder("USD.STDCSA")               # discounting risk; the SOFR block under its discount key
+ff_risk.base.layout.blocks
+# ('USD.SOFR.ON', 'USD.FEDFUND.ON')
+ff_risk.zero_ladder("USD.SOFR.ON")                    # all SOFR pillar risk: projection through the composite + discounting
+# [[    54.754828   -392.252403  -1477.157004 -44083.347309   -139.29408 ]]
+ff_risk.index_ladder("USD.SOFR.ON")                   # ... split by role: the projection part
+# [[    54.754828   -389.556882  -1472.34591  -44265.337577   -139.586974]]
+ff_risk.funding_ladder("USD.STDCSA")                  # ... and the discounting part (an alias reports under its owner)
 # [[  0.        -2.695521  -4.811094 181.990268   0.292894]]
+ff_risk.zero_ladder("USD.FEDFUND.ON")                 # the basis: a flat spread is a parallel move of the projection curve
+# [[-46212.072515]]
+ff_risk.index_ladder("USD.SOFR.ON").sum()
+# -46212.07251531829
+ff_risk.gamma(keys=("USD.SOFR.ON", "USD.FEDFUND.ON"))     # cross-block gamma: SOFR pillars against the basis
+# [[-0.000015 -0.        0.        0.        0.        0.002738]
+#  [-0.        0.019505  0.000215 -0.        0.        0.481346]
+#  ...
+#  [ 0.002738  0.481346  1.788927  2.17578  -0.       -2.312109]]
+Sensitivities(SwapPricer().compile([ff_swap]), ff_market).key_rate_durations("USD.SOFR.ON").krd  # bump oracle: market.bump moves the atom everywhere
+# [[    54.754828   -392.252403  -1477.157011 -44083.349091   -139.29408 ]]
 ```
 
-Basis risk (the spread column), index risk (the base block) and funding risk (the SOFR ladder)
-come out of one adjoint sweep with no product-specific code, because the composite's affine map
-already carried the block structure.
+Basis risk, index risk and funding risk come out of one adjoint sweep with no product-specific
+code: the composite's affine map carries the block structure, and the layout scatters each
+path's rows into the atom's one set of columns.
 
 ## Where this goes next
 
@@ -224,5 +240,5 @@ already carried the block structure.
 - **`RiskTemplate`** (design §2) computes `J_T` for a set of tradeable instruments on the base
   curve and solves `R = G B (J_T B)⁻¹` so the book's risk is reported against those quotes, with
   the unexplained remainder shown rather than hidden.
-- **Shared atoms.** Today a SOFR atom reachable through two registered curves is two parameter
-  blocks. The `ParamLayout` of design §4.1 keys parameters by atom so it is reported once.
+- **Calibrating the owned leaf** (plan PR G): `CurveCalibrator` solves `market.owned(key)` with the
+  other blocks held, which is the sequential basis bootstrap (OIS, then the 1M basis, then 6M/1M).

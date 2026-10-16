@@ -97,9 +97,9 @@ new6m["base"]["base"] is moved, new6m["spread"] is term6m["spread"], new6m.zero_
 # (True, True, array([0.001, 0.001, 0.001]))
 ```
 
-These are what a market uses to move SOFR through every curve built on it, and what the engine
-uses to give a shared atom one parameter block instead of one per registered curve
-([curves_and_market_plan.md](../curves_and_market_plan.md), PRs D and E).
+These are what a market uses to move SOFR through every curve built on it (`market.bump`,
+`market.with_curve`), and what the engine's `ParamLayout` uses to give a shared atom one parameter
+block instead of one per registered curve.
 
 ## A constant spread
 

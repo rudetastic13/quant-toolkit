@@ -30,7 +30,7 @@ def _market(origin="2026-06-01"):
     dates = np.array([origin, "2028-06-01", "2031-06-01"], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     yield_curve = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=Date(2026, 6, 1), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve}), yield_curve
+    return MarketContext(as_of=Date(2026, 6, 1), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve}), yield_curve
 
 
 def _annual_schedule(years=4, build_obs=False):

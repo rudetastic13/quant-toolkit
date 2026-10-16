@@ -50,7 +50,6 @@ from finance.pricing.calibration import (
 from finance.pricing.pricers import SwapPricer
 from finance.pricing.risk import NumbaRisk, Sensitivities
 from finance.pricing.risk.autodiff import AutodiffRisk
-from finance.pricing.risk.sensitivities import bumped_curve
 from finance.pricing.types import Backend
 
 # ---------------------------------------------------------------------------
@@ -136,7 +135,7 @@ def calibrate(
     jacobian: bool = False,
     jacobian_backend: Backend = Backend.Numba,
 ) -> CalibrationResult:
-    base = MarketContext(as_of_date=AS_OF)
+    base = MarketContext(as_of=AS_OF)
     calibrator = CurveCalibrator(
         instruments=build_helpers(),
         solver=solver,
@@ -173,7 +172,7 @@ def register_sofr_curve(
     currency/index conventions turn it into the ``YieldCurve`` consumed by rate generation
     and pricing.
     """
-    market = base_market or MarketContext(as_of_date=AS_OF)
+    market = base_market or MarketContext(as_of=AS_OF)
     sofr_curve = YieldCurve.from_registry(
         result.origin,
         result.zero_curve,
@@ -522,9 +521,7 @@ def aggregate_portfolio_report(
     par_table.loc["Net"] = partial_dv01.sum()
 
     # Recalculate against a +1bp parallel zero shift without recompiling the swap program.
-    base_zero = market.zero_curve(CURVE)
-    bumped_zero = bumped_curve(base_zero, 1e-4)
-    bumped_market = market.with_curve(market.yield_curve(CURVE).with_zero_curve(bumped_zero))
+    bumped_market = market.bump(CURVE, 1e-4)
     bumped_pricing = program.price(bumped_market)
     net_pv = float(pricing.instrument_pv.sum())
     bumped_net_pv = float(bumped_pricing.instrument_pv.sum())

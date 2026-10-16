@@ -56,10 +56,9 @@ downstream consumes: geometry (`x`, `dfs`, `max_x`, `scheme`), a flat parameter 
 basis curves, turns, overlays; composites nest). Components may be labelled
 (`{"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)}`) and addressed by label.
 It is exactly affine in its concatenated parameters, so a composite prices and risks through
-the engines unchanged, with the ladder split per component block. Each distinct *registered*
-curve object is one parameter block today (several keys on one object share it); a shared-atom
-layout that reports an atom once across the composites referencing it is the pending piece
-([curves_and_market_plan.md](curves_and_market_plan.md) PR E).
+the engines unchanged. The engines lay parameters out by ownership (`ParamLayout`, one block per
+owning key, each atom once), so a shared atom is reported once however many composites reach it:
+the SOFR ladder of a Fed Funds swap is one ladder and the Fed Funds ladder is the basis.
 
 `YieldCurve` composes an `origin` date and one `DiscountCurve` with a curve key
 (`finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that

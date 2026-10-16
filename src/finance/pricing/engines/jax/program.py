@@ -27,6 +27,7 @@ import numpy as np
 import jax.numpy as jnp
 from jax.ops import segment_sum
 
+from finance.markets.curves import ZeroCurve
 from finance.pricing.engines.jax.curves import CurveGeometry, curve_geometry, make_df
 from finance.pricing.kernels.inputs import KernelInputs
 from finance.pricing.kernels.shaping import prep_obs, shape_float, shape_period
@@ -56,18 +57,24 @@ class JaxProgram:
         ki = inputs
         self.curve_names: list[str] = list(ki.curve_names)
 
-        # -- static curve geometry (gradient-free), one per distinct curve object ----------
-        # Keys bound to one curve (``USD.SOFR.ON`` / ``USD.STDCSA``) share a parameter block
-        # named after the owning key; ``block`` maps any program curve name onto it.
-        self._block_of: dict[str, str] = {name: market.curve_owner(name) for name in self.curve_names}
+        # -- static curve geometry (gradient-free), one block per owning key ----------------
+        # The oracle models log-linear atoms only: every program curve must be a ZeroCurve, and
+        # keys on one object (``USD.SOFR.ON`` / ``USD.STDCSA``) share the block of the owning key.
+        owner = market.leaf_owner()
+        self._block_of: dict[str, str] = {}
+        for name in self.curve_names:
+            curve = market[name]
+            if not isinstance(curve, ZeroCurve) or not curve.is_log_linear:
+                raise NotImplementedError(
+                    f"the JAX oracle models log-linear ZeroCurve atoms only; '{name}' is {curve!r}"
+                )
+            self._block_of[name] = owner[id(curve)]
         self.block_names: list[str] = list(dict.fromkeys(self._block_of.values()))
-        self.geoms: dict[str, CurveGeometry] = {
-            name: curve_geometry(market.zero_curve(name)) for name in self.block_names
-        }
+        self.geoms: dict[str, CurveGeometry] = {name: curve_geometry(market[name]) for name in self.block_names}
         self._df = {name: make_df(g) for name, g in self.geoms.items()}
 
         # -- per-flow static columns ----------------------------------------------------
-        o = market.yield_curve(self.curve_names[0]).origin.astype(np.int64) if self.curve_names else 0
+        o = market.origin.astype(np.int64)
 
         def offs(dates: np.ndarray) -> np.ndarray:
             return (dates.astype(np.int64) - o).astype(np.float64)
@@ -196,7 +203,7 @@ class JaxProgram:
         Both dicts start from the same calibrated curves, but they are *separate* leaves:
         differentiating in ``disc_params`` gives funding risk, in ``proj_params`` index risk.
         """
-        z = {name: jnp.asarray(curve_geometry(market.zero_curve(name)).z0) for name in self.block_names}
+        z = {name: jnp.asarray(curve_geometry(market[name]).z0) for name in self.block_names}
         return {k: v for k, v in z.items()}, {k: jnp.asarray(np.asarray(v)) for k, v in z.items()}
 
     # -- the differentiable valuation ---------------------------------------------------

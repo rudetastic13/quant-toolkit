@@ -18,7 +18,7 @@ def _market():
                       o + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     sofr = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestDv01(UnitTest):
@@ -38,9 +38,9 @@ class TestDv01(UnitTest):
         self.assertLess(dv01[0], 0.0)
 
     def test_dv01_does_not_mutate_base_market(self):
-        before = self.mkt.zero_curve("USD.SOFR.ON").dfs.copy()
+        before = self.mkt["USD.SOFR.ON"].dfs.copy()
         _ = self.sens.dv01("USD.SOFR.ON")
-        after = self.mkt.zero_curve("USD.SOFR.ON").dfs
+        after = self.mkt["USD.SOFR.ON"].dfs
         np.testing.assert_array_equal(before, after)  # bumping built a fresh market
 
     def test_dv01_scale_reasonable(self):

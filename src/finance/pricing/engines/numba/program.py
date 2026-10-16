@@ -6,10 +6,16 @@ Its only differentiable inputs are flattened continuously-compounded pillar zero
 
 Curve interpolation never runs inside the kernel.  Every discount-factor query (payment
 dates, reset windows, observation endpoints) is a static day offset once the program is
-compiled, so at prepare time each curve hands over ``ZeroCurve.log_df_affine`` on its unique
+compiled, so at prepare time each curve hands over ``DiscountCurve.log_df_affine`` on its unique
 queries: ``ln DF(q) = const[q] + Σ coef[q, k] · z[k]``, stored as CSR rows.  The primal is one
 dot product per query and the adjoint scatters through the same rows, whatever the scheme —
-log-linear gives two nonzeros per row, a cubic spline a dense one.
+log-linear gives two nonzeros per row, a cubic spline a dense one, a composite the union of its
+components' rows.
+
+``z`` is laid out by :class:`~finance.pricing.engines.layout.ParamLayout`: one block per owning
+key, each atom once.  A curve's affine rows are scattered through the layout's column map, so
+the SOFR atom inside a Fed Funds spread composite and the SOFR curve under its discount key are
+the same columns of ``z``.
 
 Numba specializes the function on dtype and dimensionality, not array length.  Consequently
 one compiled signature prices a singleton, a changing futures strip, or a large swap book
@@ -23,6 +29,7 @@ import numpy as np
 from numba import njit
 
 from finance.instruments.enums import MarginTreatment
+from finance.pricing.engines.layout import ParamLayout
 from finance.pricing.kernels.inputs import KernelInputs, KernelResult
 from finance.pricing.types import RateKind
 
@@ -273,16 +280,20 @@ class NumbaAdjointResult:
     cashflow_funding_gradient: np.ndarray
     instrument_index_gradient: np.ndarray
     instrument_funding_gradient: np.ndarray
-    curve_names: tuple[str, ...]
-    curve_param_slices: tuple[slice, ...]
+    layout: ParamLayout
+
+    @property
+    def curve_names(self) -> tuple[str, ...]:
+        return tuple(self.layout.column_maps)
 
     def curve_slice(self, curve_name: str) -> slice:
-        """Columns of ``curve_name``'s parameter block; keys sharing one curve object share the block."""
-        try:
-            ci = self.curve_names.index(curve_name)
-        except ValueError:
-            raise KeyError(f"program has no curve named '{curve_name}'") from None
-        return self.curve_param_slices[ci]
+        """Columns of the block ``curve_name`` reports under: its own block when it owns parameters
+        (``USD.FEDFUND.ON`` → its spread), otherwise the block owning its atom (``USD.STDCSA`` → SOFR)."""
+        return self.layout.block_slice(curve_name)
+
+    @property
+    def instrument_total_gradient(self) -> np.ndarray:
+        return self.instrument_index_gradient + self.instrument_funding_gradient
 
     def cashflow_gradient(self, curve_name: str, *, role: str = "total") -> np.ndarray:
         sl = self.curve_slice(curve_name)
@@ -333,25 +344,15 @@ class NumbaProgram:
         if not self.curve_names:
             raise ValueError("NumbaProgram requires at least one curve")
 
-        origins = [np.datetime64(market.yield_curve(name).origin, "D") for name in self.curve_names]
-        if any(origin != origins[0] for origin in origins[1:]):
-            raise ValueError("all curves in a NumbaProgram must share the same origin")
-        self.origin = origins[0]
+        self.origin = np.datetime64(market.origin, "D")
         self._origin_ord = self.origin.astype(np.int64)
 
-        # -- parameter blocks: one per distinct discount-curve object -----------------------
-        # Two keys bound to one curve (``USD.SOFR.ON`` and ``USD.STDCSA`` for SOFR discounting)
-        # share a block: a move of the curve is one move of its parameters and both roles'
-        # adjoints land in the same columns.  The block is named after the owning key.
-        self.curve_owners = tuple(market.curve_owner(name) for name in self.curve_names)
-        self.block_names = tuple(dict.fromkeys(self.curve_owners))
-        block_sizes = [market.zero_curve(name).n_params for name in self.block_names]
-        block_start = np.concatenate([[0], np.cumsum(block_sizes)]).astype(np.int64)
-        block_slices = {
-            name: slice(int(block_start[b]), int(block_start[b + 1])) for b, name in enumerate(self.block_names)
-        }
-        self.curve_param_slices = tuple(block_slices[owner] for owner in self.curve_owners)
-        self.n_params = int(block_start[-1])
+        # -- parameter blocks: one per owning key, each atom once (see ParamLayout) ---------
+        # ``USD.SOFR.ON`` and ``USD.STDCSA`` on one object are one block; the SOFR atom inside
+        # ``USD.FEDFUND.ON = sofr - 5bp`` is that same block, and Fed Funds' own block is its spread.
+        self.layout = ParamLayout.build(market, self.curve_names)
+        self.block_names = self.layout.blocks
+        self.n_params = self.layout.n_params
 
         def offs(dates):
             return _f64(dates.astype(np.int64) - self._origin_ord)
@@ -408,16 +409,11 @@ class NumbaProgram:
         self.obs_e_q = np.full(obs_end_off.size, -1, dtype=np.int64)
         consts, ptrs, params, coefs = [], [], [], []
         q_off = 0
-        self._node_dates: list[np.ndarray] = []
-        self._schemes: list[tuple] = []
         for ci, name in enumerate(self.curve_names):
-            yield_curve = market.yield_curve(name)
-            zero_curve = yield_curve.zero_curve
-            dates = yield_curve.node_dates
-            if dates.size < 2:
+            zero_curve = market[name]
+            if zero_curve.x.size < 2:
                 raise ValueError(f"curve '{name}' needs at least an origin and one pillar")
-            self._node_dates.append(dates)
-            self._schemes.append(zero_curve.scheme)
+            column_map = self.layout.column_maps[name]
 
             pay_m = ki.discount_curve == ci
             reset_m = is_float & (ki.proj_curve == ci)
@@ -444,7 +440,7 @@ class NumbaProgram:
             nonzero = jac != 0.0
             consts.append(const)
             ptrs.append(np.count_nonzero(nonzero, axis=1))
-            params.append(np.nonzero(nonzero)[1] + self.curve_param_slices[ci].start)
+            params.append(column_map[np.nonzero(nonzero)[1]])
             coefs.append(jac[nonzero])
             q_off += unique.size
 
@@ -479,32 +475,16 @@ class NumbaProgram:
         )
 
     def compatible(self, market) -> bool:
-        """Whether ``market`` has the origin, pillar geometry and schemes this program was prepared on."""
-        if np.datetime64(market.as_of_date.to_str(), "D") != self.origin:
-            return False
-        for name, owner, expected_dates, scheme in zip(
-            self.curve_names, self.curve_owners, self._node_dates, self._schemes
-        ):
-            try:
-                yield_curve = market.yield_curve(name)
-                shared = market.zero_curve(owner) is yield_curve.zero_curve
-            except KeyError:
-                return False
-            if not shared or yield_curve.zero_curve.scheme != scheme:
-                return False
-            if not np.array_equal(yield_curve.node_dates, expected_dates):
-                return False
-        return True
+        """Whether ``market`` has the origin, atoms, schemes, weights and ownership this program was prepared on."""
+        return self.layout.compatible(market, self.curve_names)
 
     def params_from_market(self, market) -> np.ndarray:
-        """Concatenate every parameter block's ``DiscountCurve.params`` after validating the prepared geometry.
-
-        Blocks are laid out per distinct curve object (see ``block_names``), not per key."""
+        """``z`` read off ``market`` after validating the prepared geometry: each block's atoms' parameters."""
         if not self.compatible(market):
             raise ValueError(
-                "market origin, pillar geometry or interpolation differs from the prepared NumbaProgram"
+                "market origin, pillar geometry, interpolation or curve structure differs from the prepared NumbaProgram"
             )
-        return _f64(np.concatenate([market.zero_curve(name).params for name in self.block_names]))
+        return self.layout.params(market)
 
     def _fixings_from_market(self, market):
         ki = self.inputs
@@ -626,8 +606,7 @@ class NumbaProgram:
             cashflow_funding_gradient=raw[5],
             instrument_index_gradient=raw[6],
             instrument_funding_gradient=raw[7],
-            curve_names=self.curve_names,
-            curve_param_slices=self.curve_param_slices,
+            layout=self.layout,
         )
 
     def value_and_grad_params(self, z: np.ndarray, market=None) -> NumbaAdjointResult:
@@ -650,7 +629,6 @@ class NumbaProgram:
             cashflow_funding_gradient=raw[5],
             instrument_index_gradient=raw[6],
             instrument_funding_gradient=raw[7],
-            curve_names=self.curve_names,
-            curve_param_slices=self.curve_param_slices,
+            layout=self.layout,
         )
 

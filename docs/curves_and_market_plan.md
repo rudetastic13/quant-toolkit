@@ -238,7 +238,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
   built on the one being replaced. Fixings assigned through a `YieldCurve` attach only under the
   curve's own key, not under an alias.
 
-### PR E — engine parameter layout by identity (≈3 days)
+### PR E — engine parameter layout by identity (done 2026-10-15, `feature/carlos/engine_params`)
 
 - PR C already gives one block per distinct registered curve object (`NumbaProgram.block_names`,
   `JaxProgram.block`), so two keys on one object share a block. This PR goes one level down:
@@ -254,8 +254,20 @@ class MarketContext(Mapping[str, DiscountCurve]):
 - Gate: all existing adjoint tests bit-identical for single-atom markets; the Fed Funds swap of
   [curves/05](curves/05_risk_jacobian_hessian.md) §6 reports one SOFR ladder equal to the sum
   of today's two.
+- As built: `ParamLayout` lives in `engines/layout.py` (engine-agnostic; the JAX program uses the
+  same ownership). A block is an owning key's `market.owned(key)` atoms in order; a program
+  curve's `log_df_affine` rows are scattered through the layout's column map, so a shared atom
+  appearing on several paths lands in one set of columns. `curve_slice(key)` / ladders by key
+  resolve an alias to its owner's block and refuse a key that owns nothing and spans several
+  blocks. `compatible` is a signature over origin, atoms' pillars and schemes, weights and
+  owners. `bumped_curve` is gone: `Sensitivities` and `RiskEngine` bump through `market.bump`
+  on the block a key reports under, so bump and adjoint agree on every block, composite keys
+  included. `NumbaRisk.gamma(keys=...)` gives cross-block gamma. The JAX oracle keeps its scope
+  (log-linear atoms; a composite program curve raises `NotImplementedError`). `MarketContext`
+  trimmed as agreed: `zero_curve`, `curve_owner`, `curve_aliases`, `as_of_date` and
+  `convention` removed. Gate met: curves/05 §5 numbers unchanged to the last digit; §6 regenerated.
 
-### PR F — term indices (≈2 days, after C and D)
+### PR F — term indices (≈2 days, after the RiskTemplate PRs; moved 2026-10-15)
 
 - ~~Term-index floating legs lower to the simple-forward path~~ — done in PR C via
   `MATCH_TENOR` + `CouponType.Floating` (`USD.CME-TERM-SOFR.3M` swaps price on both engines).
@@ -303,9 +315,9 @@ is fixed or explained in R1, since R1 generalises that routine.
 | 3 | C keys: projection / discount (done) | 2–3 | D, F |
 | 4 | D market | 3 | E, F, G |
 | 5 | E layout + ownership | 3 | G, R |
-| 6 | F term indices | 2 | — |
-| 7 | G calibrate leaf | 2 | R |
-| 8 | R1–R3 template | 3–4 | trading milestone |
+| 6 | G calibrate leaf | 2 | R |
+| 7 | R1–R3 template | 3–4 | trading milestone |
+| 8 | F term indices | 2 | — (after the trading milestone) |
 
 About three weeks to the "one snapped SOFR family, par-swap template, Fed Funds and Term SOFR
 bases as their own ladders" milestone. Bonds, Treasury futures and the op-graph engine follow
