@@ -146,18 +146,17 @@ market
 # MarketContext(as_of=2026-06-01, curves=['USD.SOFR.ON', 'USD.STDCSA', 'USD.FEDFUND.ON'], mutable)
 market["USD.FEDFUND.ON"]
 # CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...))
-market.curve_owner("USD.STDCSA"), market.curve_aliases("USD.STDCSA")
-# ('USD.SOFR.ON', ('USD.SOFR.ON', 'USD.STDCSA'))
-market.owned("USD.FEDFUND.ON")                    # the spread atom: the only parameters Fed Funds owns
-# (ZeroCurve(nodes=2, ...),)
+{k: id(v) for k, v in market.items()}             # one object under two keys
+market.owned("USD.SOFR.ON"), market.owned("USD.STDCSA"), market.owned("USD.FEDFUND.ON")
+# ((ZeroCurve(nodes=6, ...),), (), (ZeroCurve(nodes=2, ...),))
 ```
 
-`curve_owner` is the key that owns a shared curve object: the projection key when there is one.
-The engines lay parameters out per owner, so `USD.SOFR.ON` and `USD.STDCSA` are one parameter
-block and a ladder asked under either key is the whole SOFR ladder. `leaf_owner()` goes one
-level down, to the atoms: an atom belongs to the key reaching it by the shortest path, so the
-SOFR atom inside the Fed Funds composite still belongs to `USD.SOFR.ON`, and `USD.FEDFUND.ON`
-owns only its spread.
+Ownership is by shortest path: an atom belongs to the key reaching it by the fewest composite
+levels, a projection key beats a discount key at equal depth, and the first registered wins
+among registered objects. So the SOFR atom belongs to `USD.SOFR.ON` wherever else it appears
+(under `USD.STDCSA`, inside the Fed Funds composite), and `USD.FEDFUND.ON` owns only its spread.
+The engines lay parameters out by that ownership ([05](05_risk_jacobian_hessian.md) §6): one
+block per owning key, and a ladder asked under an alias is its owner's ladder.
 
 `RateGenerator` gives discount-factor ratios their financial meaning. A window that starts before
 the origin is read from the fixings; one that starts after it is projected.

@@ -35,7 +35,7 @@ def _market(as_of: Date) -> MarketContext:
     dfs = np.exp(-z * t)
     dfs[0] = 1.0
     sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 @pytest.mark.risk

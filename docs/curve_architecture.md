@@ -56,10 +56,9 @@ downstream consumes: geometry (`x`, `dfs`, `max_x`, `scheme`), a flat parameter 
 basis curves, turns, overlays; composites nest). Components may be labelled
 (`{"base": sofr, "spread": ZeroCurve.constant(-0.0005, sofr.max_x)}`) and addressed by label.
 It is exactly affine in its concatenated parameters, so a composite prices and risks through
-the engines unchanged, with the ladder split per component block. Each distinct *registered*
-curve object is one parameter block today (several keys on one object share it); a shared-atom
-layout that reports an atom once across the composites referencing it is the pending piece
-([curves_and_market_plan.md](curves_and_market_plan.md) PR E).
+the engines unchanged. The engines lay parameters out by ownership (`ParamLayout`, one block per
+owning key, each atom once), so a shared atom is reported once however many composites reach it:
+the SOFR ladder of a Fed Funds swap is one ladder and the Fed Funds ladder is the basis.
 
 `YieldCurve` composes an `origin` date and one `DiscountCurve` with a curve key
 (`finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that
@@ -108,7 +107,9 @@ it has additional behavior or invariants to own.
 
 ## Calibration and registration
 
-Calibration returns mathematical state plus its origin. Registration is explicit:
+Calibration returns the solved curve and the market holding it; a key already in the market is
+solved in place (the atom it owns moves, everything else is held), which is how a basis curve
+registered as `sofr + spread` is bootstrapped:
 
 ```python
 from finance.dates import Date
@@ -130,18 +131,15 @@ helpers = [
     swap_helper(rate=0.0409, tenor="10Y", as_of=as_of),
 ]
 base = MarketContext(as_of)   # empty: nothing is discounted implicitly
-definition = CurveDefinition(
-    "USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
+definition = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
 )  # the curve being calibrated also discounts its own swaps
 result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     base,
     jacobian=True,
 )
 
-market = MarketContext(as_of)
-market["USD.SOFR.ON"] = result.zero_curve          # projection key: SOFR conventions attach here
-market["USD.STDCSA"] = result.zero_curve           # discount at SOFR: one object, two keys
-# Optional for a seasoned book: market.fixings["USD.SOFR.ON"] = HistoricalFixings(fixing_dates, fixing_rates)
+market = result.market                             # USD.SOFR.ON (SOFR conventions attach) and USD.STDCSA: one object, two keys
+# Optional for a seasoned book: market = market.with_fixings("USD.SOFR.ON", HistoricalFixings(fixing_dates, fixing_rates))
 ```
 
 The same boundary is used for scenarios, which are frozen copies:

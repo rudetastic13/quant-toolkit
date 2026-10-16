@@ -59,9 +59,9 @@ def build_market(as_of):
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of)
+    base = MarketContext(as_of=as_of)
     result = CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
         YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")

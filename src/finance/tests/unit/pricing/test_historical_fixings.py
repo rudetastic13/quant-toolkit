@@ -15,7 +15,7 @@ from finance.markets import HistoricalFixings
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import NumbaRisk, bumped_curve
+from finance.pricing.risk import NumbaRisk
 from finance.pricing.types import Backend, RateKind
 
 pytest.importorskip("numba")
@@ -50,7 +50,7 @@ def _market() -> MarketContext:
         index_name="SOFR",
         historical_fixings=_sofr_history(),
     )
-    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve})
+    return MarketContext(as_of=Date.from_numpy(ORIGIN), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve})
 
 
 def _seasoned_book() -> list[Swap]:
@@ -128,16 +128,13 @@ class TestSeasonedSofrRisk(UnitTest):
         analytic = self.risk.cashflow_zero_delta(CURVE)[target]
         self.assertGreater(np.abs(index_delta).sum(), 0.0)
 
-        curve = self.market.zero_curve(CURVE)
-        yield_curve = self.market.yield_curve(CURVE)
+        n_params = self.market[CURVE].n_params
         finite_difference = np.zeros_like(analytic)
-        for column, pillar in enumerate(range(1, curve.x.size)):
-            up = self.market.with_curve(
-                yield_curve.with_zero_curve(bumped_curve(curve, 1e-4, pillar=pillar))
-            )
-            down = self.market.with_curve(
-                yield_curve.with_zero_curve(bumped_curve(curve, -1e-4, pillar=pillar))
-            )
+        for column in range(n_params):
+            shift = np.zeros(n_params)
+            shift[column] = 1e-4
+            up = self.market.bump(CURVE, shift)
+            down = self.market.bump(CURVE, -shift)
             up_flow = self.program.price(up).cashflows.flow_pv[target]
             down_flow = self.program.price(down).cashflows.flow_pv[target]
             finite_difference[:, column] = (up_flow - down_flow) / 2.0

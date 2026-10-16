@@ -21,9 +21,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from finance.pricing.engines.layout import ParamLayout
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swaption import SwaptionProgram
-from finance.pricing.risk.sensitivities import _zero_rates, bumped_curve
 
 FloatArray = np.ndarray
 BP = 1e-4
@@ -72,29 +72,31 @@ class RiskEngine:
         return "bump" if risk.NumbaRisk is None else "adjoint"
 
     # -- measures -----------------------------------------------------------------------
+    def _block(self, curve_name: str) -> tuple[ParamLayout, str]:
+        layout = ParamLayout.build(self.market, [curve_name])
+        return layout, layout.block_of(curve_name)
+
     def ladder(self, curve_name: str) -> CurveRiskReport:
-        """Key-rate ladder across the curve's non-origin pillars, per instrument."""
-        base = self.market.zero_curve(curve_name)
-        t, _ = _zero_rates(base)
-        live = np.nonzero(t > 0)[0]
+        """Key-rate ladder across the pillars of the block ``curve_name`` reports under, per instrument."""
+        layout, block = self._block(curve_name)
         if self.method == "adjoint":
             grid = self._adjoint_ladder(curve_name)
         else:
-            grid = self._bump_ladder(curve_name, base, live)
+            grid = self._bump_ladder(block, layout.block_slice(block).stop - layout.block_slice(block).start)
         return CurveRiskReport(
-            pillar_dates=self.market.yield_curve(curve_name).node_dates[live],
-            pillar_years=t[live],
+            pillar_dates=layout.pillar_dates(block),
+            pillar_years=layout.pillar_years(block),
             ladder=grid,
             method=self.method,
         )
 
     def dv01(self, curve_name: str) -> FloatArray:
-        """Parallel DV01 per instrument (PV change for a +1bp parallel zero-rate move)."""
+        """Parallel DV01 per instrument (PV change for a +1bp move of the whole block)."""
         if self.method == "adjoint":
             return self.ladder(curve_name).dv01
-        base = self.market.zero_curve(curve_name)
-        up = self._pv(self._with(curve_name, bumped_curve(base, self.bp)))
-        dn = self._pv(self._with(curve_name, bumped_curve(base, -self.bp)))
+        _, block = self._block(curve_name)
+        up = self._pv(self.market.bump(block, self.bp))
+        dn = self._pv(self.market.bump(block, -self.bp))
         return (up - dn) / 2.0
 
     def gamma(self, curve_name: str, *, step: float = 1e-5) -> FloatArray:
@@ -115,9 +117,6 @@ class RiskEngine:
         result = self.program.reprice(market)
         return result.pv if isinstance(self.program, SwaptionProgram) else result.instrument_pv
 
-    def _with(self, curve_name: str, curve):
-        return self.market.with_curve(self.market.yield_curve(curve_name).with_zero_curve(curve))
-
     def _adjoint_ladder(self, curve_name: str) -> FloatArray:
         if isinstance(self.program, SwaptionProgram):
             return self.program.risk(self.market, curve_name, bp=self.bp).dv01
@@ -125,15 +124,17 @@ class RiskEngine:
 
         return NumbaRisk(self.program, self.market, self.bp).zero_ladder(curve_name)
 
-    def _bump_ladder(self, curve_name: str, base, live) -> FloatArray:
+    def _bump_ladder(self, block: str, n_params: int) -> FloatArray:
         if isinstance(self.program, SwaptionProgram):
             n = len(self.program.swaptions)
         else:
             n = self._inputs().n_instruments
-        grid = np.zeros((n, live.size), dtype=np.float64)
-        for j, pillar in enumerate(live):
-            up = self._pv(self._with(curve_name, bumped_curve(base, self.bp, pillar=int(pillar))))
-            dn = self._pv(self._with(curve_name, bumped_curve(base, -self.bp, pillar=int(pillar))))
+        grid = np.zeros((n, n_params), dtype=np.float64)
+        for j in range(n_params):
+            shift = np.zeros(n_params)
+            shift[j] = self.bp
+            up = self._pv(self.market.bump(block, shift))
+            dn = self._pv(self.market.bump(block, -shift))
             grid[:, j] = (up - dn) / 2.0
         return grid
 

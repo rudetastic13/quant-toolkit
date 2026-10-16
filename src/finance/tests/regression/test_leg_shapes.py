@@ -62,7 +62,7 @@ def market() -> MarketContext:
     z = np.array([0.0, 0.041, 0.040, 0.039, 0.040, 0.042])
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([FIXING_1Y]))
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
-    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def leg(**fields) -> CommonInstrument:

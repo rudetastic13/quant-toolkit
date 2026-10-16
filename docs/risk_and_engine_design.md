@@ -1,9 +1,9 @@
 # Risk and engine design — RiskTemplate, Treasury products, op-graph engine, cleanup
 
 > **Status: DESIGN + IMPLEMENTATION GUIDE (2026-10-13). Nothing in §2–§6 is implemented.**
-> Written from a read-only sweep of `main` at `2ef5589`. It supersedes §1 of
-> [risk_map_and_dual_ad.md](risk_map_and_dual_ad.md) (the `pinv` risk map), expands
-> [engine_op_graph_plan.md](engine_op_graph_plan.md), and is the companion to
+> Written from a read-only sweep of `main` at `2ef5589`. It supersedes the July risk-map note
+> (the `pinv` risk map, `s = g · J_B⁺`, now `LeastSquaresBasis` in §2.3) and the op-graph design
+> note (now §4), both deleted 2026-10-15, and is the companion to
 > [pricing_architecture.md](pricing_architecture.md), [sofr_futures.md](sofr_futures.md) and
 > [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
 
@@ -118,7 +118,7 @@ Product coverage and the facts the design relies on. File references are `path:l
   sections, registry keyed per family `(ccy, name)`; `SOFR`, `FEDFUND` and `CME-TERM-SOFR`
   registered). `markets/conventions/` and `pricing/conventions/` are stale
   `__pycache__` only.
-- **Prior design notes.** `risk_map_and_dual_ad.md` §1 defines partials as `s = g · J_B⁺` with
+- **Prior design notes.** The July risk-map note defined partials as `s = g · J_B⁺` with
   the unhedged residual `‖g − s·J_B‖`; `research/risk_reconciliation.py::reconcile` is its
   harness. §2.3 below shows that formulation is one basis choice of the template and keeps it
   as an option.
@@ -192,7 +192,7 @@ Properties that matter:
   measurement: 2.5% on a 5Y par swap). Both are reported; neither is "the" DV01 without the
   qualifier.
 
-Supersedes the July note: `risk_map_and_dual_ad.md` computes `s = g J_B⁺`. For `K ≤ P`,
+Supersedes the July risk-map note, which computed `s = g J_B⁺`. For `K ≤ P`,
 `J_B⁺ = J_Bᵀ (J_B J_Bᵀ)⁻¹`, which is exactly `A` with the basis `B = J_Tᵀ`. That basis is kept
 as `LeastSquaresBasis` (§2.3); it is no longer the default, and `K > P` is refused instead of
 being pseudo-inverted.
@@ -205,7 +205,7 @@ template node offsets `x^T_c` on that curve, strictly increasing.
 | Rule | `B_c[j, k]` | Character | When |
 |---|---|---|---|
 | **`TentBasis`** (default) | hat function of node `k` evaluated at base pillar `j`: linear in days between adjacent template nodes, `1` on `[0, x_1]` for the first node and on `[x_K, ∞)` for the last (flat extension) | local, non-negative, partition of unity. Strata's `CurveSensitivityUtils.linearRebucketing` rule. | always, unless there is a reason |
-| `LeastSquaresBasis` | `J_T[k, j]` restricted to curve `c` (so `B = J_Tᵀ`, `A = J_Tᵀ (J_T J_Tᵀ)⁻¹`) | global; minimises `‖U‖₂`; reproduces `risk_map_and_dual_ad.md` and `research/risk_reconciliation.py::reconcile` | cross-check; reproducing the July numbers |
+| `LeastSquaresBasis` | `J_T[k, j]` restricted to curve `c` (so `B = J_Tᵀ`, `A = J_Tᵀ (J_T J_Tᵀ)⁻¹`) | global; minimises `‖U‖₂`; reproduces the July risk-map note and `research/risk_reconciliation.py::reconcile` | cross-check; reproducing the July numbers |
 | `SchemeBasis(space, interpolator)` | `−diag(365 / x^base) · log_df_affine(x^base)` of a template-shaped `ZeroCurve` (origin + template nodes) | smooth bumps (cubic → overshoot = "curve noise" in buckets); near the origin the `ZeroRate`-space extrapolated node pollutes the first basis function | opt-in experiments only |
 
 `TentBasis` is implemented directly with `np.interp` on node positions, not through a
@@ -649,7 +649,7 @@ class BondHelper:
 
 `QuoteKind` gains `CleanPrice = 5`, `FuturesPrice = 6`.
 
-**UST curve fit.** `CurveDefinition(currency="USD", index_name="UST", interpolation=Mixed(Linear(), Cubic(), k) or LogCubicDF)`.
+**UST curve fit.** `CurveDefinition("USD.UST", interpolation=Mixed(Linear(), Cubic(), k) or LogCubicDF)`.
 `CurveCalibrator` changes: `knots: Sequence[Date | Term] | None = None` (explicit pillar set;
 helpers no longer need to be one per node), `GlobalSolver` accepts `K > P` (scipy
 `least_squares` already does), weights from `Quote.weight`, and an optional Tikhonov penalty on
@@ -813,8 +813,9 @@ implement the `ConvexityModel` seam of `sofr_futures.md` §5 with Ho-Lee first
 
 ## 4. Engine: the op graph (phase E)
 
-This section is the implementation plan behind `engine_op_graph_plan.md`. Decisions already
-taken there stand: **not a tape, not JAX at runtime**, hand-written VJPs over a small op
+This section is the implementation plan for the op-graph engine (it absorbed the earlier design
+note). Decisions already taken stand: **not a tape, not JAX at runtime** (the rationale is in
+[engine_selection.md](engine_selection.md) §1), hand-written VJPs over a small op
 vocabulary, JAX as the test oracle. The additions here are the exact representation, the op
 vocabulary extended to bonds, futures and options, the reverse sweep's row map (so per-instrument
 gradients cost one sweep, not `N`), the contract with the RiskTemplate, and the migration gates.
@@ -941,7 +942,7 @@ in `CashflowReport`. A trader wants one row per economic leg.
   compiler already computes and currently drops: `coupon_type` (`int8`, the governing event's
   `CouponType`), `spread`, `index_floor`, `cap`, `floor`, `margin`. These are captured into
   `KernelInputs` as report-only columns (the kernels ignore them) — the "capture, don't lower"
-  rule of `engine_op_graph_plan.md` §Reporting edges.
+  rule: reporting edges are captured, never lowered into kernels.
 - `PricingResult.cashflows(net=True)` nets flows by `(instrument, leg_group, pay_date)` with
   `np.add.reduceat` over the group offsets (joined legs are adjacent, so groups are contiguous).
   The leg-level `CouponType` reported for a group is `Custom` when any member leg is `Custom` or
@@ -1020,8 +1021,6 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `pricing_architecture.md:195` | "`coupons/calculators.py` and `coupons/rates.py` consume these columns" — both deleted in `1bf5c1d`; same stale name in `tests/unit/pricing/test_shaping.py:3-4` | point at `kernels/compiler.py` and `engines/numpy/rates.py` |
 | `sofr_futures.md` | names `ResolvedSofrFuture` and `ConvexityModel` (neither exists; the contract is `SofrFuture`, the seam is `FuturesHelper.convexity: float | callable`); status line calls `Roll.IMM` a follow-up but `Roll.IMM = -2` exists and is tested | rename in the doc; update the status line |
 | `curve_seam_porting.md` | references `InterpolatedSegment`, `DFLogLinear`, `DFLogCubic`, `build_interpolator`, the deleted `_curve_impl/interpolators.py`, the old `RateLinear = -1…` values and the old `ZeroCurve.__init__(node_dates, …)` signature | mark the document historical (porting guide for the pre-`Line1d` curves) or rewrite against `Line1d` |
-| `curve_line1d_refactor_plan.md:3` | says PR 2/3 are on `feature/carlos/line_curve_refactor`; merged in PR #19 (`9d7599c`) | status line |
-| `engine_op_graph_plan.md:88,105` | refers to "the math-upgrades doc", which is not in the repository | replace with a pointer to this document (§2 is item 1, §4 is item 2) |
 | `engine_selection.md:125` | "the exact JAX ∂implied/∂z" — the default `jacobian_backend` is Numba | edit |
 | `portfolio_and_scenarios.md` §5 | `MARKET_QUOTE_01` sourced from `partial_dv01 ∘ CalibrationResult.jacobian` | after phase R: `RiskTemplate.identity(...)` / `QuoteRisk` |
 
@@ -1097,5 +1096,5 @@ the final coupon period.
   `BondFuture` (`calc_mode="ust_short"|"ust_long"`, `cfs`, `ctd_index`, `dlv`, `implied_repo`,
   `net_basis`).
 - QuantLib: `BondFunctions`, `ActualActual(ISMA)`, `UnitedStates(GovernmentBond)` — parity oracle.
-- This repository: `docs/risk_map_and_dual_ad.md` (superseded §1), `docs/engine_op_graph_plan.md`,
-  `research/risk_reconciliation.py`.
+- This repository: `research/risk_reconciliation.py` (the reconciliation harness of the July
+  risk-map note, whose surviving conclusions are §2.3 here and engine_selection.md §1).

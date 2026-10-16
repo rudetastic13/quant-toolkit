@@ -36,7 +36,6 @@ from finance.pricing.calibration import (  # noqa: E402
 from finance.pricing.pricers import SwapPricer  # noqa: E402
 from finance.pricing.risk import Sensitivities  # noqa: E402
 from finance.pricing.risk.autodiff import AutodiffRisk  # noqa: E402
-from finance.pricing.risk.sensitivities import bumped_curve  # noqa: E402
 
 
 def _clock(fn, n: int, warmup: int = 1) -> float:
@@ -65,9 +64,9 @@ def build_market(as_of: Date):
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of)
+    base = MarketContext(as_of=as_of)
     result = CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
         YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
@@ -96,12 +95,12 @@ def build_book(as_of: Date, n: int) -> list:
 def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
     program = SwapPricer().compile(build_book(as_of, n_swaps))
     P = program.inputs.n_flows
-    n_pillars = int(np.count_nonzero(market.zero_curve(cn).x > 0))
+    n_pillars = int(np.count_nonzero(market[cn].x > 0))
     print(f"\n{'='*78}\nBOOK: {n_swaps} swaps  ({P} flows, {n_pillars} curve pillars)\n{'='*78}")
 
     sens = Sensitivities(program, market)
     ad = AutodiffRisk(program, market)
-    base = market.zero_curve(cn)
+    base = market[cn]
 
     # cross-check first (perf is meaningless if the numbers disagree)
     eng_krd = sens.key_rate_durations(cn).krd
@@ -136,10 +135,10 @@ def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
         g = np.zeros((pil.size, pil.size))
         for a in range(pil.size):
             for b in range(a, pil.size):
-                cu = bumped_curve(base, bp, pillar=int(pil[a]))
-                cu = bumped_curve(cu, bp, pillar=int(pil[b]))
-                scenario_curve = market.yield_curve(cn).with_zero_curve(cu)
-                pvpp = program.reprice(market.with_curve(scenario_curve)).instrument_pv.sum()
+                shift = np.zeros(base.n_params)
+                shift[int(pil[a]) - 1] += bp
+                shift[int(pil[b]) - 1] += bp
+                pvpp = program.reprice(market.bump(cn, shift)).instrument_pv.sum()
                 g[a, b] = g[b, a] = pvpp - pv0.sum()
         return g
 

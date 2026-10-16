@@ -84,7 +84,7 @@ class SwaptionProgram:
         tenor = np.empty_like(expiry)
         strike = np.empty_like(expiry)
         vol = np.empty_like(expiry)
-        as_of = np.datetime64(market.as_of_date.to_str(), "D")
+        as_of = np.datetime64(market.origin, "D")
         for i, option in enumerate(self.swaptions):
             fixed_leg = next(leg for leg in option.underlying if not leg.is_floating)
             expiry[i] = max((option.expiry.to_numpy() - as_of).astype(int) / 365.0, 0.0)

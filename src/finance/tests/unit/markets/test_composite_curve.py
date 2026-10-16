@@ -410,8 +410,10 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         with self.assertRaises(ValueError):
             prepared.params_from_market(regeared)
 
-    def test_bump_helper_refuses_a_composite(self):
-        from finance.pricing.risk.sensitivities import bumped_curve
+    def test_bump_ladder_on_a_composite_key_has_one_column_per_owned_parameter(self):
+        from finance.pricing.risk.sensitivities import Sensitivities
 
-        with self.assertRaises(TypeError):
-            bumped_curve(self.spread_curve, 1e-4)
+        ladder = Sensitivities(self.program, self.market_spread).key_rate_durations("USD.SOFR.ON")
+        self.assertEqual(ladder.krd.shape, (2, self.base.n_params + 1))
+        # the spread column is a parallel move of the base: it equals the sum of the base columns
+        np.testing.assert_allclose(ladder.krd[:, -1], ladder.krd[:, :-1].sum(axis=1), rtol=1e-6)

@@ -6,7 +6,7 @@ A ``ZeroCurve`` is decomposed into two parts:
   the Act/365 year fractions ``t_nodes`` at the non-origin pillars.  These never carry a
   gradient; they are fixed at compile time.
 * **parameters** ``z`` — the continuously-compounded zero rate at each non-origin pillar.
-  This is the *exact* vector ``Sensitivities.bumped_curve`` shifts and the calibrator solves
+  This is the *exact* vector ``MarketContext.bump`` shifts and the calibrator solves
   for (``DF = exp(-z·t)``), so a ``jax.grad`` in ``z`` is directly comparable to the engine's
   key-rate ladder.
 

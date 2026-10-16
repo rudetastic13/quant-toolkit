@@ -36,7 +36,7 @@ class TestHelpers(UnitTest):
     def setUp(self):
         self.as_of = Date(2026, 6, 1)
         self.curve = _curve("2026-06-01")
-        self.mkt = MarketContext(as_of_date=self.as_of, curves={self.curve.name: self.curve, "USD.STDCSA": self.curve})
+        self.mkt = MarketContext(as_of=self.as_of, curves={self.curve.name: self.curve, "USD.STDCSA": self.curve})
 
     def _df_ratio_rate(self, eff, mat, dcm) -> float:
         s = np.array([eff.to_numpy()], dtype="datetime64[D]")

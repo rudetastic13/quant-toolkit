@@ -57,30 +57,31 @@ class NumbaRisk:
         """Instrument ``dPV/dz`` without basis-point scaling."""
         return self.base.instrument_gradient(curve_name, role="total")
 
-    def gamma(self, curve_name: str, *, step: float = 1e-5) -> FloatArray:
+    def gamma(self, curve_name: str | None = None, *, step: float = 1e-5, keys=None) -> FloatArray:
         """Total-book pillar gamma, scaled as ``0.5 * H * bp**2``.
 
+        Over the block ``curve_name`` reports under, or, with ``keys``, over several blocks
+        side by side (cross-block gamma, e.g. SOFR pillars against the Fed Funds basis).
         ``step`` is in absolute zero-rate units and controls only the one central finite
         difference applied to the exact analytic gradient.
         """
         if step <= 0.0:
             raise ValueError("gamma step must be positive")
-        sl = self.base.curve_slice(curve_name)
-        start, stop = sl.start, sl.stop
-        p_count = stop - start
+        if keys is None:
+            if curve_name is None:
+                raise ValueError("gamma needs a curve name or keys=")
+            keys = (curve_name,)
+        cols = self.base.layout.columns(keys)
+        p_count = cols.size
         hessian = np.empty((p_count, p_count), dtype=np.float64)
-        for col in range(p_count):
+        for j, col in enumerate(cols):
             up = self.z0.copy()
             down = self.z0.copy()
-            up[start + col] += step
-            down[start + col] -= step
-            grad_up = self.program.value_and_grad_params(up, self.market).instrument_gradient(
-                curve_name, role="total"
-            ).sum(axis=0)
-            grad_down = self.program.value_and_grad_params(down, self.market).instrument_gradient(
-                curve_name, role="total"
-            ).sum(axis=0)
-            hessian[:, col] = (grad_up - grad_down) / (2.0 * step)
+            up[col] += step
+            down[col] -= step
+            grad_up = self.program.value_and_grad_params(up, self.market).instrument_total_gradient[:, cols].sum(axis=0)
+            grad_down = self.program.value_and_grad_params(down, self.market).instrument_total_gradient[:, cols].sum(axis=0)
+            hessian[:, j] = (grad_up - grad_down) / (2.0 * step)
         hessian = 0.5 * (hessian + hessian.T)
         return 0.5 * hessian * self.bp**2
 

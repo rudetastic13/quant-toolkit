@@ -27,6 +27,18 @@ That chain usually collapses to the product type, but the precise binding is at 
 **(product, model)** level: the *same* instrument can carry more than one model (a swaption
 under Black vs Bachelier vs a numerical Bermudan engine), and those pick different backends.
 
+**Why the fast path is a hand-written adjoint and not JAX.** JAX is ahead-of-time, graph-based
+AD: XLA specialises the executable on input shape and recompiles whenever the shape moves. A
+risk engine over ragged, ever-changing books is a structural mismatch: measured ~300 ms compile
+per fresh instance against ~0.5 ms warm execution (the numpy bump path was ~17 ms for a full
+ladder), paid again on every new shape. The AD core has exactly one job, `g = ∂PV/∂z` over
+varying cashflow shapes onto a fixed-`P` basis, and everything trader-facing is linear
+post-processing of `g`. So the production engine is a hand-written reverse adjoint of the
+stable cashflow kernel, compiled by Numba (one dtype/layout compile, shape-agnostic, exact
+first order), with JAX kept as the cross-check oracle. Should the pricing algebra expand
+materially, dual numbers (rateslib's choice) or reverse AD in the C++ core (Enzyme / CoDiPack)
+are the next options; bump-and-reprice stays the universal fallback for non-smooth products.
+
 ---
 
 ## 2. The consistency guarantee (the reason this is a policy, not a preference)

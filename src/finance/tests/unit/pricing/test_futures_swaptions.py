@@ -16,7 +16,6 @@ from finance.pricing.calibration import (
     futures_helper,
 )
 from finance.pricing.pricers import FuturesPricer, SwaptionPricer
-from finance.pricing.risk.sensitivities import bumped_curve
 from finance.pricing.types import Backend
 
 CURVE = "USD.SOFR.ON"
@@ -60,14 +59,13 @@ class TestSofrFutures(UnitTest):
         future = SofrFuture.from_contract_month(contract="SR3", month="Z26", as_of=self.as_of)
         program = FuturesPricer().compile([future])
         analytic = program.risk(self.market, CURVE).rate_gradient[0]
-        base = self.market.zero_curve(CURVE)
         h = 1e-6
-        for pillar in range(1, base.x.size):
-            yc = self.market.yield_curve(CURVE)
-            up = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, h, pillar=pillar)))
-            down = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, -h, pillar=pillar)))
+        for pillar in range(self.market[CURVE].n_params):
+            shift = np.zeros(self.market[CURVE].n_params)
+            shift[pillar] = h
+            up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
             finite_difference = (program.reprice(up).model_rate[0] - program.reprice(down).model_rate[0]) / (2 * h)
-            self.assertAlmostEqual(analytic[pillar - 1], finite_difference, places=7)
+            self.assertAlmostEqual(analytic[pillar], finite_difference, places=7)
 
     def test_future_participates_in_calibration_and_numba_jacobian(self):
         dep = deposit_helper(rate=0.0, tenor="3M", as_of=self.as_of)
@@ -77,7 +75,7 @@ class TestSofrFutures(UnitTest):
         fut.quote = Quote(fut.implied(true_market), fut.quote.kind)
         base = MarketContext(self.as_of)
         result = CurveCalibrator(
-            [dep, fut], GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+            [dep, fut], GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         ).calibrate(base, jacobian=True)
         self.assertLess(np.max(np.abs(result.residuals)), 1e-10)
         self.assertEqual(result.jacobian.shape, (2, 2))
@@ -115,14 +113,13 @@ class TestSwaptions(UnitTest):
     def test_curve_adjoint_matches_bump(self):
         program = SwaptionPricer().compile([self._option(True)])
         analytic = program.risk(self.market, CURVE).curve_gradient[0]
-        base = self.market.zero_curve(CURVE)
         h = 1e-6
-        for pillar in range(1, base.x.size):
-            yc = self.market.yield_curve(CURVE)
-            up = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, h, pillar=pillar)))
-            down = self.market.with_curve(yc.with_zero_curve(bumped_curve(base, -h, pillar=pillar)))
+        for pillar in range(self.market[CURVE].n_params):
+            shift = np.zeros(self.market[CURVE].n_params)
+            shift[pillar] = h
+            up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
             finite_difference = (program.reprice(up).pv[0] - program.reprice(down).pv[0]) / (2 * h)
-            np.testing.assert_allclose(analytic[pillar - 1], finite_difference, rtol=2e-7, atol=1e-3)
+            np.testing.assert_allclose(analytic[pillar], finite_difference, rtol=2e-7, atol=1e-3)
 
     def test_monetary_vega_is_positive(self):
         result = SwaptionPricer().price([self._option(True)], self.market)

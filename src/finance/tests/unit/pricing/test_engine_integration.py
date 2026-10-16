@@ -52,7 +52,7 @@ class TestParSwapPricesToZero(UnitTest):
     def setUp(self):
         self.origin = "2026-06-01"
         sofr = _curve(self.origin)
-        self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves={sofr.name: sofr, "USD.STDCSA": sofr})
+        self.mkt = MarketContext(as_of=Date(2026, 6, 1), curves={sofr.name: sofr, "USD.STDCSA": sofr})
         self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)
         # 2y annual swap, effective = curve origin

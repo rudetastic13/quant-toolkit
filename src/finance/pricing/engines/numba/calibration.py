@@ -5,18 +5,19 @@ import numpy as np
 
 from finance.dates import period_fractions
 from finance.pricing.calibration.instruments import DepositHelper, FraHelper, SwapHelper
+from finance.pricing.engines.layout import ParamLayout
 from finance.pricing.engines.numba.program import NumbaProgram
 
 
-def _money_market_gradient(helper, curve) -> np.ndarray:
-    """``d simple_rate / dz`` over ``[effective, maturity]``; ``curve`` is the calibrated ``YieldCurve``."""
+def _money_market_gradient(helper, curve, own: np.ndarray) -> np.ndarray:
+    """``d simple_rate / dz`` over ``[effective, maturity]`` for the solved columns ``own`` of ``curve``'s parameters."""
     inst = getattr(helper, "deposit", None) or getattr(helper, "fra", None)
     window = np.array([inst.effective.to_numpy(), inst.maturity.to_numpy()], dtype="datetime64[D]")
     tau = float(period_fractions(inst.day_count_method, window[:1], window[1:])[0])
     offset, jac = curve.zero_curve.log_df_affine(curve.to_x(window))
     log_df = offset + jac @ curve.zero_curve.params
     ratio = float(np.exp(log_df[0] - log_df[1]))
-    return ratio / tau * (jac[0] - jac[1])
+    return ratio / tau * (jac[0, own] - jac[1, own])
 
 
 def _swap_gradient(helper: SwapHelper, target_name: str, market) -> np.ndarray:
@@ -33,11 +34,15 @@ def _swap_gradient(helper: SwapHelper, target_name: str, market) -> np.ndarray:
 
 
 def calibration_jacobian(helpers, target_name: str, market, curve) -> np.ndarray:
-    """Return ``d(implied quote) / dz`` without JAX tracing or shape compilation."""
+    """Return ``d(implied quote) / dz`` over the parameters ``target_name`` owns, without JAX tracing."""
+    layout = ParamLayout.build(market, [target_name])
+    block = layout.block_slice(target_name)
+    column_map = layout.column_maps[target_name]
+    own = np.nonzero((column_map >= block.start) & (column_map < block.stop))[0]
     rows = []
     for helper in helpers:
         if isinstance(helper, (DepositHelper, FraHelper)):
-            rows.append(_money_market_gradient(helper, curve))
+            rows.append(_money_market_gradient(helper, curve, own))
         elif isinstance(helper, SwapHelper):
             rows.append(_swap_gradient(helper, target_name, market))
         else:  # futures and other helpers can expose their own analytic gradient later

@@ -406,7 +406,7 @@ helpers = [
 ]
 
 base   = MarketContext(as_of)                                       # empty starting market
-target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))  # the swaps discount at SOFR
 
 result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base, jacobian=True)
 result.solver_result.converged          # True
@@ -416,15 +416,33 @@ abs(result.residuals).max()             # ~1.9e-15  (every quote repriced)
 Swap `GlobalSolver()` for `Bootstrapper()` to bootstrap pillar-by-pillar (log-linear only);
 both agree to ~1e-9.
 
+A key already in the market is calibrated **in place**: the calibrator solves the one atom the
+key owns and holds everything else. That is the sequential basis bootstrap. Register the 1M
+Term SOFR curve as SOFR plus a spread on the 1M instruments' pillars, then calibrate the 1M key;
+only the spread moves, and the result's market still has the 1M curve built on the SOFR object:
+
+```python
+basis = MarketContext(as_of, result.market)                                   # a mutable copy of the OIS market
+term_1m = CurveDefinition("USD.CME-TERM-SOFR.1M")
+basis["USD.CME-TERM-SOFR.1M"] = basis["USD.SOFR.ON"] + term_1m.flat_on_pillars(basis, helpers_1m)
+result_1m = CurveCalibrator(helpers_1m, GlobalSolver(), term_1m).calibrate(basis, jacobian=True)
+result_1m.zero_curve.params         # the 1M spread at each pillar (zero-rate units)
+result_1m.jacobian                  # ∂implied/∂spread: (n_helpers, n_helpers), the owned columns only
+result_1m.market["USD.CME-TERM-SOFR.1M"]["base"] is result_1m.market["USD.SOFR.ON"]   # True
+```
+
+Repeat with the 6M key built on the 1M curve for the 6M/1M basis.
+
 ### 9.3 Tying into a market
 
-`calibrate` returns mathematical curve state. Registering it under its key is an explicit
-step; the key brings SOFR's conventions, and the market's `as_of` is the origin.
+`calibrate` returns the solved curve and the market holding it under its key (and under every
+`discount_keys` entry); the input market is untouched. The key brings SOFR's conventions, and
+the market's `as_of` is the origin.
 
 ```python
 from finance.markets import RateGenerator
 
-market = MarketContext(as_of, {"USD.SOFR.ON": result.zero_curve, "USD.STDCSA": result.zero_curve})  # one curve, two keys
+market = result.market                       # USD.SOFR.ON and USD.STDCSA: one curve, two keys
 CN = "USD.SOFR.ON"
 sofr_curve = market.yield_curve(CN)
 

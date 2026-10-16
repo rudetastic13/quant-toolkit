@@ -23,7 +23,7 @@ import numpy as np
 from finance.dates import Date
 from finance.instruments.resolution import Swap, curve_name
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, YieldCurve
+from finance.markets.curves import CurveInterpolator
 from finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
@@ -55,13 +55,12 @@ def build_market() -> MarketContext:
         swap_helper(rate=0.0425, tenor="20Y", as_of=AS_OF),
         swap_helper(rate=0.0430, tenor="30Y", as_of=AS_OF),
     ]
-    base = MarketContext(as_of_date=AS_OF)
-    target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+    base = MarketContext(as_of=AS_OF)
+    # the swaps discount at SOFR: the calibrated curve also serves the USD.STDCSA discount key
+    target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration did not converge"
-    return base.with_curve(
-        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
-    )
+    return result.market
 
 
 def build_population(n: int) -> list[Swap]:

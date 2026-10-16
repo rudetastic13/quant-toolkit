@@ -23,7 +23,7 @@ def _market():
                       origin + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     sofr = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+    return MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestSwapResolution(UnitTest):
@@ -87,7 +87,7 @@ class TestSwapPricing(UnitTest):
         o = AS_OF.to_numpy()
         d = np.array([o, o + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
         sofr = YieldCurve.build(d, np.array([1.0, np.exp(-0.05 * 12)]), currency="USD", index_name="SOFR")
-        mkt2 = MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
+        mkt2 = MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
         pv2 = compiled.price(mkt2).pv
         self.assertNotAlmostEqual(pv1, pv2, places=4)  # different curve -> different PV, same compiled form
 

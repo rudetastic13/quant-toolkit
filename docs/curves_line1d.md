@@ -430,8 +430,8 @@ mixed.zero_curve.instantaneous_forward(np.array([731.0 - 1.0, 731.0 + 1.0]))
 
 On this ladder the jump is 1bp. It is whatever the two independent fits disagree by. A C1
 join, forcing the cubic's left slope to equal the last log-linear forward, is
-`Cubic(bc_type=((1, slope), (2, 0.0)))` with `slope` read off the short segment; it is
-listed as a follow-up in `curve_line1d_refactor_plan.md`.
+`Cubic(bc_type=((1, slope), (2, 0.0)))` with `slope` read off the short segment; a
+`Mixed` option that does this join automatically is an open follow-up.
 
 The same curve through the parse table is not expressible, since `Mixed` carries two
 schemes; construct it directly as above.
