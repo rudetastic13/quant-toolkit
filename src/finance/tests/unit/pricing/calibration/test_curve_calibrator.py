@@ -5,6 +5,7 @@ pillars, generate each instrument's quote from it, then calibrate from an empty 
 also serving as the ``USD.STDCSA`` discount curve) and recover the true node DFs.  Also: reprice consistency, global-vs-bootstrap agreement,
 validation failures, explicit market composition, and that the input market is never mutated.
 """
+
 import numpy as np
 import pytest
 
@@ -67,7 +68,7 @@ class TestCurveCalibrator(UnitTest):
             h.quote = Quote(h.implied(true_mkt), h.quote.kind)
 
         self.base = MarketContext(as_of=self.as_of)
-        self.defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+        self.defn = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
 
     def test_round_trip_recovers_true_dfs(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
@@ -86,16 +87,14 @@ class TestCurveCalibrator(UnitTest):
 
     def test_result_is_explicitly_composed_and_input_is_untouched(self):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
-        yield_curve = YieldCurve.from_registry(
-            res.origin, res.zero_curve, currency="USD", index_name="SOFR"
-        )
+        yield_curve = YieldCurve.from_registry(res.origin, res.zero_curve, currency="USD", index_name="SOFR")
         out = self.base.with_curve(yield_curve)
         self.assertIs(out[CURVE], res.zero_curve)
         # Calibration returns mathematical state and never mutates the input market.
         self.assertNotIn(CURVE, self.base)
 
     def test_bootstrap_rejects_global_interpolator(self):
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogCubicDF, discount_keys=("USD.STDCSA",))
+        defn = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogCubicDF, discount_keys=("USD.STDCSA",))
         with self.assertRaises(ValueError):
             CurveCalibrator(self.helpers, Bootstrapper(), defn).calibrate(self.base)
 
@@ -110,7 +109,7 @@ class TestCurveCalibrator(UnitTest):
             CurveCalibrator(dup, GlobalSolver(), self.defn).calibrate(self.base)
 
     def test_wrong_target_name_raises(self):
-        defn = CurveDefinition("USD", "NOTSOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+        defn = CurveDefinition("USD.FEDFUND.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         with self.assertRaises(ValueError):
             CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base)
 
@@ -121,7 +120,7 @@ class TestCurveCalibrator(UnitTest):
     def test_jax_jacobian_rejects_non_loglinear_interpolation_up_front(self):
         # The JAX curve model only supports LogLinearDF; the guard must fire before any
         # jax import / tracing, with a message naming the offending interpolator.
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
+        defn = CurveDefinition("USD.SOFR.ON", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
         with self.assertRaises(NotImplementedError) as ctx:
             CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(
                 self.base, jacobian=True, jacobian_backend=Backend.Jax
@@ -134,7 +133,7 @@ class TestCurveCalibrator(UnitTest):
         h = 1e-6
         for scheme in (CurveInterpolator.RateLinear, CurveInterpolator.LogCubicDF, CurveInterpolator.RateCubic):
             with self.subTest(scheme=scheme.name):
-                defn = CurveDefinition("USD", "SOFR", scheme, discount_keys=("USD.STDCSA",))
+                defn = CurveDefinition("USD.SOFR.ON", scheme, discount_keys=("USD.STDCSA",))
                 res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base, jacobian=True)
                 helpers = sorted(self.helpers, key=lambda hp: hp.pillar_date)
                 zc = res.zero_curve
@@ -152,7 +151,7 @@ class TestCurveCalibrator(UnitTest):
                 np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-9)
 
     def test_rate_linear_calibrates_without_jacobian(self):
-        defn = CurveDefinition("USD", "SOFR", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
+        defn = CurveDefinition("USD.SOFR.ON", CurveInterpolator.RateLinear, discount_keys=("USD.STDCSA",))
         res = CurveCalibrator(self.helpers, GlobalSolver(), defn).calibrate(self.base)
         self.assertLess(np.abs(res.residuals).max(), 1e-10)
 
@@ -183,3 +182,118 @@ class TestWithCurve(UnitTest):
         out = self.mkt.with_curve(fedfund)
         self.assertIs(out["USD.FEDFUND.ON"], self.c2)
         self.assertNotIn("USD.FEDFUND.ON", self.mkt)
+
+
+@pytest.mark.calibration
+class TestCalibrateTheOwnedLeaf(UnitTest):
+    """A registered key is calibrated in place: the atom it owns is solved, everything else held."""
+
+    COVERAGE = ["finance.pricing.calibration.calibrator", "finance.markets.context"]
+
+    TERM1M = "USD.CME-TERM-SOFR.1M"
+    TERM6M = "USD.CME-TERM-SOFR.6M"
+
+    def setUp(self):
+        from finance.markets.curves import bp
+
+        from finance.markets.curves import dates_to_x
+
+        self.as_of = Date(2026, 6, 1)
+        self.origin = np.datetime64("2026-06-01", "D")
+
+        def helpers_for(rate_index, tenors):
+            return [swap_helper(rate=0.0, tenor=t, as_of=self.as_of, rate_index=rate_index) for t in tenors]
+
+        self.ois = helpers_for("SOFR", ("1Y", "2Y", "3Y", "5Y", "10Y"))
+        self.basis_1m = helpers_for("CME-TERM-SOFR.1M", ("1Y", "2Y", "3Y", "5Y"))
+        self.basis_6m = helpers_for("CME-TERM-SOFR.6M", ("2Y", "5Y"))
+        # the "true" SOFR curve sits on the OIS pillars, so a log-linear fit can recover it exactly
+        pillars = np.array(sorted(h.pillar_date for h in self.ois), dtype="datetime64[D]")
+        x = np.concatenate([[0.0], dates_to_x(self.origin, pillars)])
+        z = np.array([0.0, 0.035, 0.037, 0.039, 0.041, 0.044])
+        dfs = np.exp(-z * x / 365.0)
+        dfs[0] = 1.0
+        self.sofr = ZeroCurve(x, dfs)
+        # the "true" market: 1M term SOFR is SOFR + 10bp, 6M is 1M + 5bp, both flat spreads
+        truth = MarketContext(self.as_of)
+        truth[CURVE] = self.sofr
+        truth["USD.STDCSA"] = self.sofr
+        truth[self.TERM1M] = truth[CURVE] + 10 * bp
+        truth[self.TERM6M] = truth[self.TERM1M] + 5 * bp
+        self.truth = truth.freeze()
+        for h in (*self.ois, *self.basis_1m, *self.basis_6m):
+            h.quote = Quote(h.implied(self.truth), h.quote.kind)
+
+    def _sequential(self):
+        ois = CurveCalibrator(
+            self.ois,
+            GlobalSolver(),
+            CurveDefinition(CURVE, CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)),
+        ).calibrate(MarketContext(self.as_of))
+        market = MarketContext(self.as_of, ois.market)  # a mutable copy to assemble on
+        defn_1m = CurveDefinition(self.TERM1M)
+        market[self.TERM1M] = market[CURVE] + defn_1m.flat_on_pillars(market, self.basis_1m)
+        one_m = CurveCalibrator(self.basis_1m, GlobalSolver(), defn_1m).calibrate(market)
+        market = MarketContext(self.as_of, one_m.market)
+        defn_6m = CurveDefinition(self.TERM6M)
+        market[self.TERM6M] = market[self.TERM1M] + defn_6m.flat_on_pillars(market, self.basis_6m)
+        six_m = CurveCalibrator(self.basis_6m, GlobalSolver(), defn_6m).calibrate(market)
+        return ois, one_m, six_m
+
+    def test_sequential_basis_bootstrap_recovers_the_spreads(self):
+        ois, one_m, six_m = self._sequential()
+        np.testing.assert_allclose(ois.zero_curve.dfs, self.sofr.dfs, atol=1e-10)
+        np.testing.assert_allclose(
+            one_m.zero_curve.params, 0.0010, atol=1e-9
+        )  # the 1M spread atom: 10bp at every pillar
+        np.testing.assert_allclose(six_m.zero_curve.params, 0.0005, atol=1e-9)  # the 6M-over-1M spread: 5bp
+        self.assertLess(np.abs(one_m.residuals).max(), 1e-10)
+        self.assertLess(np.abs(six_m.residuals).max(), 1e-10)
+        final = six_m.market
+        self.assertIs(final[self.TERM6M]["base"], final[self.TERM1M])  # 6M is still built on the 1M object
+        self.assertIs(final[self.TERM1M]["base"], final[CURVE])  # ... which is still built on SOFR
+        self.assertIs(final["USD.STDCSA"], final[CURVE])
+        self.assertTrue(final.frozen)
+
+    def test_basis_jacobian_is_over_the_owned_spread_only(self):
+        ois, one_m, _ = self._sequential()
+        market = MarketContext(self.as_of, ois.market)
+        defn = CurveDefinition(self.TERM1M)
+        market[self.TERM1M] = market[CURVE] + defn.flat_on_pillars(market, self.basis_1m)
+        res = CurveCalibrator(self.basis_1m, GlobalSolver(), defn).calibrate(market, jacobian=True)
+        self.assertEqual(res.jacobian.shape, (4, 4))
+        helpers = sorted(self.basis_1m, key=lambda h: h.pillar_date)
+        h = 1e-6
+        fd = np.empty_like(res.jacobian)
+        for k in range(4):
+            e = np.zeros(4)
+            e[k] = h
+            up = res.market.with_params(self.TERM1M, res.zero_curve.params + e)
+            dn = res.market.with_params(self.TERM1M, res.zero_curve.params - e)
+            fd[:, k] = [(hp.implied(up) - hp.implied(dn)) / (2 * h) for hp in helpers]
+        np.testing.assert_allclose(res.jacobian, fd, rtol=1e-5, atol=1e-8)
+
+    def test_a_registered_atom_is_recalibrated_in_place_and_its_aliases_follow(self):
+        market = MarketContext(
+            self.as_of, {CURVE: self.sofr.with_params(self.sofr.params + 0.01), "USD.STDCSA": self.sofr}
+        )
+        market["USD.STDCSA"] = market[CURVE]  # alias the (wrong) starting curve
+        res = CurveCalibrator(self.ois, GlobalSolver(), CurveDefinition(CURVE)).calibrate(market)
+        np.testing.assert_allclose(res.zero_curve.dfs, self.sofr.dfs, atol=1e-10)
+        self.assertIs(res.market["USD.STDCSA"], res.market[CURVE])
+        self.assertIs(res.market[CURVE], res.zero_curve)
+        self.assertIs(market[CURVE], market["USD.STDCSA"])  # the input market is untouched
+
+    def test_registered_key_must_own_one_atom_on_the_instrument_pillars(self):
+        from finance.markets.curves import CompositeCurve, bp
+
+        market = MarketContext(self.as_of, {CURVE: self.sofr, "USD.STDCSA": self.sofr})
+        market[self.TERM1M] = market[CURVE] + 10 * bp  # one spread node, not one per instrument
+        with self.assertRaisesRegex(ValueError, "pillars"):
+            CurveCalibrator(self.basis_1m, GlobalSolver(), CurveDefinition(self.TERM1M)).calibrate(market)
+        market = MarketContext(self.as_of, {CURVE: self.sofr, "USD.STDCSA": self.sofr})
+        market[self.TERM1M] = CompositeCurve(
+            {"base": market[CURVE], "a": ZeroCurve.constant(0.001, 365.0), "b": ZeroCurve.constant(0.001, 730.0)}
+        )
+        with self.assertRaisesRegex(ValueError, "owns 2 atoms"):
+            CurveCalibrator(self.basis_1m, GlobalSolver(), CurveDefinition(self.TERM1M)).calibrate(market)

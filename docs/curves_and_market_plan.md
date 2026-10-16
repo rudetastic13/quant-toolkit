@@ -286,13 +286,23 @@ class MarketContext(Mapping[str, DiscountCurve]):
 - Tests: a 3M Term SOFR swap on `USD.CME-TERM-SOFR.3M = USD.SOFR.ON + s3m` has SOFR risk under
   SOFR and basis risk under the 3M key; 6M built on 1M shows three ladders.
 
-### PR G — calibrate the owned leaf (≈2 days)
+### PR G — calibrate the owned leaf (done 2026-10-15, `feature/carlos/engine_params`)
 
 - `CurveDefinition(key, interpolation)`; `CurveCalibrator.calibrate` solves `market.owned(key)`
   with `with_params`, other leaves held; result assigned back with `market[key] = ...` semantics.
 - Sequential basis calibration test: OIS → 1M basis → 6M/1M basis; joint calibration as the same
   loop over several leaves.
 - `calibration_jacobian` columns are the owned leaf's parameters.
+- As built: `CurveDefinition(key, interpolation, space, extrapolation, discount_keys)`; a key not
+  in the market is built on the instruments' pillars and registered (the old path), a registered
+  key must own exactly one atom whose pillars are the instruments' (`flat_on_pillars` builds the
+  spread atom) and is solved through `MarketContext.with_params(key, params)` (new; `bump` is
+  `with_params` of the current values plus a shift). `CalibrationResult.market` carries the
+  calibrated frozen market; `zero_curve` is the solved atom as the market holds it. The Numba
+  calibration Jacobian restricts money-market rows to the owned columns; swap rows already read
+  the owned block. Joint calibration over several keys is not built; it is the same loop with a
+  concatenated parameter vector and can come with the RiskTemplate. Test: OIS → 1M basis → 6M/1M
+  recovers flat 10bp and 5bp spreads to 1e-9 with the chain's object identities intact.
 
 ### PR R1–R3 — `RiskTemplate`
 

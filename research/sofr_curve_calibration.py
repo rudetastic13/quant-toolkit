@@ -139,7 +139,7 @@ def calibrate(
     calibrator = CurveCalibrator(
         instruments=build_helpers(),
         solver=solver,
-        target=CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF),
+        target=CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF),
     )
     t0 = time.perf_counter()
     result = calibrator.calibrate(

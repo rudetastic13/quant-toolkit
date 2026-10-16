@@ -75,7 +75,7 @@ class TestSofrFutures(UnitTest):
         fut.quote = Quote(fut.implied(true_market), fut.quote.kind)
         base = MarketContext(self.as_of)
         result = CurveCalibrator(
-            [dep, fut], GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+            [dep, fut], GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         ).calibrate(base, jacobian=True)
         self.assertLess(np.max(np.abs(result.residuals)), 1e-10)
         self.assertEqual(result.jacobian.shape, (2, 2))

@@ -649,7 +649,7 @@ class BondHelper:
 
 `QuoteKind` gains `CleanPrice = 5`, `FuturesPrice = 6`.
 
-**UST curve fit.** `CurveDefinition(currency="USD", index_name="UST", interpolation=Mixed(Linear(), Cubic(), k) or LogCubicDF)`.
+**UST curve fit.** `CurveDefinition("USD.UST", interpolation=Mixed(Linear(), Cubic(), k) or LogCubicDF)`.
 `CurveCalibrator` changes: `knots: Sequence[Date | Term] | None = None` (explicit pillar set;
 helpers no longer need to be one per node), `GlobalSolver` accepts `K > P` (scipy
 `least_squares` already does), weights from `Quote.weight`, and an optional Tikhonov penalty on

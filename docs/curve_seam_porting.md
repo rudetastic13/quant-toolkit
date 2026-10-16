@@ -306,7 +306,7 @@ class SwapHelper:                               # OIS: closed-form par (projecti
 ```python
 helpers = [DepositHelper(...), SwapHelper(...), ...]            # one node per pillar, increasing dates
 calibrator = CurveCalibrator(instruments=helpers, solver=GlobalSolver(),
-                             target=CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF))
+                             target=CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF))
 base = MarketShim(as_of_date=AS_OF, curves=CurveNamespace())
 result = calibrator.calibrate(base)
 yield_curve = YieldCurve(result.zero_curve, sofr_conventions)

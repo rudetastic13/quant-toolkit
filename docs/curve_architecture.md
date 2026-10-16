@@ -107,7 +107,9 @@ it has additional behavior or invariants to own.
 
 ## Calibration and registration
 
-Calibration returns mathematical state plus its origin. Registration is explicit:
+Calibration returns the solved curve and the market holding it; a key already in the market is
+solved in place (the atom it owns moves, everything else is held), which is how a basis curve
+registered as `sofr + spread` is bootstrapped:
 
 ```python
 from finance.dates import Date
@@ -129,18 +131,15 @@ helpers = [
     swap_helper(rate=0.0409, tenor="10Y", as_of=as_of),
 ]
 base = MarketContext(as_of)   # empty: nothing is discounted implicitly
-definition = CurveDefinition(
-    "USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
+definition = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
 )  # the curve being calibrated also discounts its own swaps
 result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     base,
     jacobian=True,
 )
 
-market = MarketContext(as_of)
-market["USD.SOFR.ON"] = result.zero_curve          # projection key: SOFR conventions attach here
-market["USD.STDCSA"] = result.zero_curve           # discount at SOFR: one object, two keys
-# Optional for a seasoned book: market.fixings["USD.SOFR.ON"] = HistoricalFixings(fixing_dates, fixing_rates)
+market = result.market                             # USD.SOFR.ON (SOFR conventions attach) and USD.STDCSA: one object, two keys
+# Optional for a seasoned book: market = market.with_fixings("USD.SOFR.ON", HistoricalFixings(fixing_dates, fixing_rates))
 ```
 
 The same boundary is used for scenarios, which are frozen copies:

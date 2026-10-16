@@ -391,6 +391,41 @@ class MarketContext(Mapping[str, DiscountCurve]):
             history[name] = fixings
         return self._copy(self._curves, history)
 
+    def with_params(self, key: str, params: FloatArray) -> MarketContext:
+        """A frozen copy with the parameters ``key`` owns replaced by ``params``.
+
+        Parameters
+        ----------
+        key : str
+        params : array_like of float64
+            Laid out over :meth:`owned` in parameter order; this is what a calibrator writes.
+
+        Returns
+        -------
+        MarketContext
+            The re-parameterised atoms are replaced wherever they appear.
+
+        Raises
+        ------
+        ValueError
+            If ``key`` owns no parameters, or ``params`` has the wrong length.
+        """
+        name = self._key(key)
+        atoms = self.owned(name)
+        if not atoms:
+            raise ValueError(f"'{name}' owns no parameters: every atom it reaches belongs to another key")
+        sizes = [atom.n_params for atom in atoms]
+        total = int(sum(sizes))
+        values = np.asarray(params, dtype=np.float64)
+        if values.shape != (total,):
+            raise ValueError(f"'{name}' owns {total} parameters; got shape {values.shape}")
+        out = self
+        start = 0
+        for atom, size in zip(atoms, sizes):
+            out = out._replaced(atom, atom.with_params(values[start : start + size]))
+            start += size
+        return out
+
     def bump(self, key: str, amount: float | FloatArray) -> MarketContext:
         """A frozen copy with the parameters ``key`` owns shifted by ``amount``.
 
@@ -416,19 +451,13 @@ class MarketContext(Mapping[str, DiscountCurve]):
         atoms = self.owned(name)
         if not atoms:
             raise ValueError(f"'{name}' owns no parameters: every atom it reaches belongs to another key")
-        sizes = [atom.n_params for atom in atoms]
-        total = int(sum(sizes))
+        current = np.concatenate([atom.params for atom in atoms])
         shift = np.asarray(amount, dtype=np.float64)
         if shift.ndim == 0:
-            shift = np.full(total, float(shift))
-        elif shift.shape != (total,):
-            raise ValueError(f"'{name}' owns {total} parameters; got a bump of shape {shift.shape}")
-        out = self
-        start = 0
-        for atom, size in zip(atoms, sizes):
-            out = out._replaced(atom, atom.with_params(atom.params + shift[start : start + size]))
-            start += size
-        return out
+            shift = np.full(current.size, float(shift))
+        elif shift.shape != current.shape:
+            raise ValueError(f"'{name}' owns {current.size} parameters; got a bump of shape {shift.shape}")
+        return self.with_params(name, current + shift)
 
     def freeze(self) -> MarketContext:
         """Make this market read-only (in place) and return it."""

@@ -64,7 +64,7 @@ def build_basis_market(as_of: Date):
     ]
     base = MarketContext(as_of=as_of)
     r_sofr = CurveCalibrator(
-        sofr_helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+        sofr_helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     sofr_market = base.with_curve(
         YieldCurve.from_registry(r_sofr.origin, r_sofr.zero_curve, currency="USD", index_name="SOFR")
@@ -80,7 +80,7 @@ def build_basis_market(as_of: Date):
     r_ff = CurveCalibrator(
         ff_helpers,
         GlobalSolver(),
-        CurveDefinition("USD", "FEDFUND", CurveInterpolator.LogLinearDF),
+        CurveDefinition("USD.FEDFUND.ON", CurveInterpolator.LogLinearDF),
     ).calibrate(sofr_market, jacobian=True)   # <-- the JAX hook: capture ∂implied/∂z
     market = sofr_market.with_curve(
         YieldCurve.from_registry(r_ff.origin, r_ff.zero_curve, currency="USD", index_name="FEDFUND")

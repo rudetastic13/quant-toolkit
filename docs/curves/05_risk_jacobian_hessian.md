@@ -240,5 +240,7 @@ path's rows into the atom's one set of columns.
 - **`RiskTemplate`** (design §2) computes `J_T` for a set of tradeable instruments on the base
   curve and solves `R = G B (J_T B)⁻¹` so the book's risk is reported against those quotes, with
   the unexplained remainder shown rather than hidden.
-- **Calibrating the owned leaf** (plan PR G): `CurveCalibrator` solves `market.owned(key)` with the
-  other blocks held, which is the sequential basis bootstrap (OIS, then the 1M basis, then 6M/1M).
+- **Calibrating in place** is done: `CurveCalibrator` solves the atom a registered key owns with
+  the other blocks held, which is the sequential basis bootstrap (OIS, then the 1M basis, then
+  6M/1M; [pricing_architecture.md](../pricing_architecture.md) §9), and its Jacobian is over the
+  owned columns, so `partial_dv01` on a basis key is quote risk to the basis instruments.

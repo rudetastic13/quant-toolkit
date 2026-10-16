@@ -97,7 +97,7 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
     base = MarketContext(as_of=as_of)
-    target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
+    target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"
     market = base.with_curve(
