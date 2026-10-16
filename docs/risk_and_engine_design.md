@@ -1,6 +1,6 @@
 # Risk and engine design — RiskTemplate, Treasury products, op-graph engine, cleanup
 
-> **Status: DESIGN + IMPLEMENTATION GUIDE (2026-10-13). Nothing in §2–§6 is implemented.**
+> **Status: DESIGN + IMPLEMENTATION GUIDE (2026-10-13; §2 implemented 2026-10-15 as PRs R1–R3, see §2.12). §3–§6 are not implemented.**
 > Written from a read-only sweep of `main` at `2ef5589`. It supersedes the July risk-map note
 > (the `pinv` risk map, `s = g · J_B⁺`, now `LeastSquaresBasis` in §2.3) and the op-graph design
 > note (now §4), both deleted 2026-10-15, and is the companion to
@@ -533,6 +533,19 @@ and is computed once per market.
 
 ### 2.12 Implementation order (phase R)
 
+> Done 2026-10-15 on `feature/carlos/engine_params`, on top of the ownership layout of
+> [curves_and_market_plan.md](curves_and_market_plan.md) PR E: `PillarRisk.curves` are owning
+> keys and `J_T` columns are leaf parameters.  Differences from the sketch above:
+> `template_jacobian(helpers, market, *, curves=None)` returns a `PillarRisk` (rows = helpers,
+> `pv` = implied quotes) rather than a bare array; `BoundRiskTemplate` also exposes
+> `unit_risk`, `implied` and `apply(market, k, size)` (the scenario copy of a template bump);
+> the futures adapter's `pv` is the margined P&L (0 without an entry price); rule 1 is checked
+> on the helper order given (helpers are not re-sorted); `TemplateSpec` is a plain mapping
+> (`RiskTemplate.from_spec` / `to_spec`); `RiskEngine.with_market(market)` carries the binding
+> across scenarios and rebinds only when `matches` fails; the leverage of the identity template
+> on the test curve is 1.65, so the test asserts ≤ 2; `AutodiffRisk._total_z_pv` and both
+> `partial_dv01` doors are deleted, `AutodiffRisk.unit_zero_jacobian` is public.
+
 1. **PR R1 — contract and Jacobian.** `pillar.py` (`PillarRisk`, adapters for the three program
    types, with the `FuturesProgram` origin-mask fix), `jacobian.py` (`template_jacobian`, batched
    by kind; `calibration_jacobian` becomes the wrapper). Tests: adapters agree with today's
@@ -972,7 +985,7 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `PricingRequest` and the `requests` argument of `Priceable.__call__` | `instruments/priceable.py:25,41` | only `"cashflows"` has an effect | replace with `with_cashflows: bool` |
 | `NumbaRisk = None` fallback and `RiskEngine._resolve`'s use of it | `risk/__init__.py:6-9`, `risk/engine.py:65-72` | cannot trigger (numba imported lazily) | delete the fallback; `_resolve("auto")` checks `importlib.util.find_spec("numba")` |
 | `AutodiffRisk._total_z_pv` | `risk/autodiff.py:117` | never called | delete |
-| `NumbaRisk.partial_dv01`, `AutodiffRisk.partial_dv01` | `risk/adjoint.py:87`, `risk/autodiff.py:156` | replaced by the identity `RiskTemplate` (§2) | delete in PR R3 |
+| `NumbaRisk.partial_dv01`, `AutodiffRisk.partial_dv01` | `risk/adjoint.py:87`, `risk/autodiff.py:156` | replaced by the identity `RiskTemplate` (§2) | **deleted in PR R3** |
 | `engines/rust/` | docstring-only stub; no Cargo/PyO3 anywhere | `Backend.Rust` tested only as "absent" | delete the package and the enum member; the op registry readmits a backend when one exists |
 | `markets/paths/` (`SinglePath`, `FlatPath`, `InvertedPath`) | no consumers outside its test; `InvertedPath.__post_init__` mutates the caller's array | listed "NOT ported" in `curve_seam_porting.md` | delete with its test and the `markets/__init__` re-exports |
 | `ccy_indices/amrs/usd.py::DEFINED` | `ccy_indices` | test-only | delete (`FundingIndex` deleted in PR C; the discount key `CCY.NAME` is the funding model) |
@@ -1042,9 +1055,9 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | 1 | Cleanup §6.1 deletions + §6.3 stale comments + `FuturesProgram` origin-mask fix | 0 | suite green; no behaviour change except the futures risk mask |
 | 2 | SIFMA calendar; Act/Act ICMA + ISDA; 30/360 fix; required day count; `discount_spread` column | 0 | day-count tests vs QuantLib oracle; bit-identical PVs on the regression suite for Act/360 books |
 | 3 | `leg_group` + report columns + netted cashflows | 0 | example 10 netted assertion |
-| 4 | R1 `PillarRisk` + `template_jacobian` | R | parity with existing doors and `calibration_jacobian` |
-| 5 | R2 `RiskTemplate` | R | §2.11 tests 1–9, 11 |
-| 6 | R3 `RiskEngine` rewire, delete `partial_dv01`s, regression expects, docs | R | §2.11 tests 10, 12; `research/risk_reconciliation.py` reproduced via `LeastSquaresBasis` |
+| 4 | R1 `PillarRisk` + `template_jacobian` | R | **done** 2026-10-15 |
+| 5 | R2 `RiskTemplate` | R | **done** 2026-10-15 |
+| 6 | R3 `RiskEngine` rewire, delete `partial_dv01`s, regression expects, docs | R | **done** 2026-10-15 (`tests/regression/test_risk_template.py`) |
 | 7 | Bond conventions entry, `Bond`, analytics, oracle tests | B | App. B examples; QuantLib/rateslib parity |
 | 8 | `BondPricer`/`BondProgram`, spreads, `BondHelper`, calibrator `knots`/weights/`K > P` | B | curve-priced bonds reprice to market at fitted spreads; OTR identity template |
 | 9 | Treasury futures: contract table, CF, basket, program, risk, helper | F | CME factor table; rateslib parity; switch-margin test |

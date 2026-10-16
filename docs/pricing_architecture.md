@@ -544,3 +544,23 @@ The leg iterator is what the calibration section (§8) calls out: *"read par off
 PVs by iterating the instrument's legs (fixed vs floating), never by positional index."*
 `SwapHelper.__post_init__` builds `_fixed_idx` / `_float_idx` by walking the iterator
 once; `implied` sums `leg_pv` through those index tuples on every reprice.
+
+### 9.7 Risk to the template quotes
+
+Pillar risk is what the engines produce; a desk reports risk to the quotes of instruments it
+trades. A `RiskTemplate` is that view: a strip of calibration instruments (par swaps, deposits,
+futures) and a rule for how the base curve moves between their nodes. It changes no PV and
+triggers no recalibration; it re-expresses `G = ∂PV/∂z` as `R = G B (J_T B)⁻¹` and reports the
+remainder `U = G − R J_T` alongside.
+
+```python
+from finance.pricing.risk import RiskEngine, RiskTemplate
+
+template = RiskTemplate.identity(helpers, name="calibration set")   # square: R = G J⁻¹ exactly
+risk = RiskEngine(program, market, template=template).quote_risk()
+risk.to_pandas()           # dv01 per quote with the reconciliation lines as columns
+```
+
+See [engine_selection.md](engine_selection.md) §7.3 for a par-swap template on a futures
+strip, and [risk_and_engine_design.md](risk_and_engine_design.md) §2 for the maths and the
+safety checklist `bind` enforces.

@@ -52,6 +52,11 @@ from finance.pricing.risk import NumbaRisk, Sensitivities
 from finance.pricing.risk.autodiff import AutodiffRisk
 from finance.pricing.types import Backend
 
+
+def _partial_dv01(unit_jacobian: np.ndarray, jacobian: np.ndarray) -> np.ndarray:
+    """``(∂V/∂z) · J⁺ · 1bp``: risk to the calibration quotes, the identity RiskTemplate by hand."""
+    return (unit_jacobian @ np.linalg.pinv(np.asarray(jacobian, dtype=np.float64))) * 1e-4
+
 # ---------------------------------------------------------------------------
 # Market inputs — SOFR OIS par quotes (percent) as of 2026-06-03
 # ---------------------------------------------------------------------------
@@ -359,7 +364,7 @@ def seven_year_swap_report(
 
     par_table = None
     if jacobian is not None:
-        partial_dv01 = risk.partial_dv01(CURVE, jacobian)[0]
+        partial_dv01 = _partial_dv01(risk.unit_zero_jacobian(CURVE), jacobian)[0]
         par_table = pd.DataFrame(
             {"partial DV01": partial_dv01},
             index=[f"{tenor:>4}" for tenor, _, _ in SOFR_QUOTES],
@@ -484,7 +489,7 @@ def aggregate_portfolio_report(
     index_ladder = risk.index_ladder(CURVE).sum(axis=0)
     funding_ladder = risk.funding_ladder(CURVE).sum(axis=0)
     total_ladder = index_ladder + funding_ladder
-    partial_dv01 = risk.partial_dv01(CURVE, jacobian).sum(axis=0)
+    partial_dv01 = _partial_dv01(risk.unit_zero_jacobian(CURVE), jacobian).sum(axis=0)
     gamma = risk.gamma(CURVE)
 
     curve = market.yield_curve(CURVE)
@@ -636,11 +641,14 @@ def par_rate_ladder(
 
     * ``"numpy"`` — reuse the bump-and-reprice zero ladder (already ``∂V/∂z·bp``) and right-
       multiply by ``J⁻¹``.  Pure numpy/linalg, no JAX, no XLA compile.
-    * ``"jax"``   — ``AutodiffRisk.partial_dv01`` reads ``∂V/∂z`` from exact autodiff, then
+    * ``"jax"``   — ``AutodiffRisk.unit_zero_jacobian`` reads ``∂V/∂z`` from exact autodiff, then
       applies the same ``J⁻¹``.  Faster once warm, but pays a ~300ms one-off compile per
       process/instance.
-    * ``"numba"`` — ``NumbaRisk.partial_dv01`` reads ``∂V/∂z`` from the compiled analytic
+    * ``"numba"`` — ``NumbaRisk.unit_zero_jacobian`` reads ``∂V/∂z`` from the compiled analytic
       adjoint and applies the same transform, without specializing on the book shape.
+
+    This is the identity ``RiskTemplate`` by hand (``finance.pricing.risk.template``); the
+    template adds the basis, diagnostics and the unexplained remainder for non-square views.
 
     Returns ``(pdv01, labels)`` with ``pdv01`` shaped ``(n_instruments, n_quotes)``.
     """
@@ -652,10 +660,10 @@ def par_rate_ladder(
         pdv01 = krd @ np.linalg.inv(jacobian)
     elif backend == "numba":
         program = SwapPricer().compile(swaps, backend=Backend.Numba)
-        pdv01 = NumbaRisk(program, market).partial_dv01(CURVE, jacobian)
+        pdv01 = _partial_dv01(NumbaRisk(program, market).unit_zero_jacobian(CURVE), jacobian)
     elif backend == "jax":
         program = SwapPricer().compile(swaps, backend=Backend.Numpy)
-        pdv01 = AutodiffRisk(program, market).partial_dv01(CURVE, jacobian)
+        pdv01 = _partial_dv01(AutodiffRisk(program, market).unit_zero_jacobian(CURVE), jacobian)
     else:
         raise ValueError(f"unknown backend {backend!r} (expected 'numpy', 'numba', or 'jax')")
     return pdv01, labels

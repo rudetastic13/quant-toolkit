@@ -159,7 +159,7 @@ def main() -> None:
     print(f"largest cross-gamma |Hₚ_q|: {np.max(np.abs(gamma - np.diag(np.diag(gamma)))):.3e}")
 
     # ----- market-quote partial DV01 (the calibration-Jacobian transform) --------------
-    pdv01 = ad.partial_dv01(FF, r_ff.jacobian)[0]   # risk to each FEDFUND par quote
+    pdv01 = (ad.unit_zero_jacobian(FF) @ np.linalg.inv(r_ff.jacobian) * 1e-4)[0]   # risk to each FEDFUND par quote
     tenors = ["3M", "2Y", "5Y", "10Y"]
     print()
     print("-- partial DV01 to the Fed Funds par quotes  ((∂V/∂z)·J⁻¹) ------------------------")

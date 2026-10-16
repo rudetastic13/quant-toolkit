@@ -273,3 +273,26 @@ srisk.dv01("USD.SOFR.ON")            # [15,969.52, -5,146.63]; bump agrees to ~1
 The wiring demonstrates every §4 rule: the pricer bound the pricing backend (`compile`),
 the risk layer derived its method from the program + market rather than choosing ad hoc,
 and both methods reconcile because they differentiate the same model.
+
+### 7.3 Risk on a template — one base curve, a trader's view of it
+
+```python
+from finance.pricing.calibration import swap_helper
+from finance.pricing.risk import RiskEngine, RiskTemplate
+
+template = RiskTemplate(
+    [swap_helper(rate=float("nan"), tenor=t, as_of=as_of) for t in ("1Y", "2Y", "3Y", "5Y", "7Y", "10Y")],
+    labels=("1Y", "2Y", "3Y", "5Y", "7Y", "10Y"), name="SOFR par",
+)
+engine = RiskEngine(program, market, template=template)
+risk = engine.quote_risk(labels=("recv 5Y", "pay 10Y"))
+risk.dv01                  # (2, 6) PV change per +1bp of each par quote, other quotes held
+risk.unexplained           # (2, P) pillar risk the template cannot hedge (always reported)
+risk.template_parallel     # all quotes +1  vs  risk.pillar_parallel: all pillars +1
+engine.bound().hedge(risk) # unit-swap notionals that flatten the book on the template
+```
+
+`bind` refuses a template it cannot stand behind (`TemplateError` with a reason code: nodes
+finer than the base, more nodes than pillars, an ill-conditioned response, excessive leverage)
+and carries the diagnostics on every report.  The template rebinds automatically when the
+market's curves move (`RiskEngine.with_market`), never on a plain reprice.

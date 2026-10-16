@@ -35,7 +35,7 @@ deliberately (it is the bar this library holds itself to):
   `CURRENT_CASH`, `CURRENCY_EXPOSURE`, `VEGA_MARKET_QUOTE_BUCKETED`. Note the *calibrated*
   vs *market-quote* PV01 split — zero-rate-pillar risk vs risk mapped back to the quoted
   instruments through the calibration Jacobian. We already own both halves of that seam
-  (`NumbaRisk.unit_zero_jacobian` + `partial_dv01` + `CalibrationResult.jacobian`).
+  (`RiskTemplate.quote_risk` over `PillarRisk`; the identity template is the calibration set).
 - **Scenarios are declarative data, not mutated markets**
   ([ScenarioDefinition](https://strata.opengamma.io/apidocs/com/opengamma/strata/calc/marketdata/ScenarioDefinition.html)):
   a `ScenarioDefinition` is a list of `PerturbationMapping`s, each pairing a *filter* (which
@@ -193,7 +193,7 @@ per-(measure, product) and explicit — an unsupported cell is a *reported* abse
 | `PAR_RATE` | ✓ | model rate | forward | `SwapHelper.implied` path — exists |
 | `DV01` ★ | ✓ | ✓ | ✓ | `RiskEngine.dv01` (adjoint or bump) — exists |
 | `KEY_RATE_01` ★ | ✓ | ✓ | ✓ | `RiskEngine.ladder` (adjoint or bump) — exists |
-| `MARKET_QUOTE_01` | ✓ | ✓ | ✓ | `partial_dv01` ∘ `CalibrationResult.jacobian` — exists |
+| `MARKET_QUOTE_01` | ✓ | ✓ | ✓ | `RiskEngine.quote_risk` on a `RiskTemplate` — exists |
 | `GAMMA` | ✓ | ✓ | ✓ | FD-of-gradient (`NumbaRisk.gamma`) — exists |
 | `VEGA` / option greeks | — | — | ✓ | monetary `OptionGreeks` — exists |
 | `CASH_FLOWS` | ✓ | — | — | `CashflowReport` — exists |

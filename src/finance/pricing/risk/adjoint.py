@@ -85,10 +85,5 @@ class NumbaRisk:
         hessian = 0.5 * (hessian + hessian.T)
         return 0.5 * hessian * self.bp**2
 
-    def partial_dv01(self, curve_name: str, jacobian: FloatArray) -> FloatArray:
-        """Risk in a calibration/risk-map quote basis, allowing rectangular maps."""
-        g = self.unit_zero_jacobian(curve_name)
-        return (g @ np.linalg.pinv(np.asarray(jacobian, dtype=np.float64))) * self.bp
-
 
 __all__ = ["NumbaRisk"]

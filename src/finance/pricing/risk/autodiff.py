@@ -11,8 +11,8 @@ the JAX backend and reads risk straight off the derivatives:
   fixed flow has zero index delta and pure funding delta; a floating flow carries both.
 * ``gamma``            — the full pillar Hessian ∂²V/∂z∂z (cross-convexity the bump layer
   does not produce at all).
-* ``partial_dv01``     — risk to the **calibration quotes** (par DV01), via the calibration
-  Jacobian: ``(∂V/∂z) · J⁻¹``.
+* ``unit_zero_jacobian`` — ``∂V/∂z`` per unit rate for a total move of a curve, the input a
+  :class:`~finance.pricing.risk.template.RiskTemplate` turns into quote risk.
 
 All ladders are returned as ``(n_instruments, P)`` matrices scaled to a +1bp move, matching
 ``KeyRateLadder.krd``.  Cashflow deltas are ``(n_flows, P)``.
@@ -118,18 +118,6 @@ class AutodiffRisk:
         return np.asarray(jac) * self.bp
 
     # -- second order -------------------------------------------------------------------
-    def _total_z_pv(self, curve_name: str):
-        """JIT'd scalar ``PV(z)`` where ``z`` drives both projection and discount of a curve."""
-        curve_name = self.jp.block(curve_name)
-        disc0, proj0 = self.disc0, self.proj0
-
-        def build():
-            return jax.jit(
-                lambda z: self.jp.pv({**disc0, curve_name: z}, {**proj0, curve_name: z})
-            )
-
-        return self._cached(("pv", curve_name), build)
-
     def gamma(self, curve_name: str) -> FloatArray:
         """(P, P) total-PV pillar gamma ∂²V/∂z∂z for a move of the whole curve, per (1bp)².
 
@@ -147,8 +135,8 @@ class AutodiffRisk:
         H = np.asarray(self._cached(("gamma", curve_name), build)(self.disc0[curve_name]))
         return 0.5 * H * self.bp**2
 
-    # -- market-quote partial DV01 (the calibration-Jacobian transform) -----------------
-    def _unit_zero_jacobian(self, curve_name: str) -> FloatArray:
+    # -- the unit Jacobian (what a RiskTemplate consumes) --------------------------------
+    def unit_zero_jacobian(self, curve_name: str) -> FloatArray:
         """(n_inst, P) ∂V/∂z (per unit rate) for a total move of ``curve_name``."""
         curve_name = self.jp.block(curve_name)
         disc0, proj0 = self.disc0, self.proj0
@@ -159,15 +147,4 @@ class AutodiffRisk:
             ))
 
         return np.asarray(self._cached(("unit", curve_name), build)(self.disc0[curve_name]))
-
-    def partial_dv01(self, curve_name: str, jacobian: FloatArray) -> FloatArray:
-        """(n_inst, n_quotes) risk to each calibration quote, per +1bp quote move.
-
-        ``jacobian`` is the calibration ``J = ∂implied/∂z`` (from
-        ``CurveCalibrator.calibrate(..., jacobian=True)``).  By the implicit function theorem
-        ``dz/dq = J⁻¹``, so par-quote risk is ``(∂V/∂z) · J⁻¹``.  Row sums recover the
-        parallel DV01 (a parallel quote shift ≈ a parallel zero shift for par instruments).
-        """
-        g = self._unit_zero_jacobian(curve_name)          # (n_inst, P), per unit rate
-        return (g @ np.linalg.inv(np.asarray(jacobian))) * self.bp
 
