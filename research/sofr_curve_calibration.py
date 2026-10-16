@@ -35,7 +35,7 @@ from finance.instruments.resolution import Deposit, Swap, curve_name
 from finance.instruments.resolution.resolver import resolve_conventions
 from finance.markets.context import MarketContext
 from finance.markets import RateGenerator
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
+from finance.markets.curves import CurveInterpolator, YieldCurve
 from finance.pricing.calibration import (
     Bootstrapper,
     CalibrationResult,
@@ -136,7 +136,7 @@ def calibrate(
     jacobian: bool = False,
     jacobian_backend: Backend = Backend.Numba,
 ) -> CalibrationResult:
-    base = MarketContext(as_of_date=AS_OF, curves=CurveNamespace())
+    base = MarketContext(as_of_date=AS_OF)
     calibrator = CurveCalibrator(
         instruments=build_helpers(),
         solver=solver,
@@ -173,7 +173,7 @@ def register_sofr_curve(
     currency/index conventions turn it into the ``YieldCurve`` consumed by rate generation
     and pricing.
     """
-    market = base_market or MarketContext(as_of_date=AS_OF, curves=CurveNamespace())
+    market = base_market or MarketContext(as_of_date=AS_OF)
     sofr_curve = YieldCurve.from_registry(
         result.origin,
         result.zero_curve,

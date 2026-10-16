@@ -9,7 +9,6 @@ from common.testing import UnitTest
 from finance.dates import Date, DayCountMethod, Frequency, BDC
 from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.markets.rate_generator import RateGenerator
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.instruments.schedules.observation import build_observation_grid
@@ -33,11 +32,8 @@ class TestRealGridTelescopes(UnitTest):
     ]
 
     def setUp(self):
-        ns = CurveNamespace()
         sofr = _curve()
-        ns.bind(sofr)
-        ns.bind(sofr, "USD.STDCSA")
-        self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves=ns)
+        self.mkt = MarketContext(as_of_date=Date(2026, 6, 1), curves={sofr.name: sofr, "USD.STDCSA": sofr})
         self.curve = self.mkt.yield_curve(CURVE)
         self.rates = RateGenerator(self.mkt)
         self.ps = build_payment_schedule(

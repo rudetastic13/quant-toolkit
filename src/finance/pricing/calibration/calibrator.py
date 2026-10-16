@@ -4,15 +4,15 @@ This is the "object that calibrates": it wires a list of single-quote calibratio
 instruments, a solver, and a target curve definition into one residual closure (trial node
 values -> per-instrument residuals) and hands that to the solver. The solved node values
 are returned as a mathematical ``ZeroCurve`` plus its origin; the input market is never
-mutated. Callers explicitly compose that state with index conventions to register a
-``YieldCurve``.
+mutated. Callers register that state under its key (``market[key] = result.zero_curve``).
 
 Parameterisation is continuously-compounded zero rates at the pillars (``DF = exp(-x·t)``,
 ``t`` in Act/365 from origin); the first node is pinned at the origin with ``DF = 1``.  The
 curve geometry (pillar offsets, space, interpolator) is built once as a template and each
 solver iteration only rebinds discount factors through ``ZeroCurve.with_dfs``.
 Helpers reference a single curve name (their forecast curve); a multi-name basis helper is a
-multi-curve follow-up that reuses ``MarketContext.with_curve`` the same way.  The target's
+multi-curve follow-up that reuses ``MarketContext.with_curve`` the same way.  Historical fixings
+for the target key are read from the market, where they live.  The target's
 ``discount_keys`` say which discount keys the curve under calibration also serves
 (``USD.STDCSA`` for a SOFR OIS curve); nothing is discounted implicitly.
 """
@@ -26,7 +26,7 @@ import numpy as np
 
 from common.math.interpolation import Flat, Interpolator, Linear
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveSpace, RateExtrapolator, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveInterpolator, CurveSpace, RateExtrapolator, ZeroCurve
 from finance.instruments.resolution.resolver import curve_name
 from finance.pricing.calibration.instruments import CalibrationInstrument
 from finance.pricing.calibration.solvers import Solver, SolverResult
@@ -93,26 +93,15 @@ class CurveDefinition:
         space, interpolator = self.scheme
         return ZeroCurve(x, dfs, space=space, interpolator=interpolator, extrapolation=self.extrapolation)
 
-    def compose(self, origin: np.datetime64, zero_curve: ZeroCurve, market: MarketContext) -> YieldCurve:
-        """Build the temporary convention-aware curve needed to price calibration quotes."""
-        try:
-            historical_fixings = market.yield_curve(self.name).historical_fixings
-        except KeyError:
-            historical_fixings = None
-        return YieldCurve.from_registry(
-            origin,
-            zero_curve,
-            currency=self.currency,
-            index_name=self.index_name,
-            registry=market.conventions,
-            historical_fixings=historical_fixings,
-        )
+    def bind(self, market: MarketContext, curve: ZeroCurve) -> MarketContext:
+        """``market`` with ``curve`` under the target key and under every ``discount_keys`` entry.
 
-    def bind(self, market: MarketContext, curve: YieldCurve) -> MarketContext:
-        """``market`` with ``curve`` under the target key and under every ``discount_keys`` entry."""
-        out = market.with_curve(curve)
+        The market's fixings for the target key (if any) travel with it, since fixings live on
+        the market, not on the curve.
+        """
+        out = market.with_curve(self.name, curve)
         for key in self.discount_keys:
-            out = out.with_curve(curve, name=key)
+            out = out.with_curve(key, curve)
         return out
 
 
@@ -121,9 +110,9 @@ class CalibrationResult:
     """The calibrated mathematical curve, its origin, and solver diagnostics.
 
     ``zero_curve`` is deliberately mathematical state, not a market registration. The
-    caller composes it with ``MarketConventions`` to create a ``YieldCurve``::
+    caller registers it::
 
-        YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
+        market["USD.SOFR.ON"] = result.zero_curve
 
     ``jacobian`` (populated only when ``calibrate(..., jacobian=True)``) is the exact
     ``J_ij = ∂impliedᵢ/∂zⱼ`` at the solution, computed by the Numba analytic adjoint by
@@ -180,7 +169,7 @@ class CurveCalibrator:
                 "calibration instruments must have strictly increasing pillar dates (one node per instrument)"
             )
 
-        origin = np.datetime64(market.as_of_date.to_str(), "D")
+        origin = market.origin
         if pillars[0] <= origin:
             raise ValueError(f"all pillar dates must be after the curve origin {origin}")
 
@@ -214,7 +203,7 @@ class CurveCalibrator:
             return template.with_dfs(node_dfs(z))
 
         def residual_fn(z: FloatArray) -> FloatArray:
-            trial = self.target.bind(market, self.target.compose(origin, build_curve(z), market))
+            trial = self.target.bind(market, build_curve(z))
             return np.array([h.residual(trial) for h in helpers], dtype=np.float64)
 
         sr = self.solver.solve(residual_fn, x0)
@@ -222,8 +211,8 @@ class CurveCalibrator:
             raise RuntimeError(f"calibration did not converge: max|residual|={sr.max_abs_residual:.3e} ({sr.message})")
 
         curve = build_curve(sr.x)
-        calibrated = self.target.compose(origin, curve, market)
-        out = self.target.bind(market, calibrated)
+        out = self.target.bind(market, curve)
+        calibrated = out.yield_curve(self.target.name)
 
         residuals = np.array([h.residual(out) for h in helpers], dtype=np.float64)
 
@@ -246,4 +235,3 @@ class CurveCalibrator:
             residuals=residuals,
             jacobian=jac,
         )
-

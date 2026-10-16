@@ -338,7 +338,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         from finance.dates import Date
         from finance.instruments.resolution import Swap
         from finance.markets.context import MarketContext
-        from finance.markets.curves import CurveNamespace, YieldCurve
+        from finance.markets.curves import YieldCurve
         from finance.pricing.pricers import SwapPricer
 
         self.as_of = Date(2026, 6, 1)
@@ -350,11 +350,8 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         self.atom = self.base.with_params(self.base.params + self.spread)
 
         def market(curve):
-            ns = CurveNamespace()
             sofr = YieldCurve.from_registry(origin, curve, currency="USD", index_name="SOFR")
-            ns.bind(sofr)
-            ns.bind(sofr, "USD.STDCSA")
-            return MarketContext(self.as_of, ns)
+            return MarketContext(self.as_of, {sofr.name: sofr, "USD.STDCSA": sofr})
 
         self.market_spread = market(self.spread_curve)
         self.market_atom = market(self.atom)

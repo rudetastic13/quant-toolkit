@@ -33,14 +33,14 @@ from finance.instruments.schedules import CompoundedCouponEvent, CouponSchedule,
 from finance.instruments.schedules.observation import LookbackStyle
 from finance.markets import HistoricalFixings
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import LegPricer
 from finance.pricing.types import RateKind
 
 AS_OF = Date(2026, 6, 1)
 EFFECTIVE = Date(2026, 6, 3)
 MATURITY = Date(2029, 6, 3)
-INDEX = "USD SOFR"          # the leg's projection label; resolves to the USD.SOFR curve
+INDEX = "USD.SOFR.ON"       # the leg's projection key
 NOTIONAL = 10_000_000.0
 
 
@@ -64,9 +64,8 @@ def market() -> MarketContext:
     # the curve carries that print.  Fixings travel with the curve; the generator decides
     # "historical" by comparing the window start with the curve origin.
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([0.0435]))
-    ns = CurveNamespace()
-    ns.bind(YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings))
-    return MarketContext(as_of_date=AS_OF, curves=ns)
+    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
+    return MarketContext(AS_OF, {sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def leg(**fields) -> CommonInstrument:

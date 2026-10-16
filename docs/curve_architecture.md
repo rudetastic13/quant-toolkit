@@ -71,12 +71,15 @@ carries its index family's conventions) and `CCY.NAME` is a discount curve (`USD
 the dates-in constructor; `with_zero_curve(...)` creates a scenario curve while preserving
 origin, key and fixing history; `with_key(...)` re-registers the same state under another key.
 
-`MarketContext` owns registered market data. It resolves `yield_curve(name)` and
-`zero_curve(name)` and produces immutable curve scenarios through `with_curve(yield_curve)`,
-which moves every key holding the replaced object. A market registers every key its trades
-name; discounting at SOFR is `curves.bind(sofr, "USD.STDCSA")`, the same object under the
-discount key, and `curve_owner(name)` reports which key owns a shared object (the projection
-key). It does not calculate rates.
+`MarketContext` owns registered market data. It is a `Mapping[str, DiscountCurve]`:
+`market["USD.SOFR.ON"] = sofr` registers a curve, `market[key]` is the mathematical curve and
+`yield_curve(key)` the derived date-aware view. A market registers every key its trades name;
+discounting at SOFR is `market["USD.STDCSA"] = sofr`, the same object under the discount key.
+Scenarios are frozen copies: `with_curve(key, curve)` moves a curve wherever it appears (every
+key holding it and every composite built on it), `bump(key, amount)` shifts the parameters a key
+owns, and `leaf_owner()` / `owned(key)` report ownership by shortest path (a registered atom
+belongs to its own key; at equal depth a projection key beats a discount key). It does not
+calculate rates.
 
 `RateGenerator` gives financial meaning to discount-factor ratios. It generates simple
 index rates (including historical-fixing overlays), continuous interval forwards,
@@ -110,8 +113,7 @@ Calibration returns mathematical state plus its origin. Registration is explicit
 ```python
 from finance.dates import Date
 from finance.markets.context import MarketContext
-from finance.markets import HistoricalFixings
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
+from finance.markets.curves import CurveInterpolator
 from finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
@@ -127,7 +129,7 @@ helpers = [
     swap_helper(rate=0.0399, tenor="7Y", as_of=as_of),
     swap_helper(rate=0.0409, tenor="10Y", as_of=as_of),
 ]
-base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
+base = MarketContext(as_of)   # empty: nothing is discounted implicitly
 definition = CurveDefinition(
     "USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
 )  # the curve being calibrated also discounts its own swaps
@@ -136,19 +138,17 @@ result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     jacobian=True,
 )
 
-sofr_curve = YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
-# Optional for a seasoned book:
-# sofr_curve = sofr_curve.with_historical_fixings(
-#     HistoricalFixings(fixing_dates, fixing_rates)
-# )
-market = base.with_curve(sofr_curve).with_curve(sofr_curve, name="USD.STDCSA")
+market = MarketContext(as_of)
+market["USD.SOFR.ON"] = result.zero_curve          # projection key: SOFR conventions attach here
+market["USD.STDCSA"] = result.zero_curve           # discount at SOFR: one object, two keys
+# Optional for a seasoned book: market.fixings["USD.SOFR.ON"] = HistoricalFixings(fixing_dates, fixing_rates)
 ```
 
-The same boundary is used for scenarios:
+The same boundary is used for scenarios, which are frozen copies:
 
 ```python
-scenario_zero = result.zero_curve.with_dfs(new_discount_factors)
-scenario_market = market.with_curve(sofr_curve.with_zero_curve(scenario_zero))
+scenario_market = market.with_curve("USD.SOFR.ON", result.zero_curve.with_dfs(new_discount_factors))
+bumped_market = market.bump("USD.SOFR.ON", 1e-4)   # +1bp on every SOFR pillar; USD.STDCSA follows
 ```
 
 ## Pricing and rate generation

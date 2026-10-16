@@ -198,7 +198,7 @@ the right picture:
 - Not touched: `ccy_indices/amrs/usd.py::DEFINED` (test-only data, still listed for deletion in
   the risk design §6.1), `markets/paths/` (housekeeping).
 
-### PR D — `MarketContext` redesign (≈3 days)
+### PR D — `MarketContext` redesign (done 2026-10-15, `feature/market_context`)
 
 ```python
 class MarketContext(Mapping[str, DiscountCurve]):
@@ -226,6 +226,17 @@ class MarketContext(Mapping[str, DiscountCurve]):
 - `CurveNamespace` deleted after the test sweep (33 construction sites).
 - Tests: Fed Funds and three-deep Term SOFR chains; `bump` propagation semantics exactly as
   [curves/04](curves/04_yield_curve.md) describes; ownership table; ambiguity error.
+- As built (differences from the sketch above): `CurveNamespace` went outright rather than
+  through a deprecation release (the old constructor could not survive without it);
+  `as_of_date=` is accepted as an alias of `as_of`. `with_curve(key, curve)` propagates only
+  when `key` owns the object it held (`curve_owner`); on an alias (`USD.STDCSA`) it rebinds that
+  key alone, which is what the old `name=` form did. `with_curve(yield_curve)` alone keeps
+  working (key from the curve). `with_fixings(key, fixings)` added, since fixings now live on the
+  market. `owned(key)` returns a tuple of atoms (a key may own several: `{"smooth", "turn"}`).
+  Ownership ambiguity is checked at bind time and the failed assignment is rolled back; bind base
+  curves before the curves built on them. `__setitem__` and `with_curve` both reject a curve
+  built on the one being replaced. Fixings assigned through a `YieldCurve` attach only under the
+  curve's own key, not under an alias.
 
 ### PR E — engine parameter layout by identity (≈3 days)
 
@@ -250,6 +261,15 @@ class MarketContext(Mapping[str, DiscountCurve]):
   `MATCH_TENOR` + `CouponType.Floating` (`USD.CME-TERM-SOFR.3M` swaps price on both engines).
   Left here: the fixing-date lag of a rate set in advance (today the fixing date is the period
   start), and whether `FixingType` should split into window rule and fixing-date rule.
+- **Rate window from the index, fixing dates from the reset grid.** Today the single-fixing path
+  projects a simple forward over the reset window (`reset_start → reset_end`); the index tenor is
+  never read. That is right only when reset frequency equals the tenor. A leg indexed to
+  `USD.CME-TERM-SOFR.1M` that resets annually and holds the rate (a system-of-record mortgage
+  pattern) must fix the 1M rate once, not a 1Y forward off the 1M curve. PR F makes the rate window
+  `[fixing_date, fixing_date + index.tenor]` on the index calendar and leaves the reset grid to say
+  *when* a fixing is taken and how many coupons it governs. Aligned legs are unchanged, so the gate
+  is bit-identity on every existing swap test. Odd index/reset pairings stay legal; they are not
+  validated away.
 - Per-key fixings in the market; `RateGenerator.simple_rate` reads the key's fixings.
 - Tests: a 3M Term SOFR swap on `USD.CME-TERM-SOFR.3M = USD.SOFR.ON + s3m` has SOFR risk under
   SOFR and basis risk under the 3M key; 6M built on 1M shows three ladders.

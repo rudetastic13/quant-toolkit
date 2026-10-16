@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Deposit, Fra, SofrFuture
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import FuturesPricer, LegPricer
 from finance.pricing.types import RateKind
@@ -19,11 +19,8 @@ def _market() -> MarketContext:
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 90, 365, 3 * 365, 7 * 365)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.041, 0.040, 0.042, 0.045])
-    ns = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=AS_OF, curves=ns)
+    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 def _window(instrument):

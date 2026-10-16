@@ -85,8 +85,7 @@ class Sensitivities:
     bp: float = 1e-4
 
     def _reprice_with(self, curve_name: str, curve: ZeroCurve) -> FloatArray:
-        yield_curve = self.market.yield_curve(curve_name).with_zero_curve(curve)
-        return self.program.reprice(self.market.with_curve(yield_curve)).instrument_pv
+        return self.program.reprice(self.market.with_curve(curve_name, curve)).instrument_pv
 
     def dv01(self, curve_name: str) -> FloatArray:
         """Parallel DV01 per instrument (PV change for a +1bp parallel zero-rate move)."""

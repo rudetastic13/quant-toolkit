@@ -60,7 +60,6 @@ from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
 from finance.markets.curves import (  # noqa: E402
-    CurveNamespace,
     CurveInterpolator,
     YieldCurve,
     ZeroCurve,
@@ -97,7 +96,7 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
+    base = MarketContext(as_of_date=as_of)
     target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"

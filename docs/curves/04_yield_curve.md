@@ -9,7 +9,7 @@ carries `HistoricalFixings`. It is the only layer that sees dates, and it is the
 DiscountCurve (02–04)  +  origin  +  key (+ index conventions for a projection key)  +  fixings
         │
         ▼
-    YieldCurve  ──registered by key──▶  CurveNamespace / MarketContext  ──▶  RateGenerator, pricers
+    DiscountCurve  ──market[key] = curve──▶  MarketContext  ──yield_curve(key)──▶  RateGenerator, pricers
 ```
 
 Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says what the curve is:
@@ -37,7 +37,7 @@ term tenor).
 
 ```python
 from finance.dates import Date, Term
-from finance.markets.curves import CurveNamespace, YieldCurve, dates_to_x
+from finance.markets.curves import YieldCurve, dates_to_x
 
 as_of = Date(2026, 6, 1)
 origin = as_of.to_numpy()
@@ -129,31 +129,35 @@ fedfund_yc.node_dates                              # the composite's union of pi
 
 ## In the market
 
-`CurveNamespace` keys yield curves by curve key; `MarketContext` is the container pricers read.
-Binding the SOFR curve a second time under `USD.STDCSA` is how the market says "discount at
-SOFR": one object, two keys. `with_curve` returns a new market with one curve replaced; the
-original is untouched.
+`MarketContext` is a `Mapping[str, DiscountCurve]` keyed by curve key and the container pricers
+read. Assigning the SOFR curve a second time under `USD.STDCSA` is how the market says "discount
+at SOFR": one object, two keys. A `YieldCurve` can be assigned too (its fixings come with it);
+what is stored is always the mathematical curve, and `yield_curve(key)` is the derived view.
 
 ```python
 from finance.markets import RateGenerator
 from finance.markets.context import MarketContext
 
-ns = CurveNamespace()
-ns.bind(seasoned)
-ns.bind(seasoned, "USD.STDCSA")
-ns.bind(fedfund_yc)
-market = MarketContext(as_of, ns)
-ns
-# CurveNamespace({USD.SOFR.ON(v0), USD.STDCSA(v0), USD.FEDFUND.ON(v0)})
-market.zero_curve("USD.FEDFUND.ON")
+market = MarketContext(as_of)
+market["USD.SOFR.ON"] = seasoned                  # a YieldCurve: its ZeroCurve and its fixings
+market["USD.STDCSA"] = market["USD.SOFR.ON"]      # the same object under the discount key
+market["USD.FEDFUND.ON"] = market["USD.SOFR.ON"] - 5 * bp
+market
+# MarketContext(as_of=2026-06-01, curves=['USD.SOFR.ON', 'USD.STDCSA', 'USD.FEDFUND.ON'], mutable)
+market["USD.FEDFUND.ON"]
 # CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...))
 market.curve_owner("USD.STDCSA"), market.curve_aliases("USD.STDCSA")
 # ('USD.SOFR.ON', ('USD.SOFR.ON', 'USD.STDCSA'))
+market.owned("USD.FEDFUND.ON")                    # the spread atom: the only parameters Fed Funds owns
+# (ZeroCurve(nodes=2, ...),)
 ```
 
 `curve_owner` is the key that owns a shared curve object: the projection key when there is one.
 The engines lay parameters out per owner, so `USD.SOFR.ON` and `USD.STDCSA` are one parameter
-block and a ladder asked under either key is the whole SOFR ladder.
+block and a ladder asked under either key is the whole SOFR ladder. `leaf_owner()` goes one
+level down, to the atoms: an atom belongs to the key reaching it by the shortest path, so the
+SOFR atom inside the Fed Funds composite still belongs to `USD.SOFR.ON`, and `USD.FEDFUND.ON`
+owns only its spread.
 
 `RateGenerator` gives discount-factor ratios their financial meaning. A window that starts before
 the origin is read from the fixings; one that starts after it is projected.
@@ -167,22 +171,25 @@ gen.simple_rate("USD.SOFR.ON", starts, ends)          # [historical print, proje
 gen.simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:])
 # [0.038825]
 
-scenario_market = market.with_curve(sofr_yc.with_zero_curve(sofr.with_params(sofr.params + 0.0010)))
+scenario_market = market.bump("USD.SOFR.ON", 0.0010)        # +10bp on every SOFR pillar
 RateGenerator(scenario_market).simple_rate("USD.SOFR.ON", starts[1:], ends[1:]) - gen.simple_rate("USD.SOFR.ON", starts[1:], ends[1:])
 # [0.000996]                                        # +10bp continuous ≈ +9.96bp simple Act/360
-market.zero_curve("USD.SOFR.ON") is sofr
+market["USD.SOFR.ON"] is sofr
+# True                                              # the original market is untouched
+scenario_market["USD.STDCSA"] is scenario_market["USD.SOFR.ON"]
 # True
-scenario_market.zero_curve("USD.STDCSA") is scenario_market.zero_curve("USD.SOFR.ON")
-# True
+scenario_market["USD.FEDFUND.ON"]["base"] is scenario_market["USD.SOFR.ON"]
+# True                                              # Fed Funds was rebuilt on the moved SOFR atom
+RateGenerator(scenario_market).simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:]) - gen.simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:])
+# [0.000996]                                        # ... so it moved by the same amount; the basis did not
 ```
 
-Rebinding a curve under its own key says "this curve moved", so every key that held the same
-object (`USD.STDCSA`) follows it. Note what the scenario did *not* do: it did not change
-`USD.FEDFUND.ON`. Its spread composite still holds a reference to the original `sofr` object.
-Moving the SOFR atom "through" every composite that references it is the job of the market
-redesign (`replace`, [curves_and_market_plan.md](../curves_and_market_plan.md) PR D), not of
-today's `with_curve`; until then, a scenario on a shared atom rebuilds each dependent composite
-with `with_component("base", ...)`.
+A scenario propagates by object identity. Bumping `USD.SOFR.ON` replaces the SOFR atom wherever
+it appears: under `USD.STDCSA`, which holds the same object, and inside the Fed Funds composite,
+which is rebuilt on the moved atom with its spread untouched. `bump("USD.FEDFUND.ON", ...)` moves
+only the spread, because that is the only parameter Fed Funds owns. `with_curve(key, curve)` is
+the same move with a replacement curve: on the key that owns the object it propagates the same
+way; on an alias such as `USD.STDCSA` it changes that key alone. Both return frozen copies.
 
 ## What `YieldCurve` deliberately does not do
 

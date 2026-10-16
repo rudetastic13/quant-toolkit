@@ -17,7 +17,7 @@ from common.math.line import Extrapolation, Line1d  # noqa: E402
 from finance.dates import Date, Term  # noqa: E402
 from finance.markets import HistoricalFixings, RateGenerator  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveInterpolator, CurveNamespace, CurveSpace, YieldCurve, ZeroCurve  # noqa: E402
+from finance.markets.curves import CurveInterpolator, CurveSpace, YieldCurve, ZeroCurve  # noqa: E402
 
 OUT = "docs/img/curves"
 
@@ -159,9 +159,7 @@ save(fig, "zero_curve_schemes")
 # 4. YieldCurve: pseudo cash rates (3M and 1Y simple, index day count) by scheme
 # ---------------------------------------------------------------------------------------
 def market_for(yc: YieldCurve) -> MarketContext:
-    ns = CurveNamespace()
-    ns.bind(yc)
-    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves=ns)
+    return MarketContext(as_of_date=Date.from_numpy(ORIGIN), curves={yc.name: yc})
 
 
 STARTS = ORIGIN + np.arange(0, int(X_NODES[-1]) - 365, 3).astype("timedelta64[D]")

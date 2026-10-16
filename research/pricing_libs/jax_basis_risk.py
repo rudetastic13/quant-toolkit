@@ -33,7 +33,7 @@ jax.config.update("jax_enable_x64", True)
 from finance.dates import Date  # noqa: E402
 from finance.instruments.resolution import Swap, curve_name  # noqa: E402
 from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve  # noqa: E402
+from finance.markets.curves import CurveInterpolator, YieldCurve  # noqa: E402
 from finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator,
     CurveDefinition,
@@ -62,7 +62,7 @@ def build_basis_market(as_of: Date):
         swap_helper(rate=0.0405, tenor="5Y", as_of=as_of),
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
-    base = MarketContext(as_of_date=as_of, curves=CurveNamespace())
+    base = MarketContext(as_of_date=as_of)
     r_sofr = CurveCalibrator(
         sofr_helpers, GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
@@ -96,7 +96,7 @@ def main() -> None:
     print("=" * 80)
     print("BASIS CALIBRATION  (SOFR discount + Fed Funds projection, SOFR-discounted)")
     print("=" * 80)
-    print(f"curves bound        : {sorted(market.curves.snapshot().keys())}")
+    print(f"curves bound        : {sorted(market)}")
     print(f"FEDFUND residual max : {np.abs(r_ff.residuals).max():.2e}   (every quote repriced)")
     print(f"calibration Jacobian : {r_ff.jacobian.shape}  ∂implied/∂z (exact, one jax.jacobian)")
 

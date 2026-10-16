@@ -5,7 +5,6 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.markets.curves import YieldCurve
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace
 from finance.instruments.resolution import Swap
 from finance.pricing.pricers import SwapPricer
 from finance.pricing.risk import Sensitivities
@@ -18,11 +17,8 @@ def _market():
     dates = np.array([o, o + np.timedelta64(2 * 365, "D"), o + np.timedelta64(5 * 365, "D"),
                       o + np.timedelta64(12 * 365, "D")], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
-    ns = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=AS_OF, curves=ns)
+    return MarketContext(as_of_date=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestDv01(UnitTest):

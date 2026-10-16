@@ -27,7 +27,7 @@ from numpy.typing import NDArray
 from finance.dates import Date, Term, TermType
 from finance.markets import RateGenerator
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, Mixed, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveInterpolator, Mixed, YieldCurve, ZeroCurve
 
 # ---------------------------------------------------------------------------
 # Shared node inputs  (np.ndarray[datetime64[D]] + np.ndarray[float64])
@@ -134,9 +134,7 @@ def _eval_curve(
 
 
 def _rate_generator(curve: YieldCurve) -> RateGenerator:
-    namespace = CurveNamespace()
-    namespace.bind(curve)
-    market = MarketContext(as_of_date=Date.from_numpy(curve.origin), curves=namespace)
+    market = MarketContext(as_of_date=Date.from_numpy(curve.origin), curves={curve.name: curve})
     return RateGenerator(market)
 
 

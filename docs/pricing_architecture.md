@@ -93,7 +93,7 @@ flowchart TB
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
-        CN["CurveNamespace -> YieldCurve<br/>(history + conventions + ZeroCurve)"]
+        CN["key -> DiscountCurve<br/>(yield_curve(key): origin + conventions + fixings)"]
         RG["RateGenerator"]
         VN["VolNamespace -> VolSurface (seam)"]
     end
@@ -212,7 +212,7 @@ single-fixing floats.
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
 | **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler and the JAX program (the Numba kernel mirrors it scalar-wise and is held to parity in CI) — they can't drift. |
 | **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (index / per-leg / per-product tiers) does the rest. |
-| **Versioned namespace** | `CurveNamespace` / `VolNamespace` | Rebind a curve per scenario; version counter for cache invalidation without observers. |
+| **Market as a Mapping** | `MarketContext` | `market[key] = curve` assembles; `with_curve` / `bump` return frozen copies that propagate through composites by object identity; `VolNamespace` keeps the versioned-store pattern for surfaces. |
 
 ---
 
@@ -388,7 +388,7 @@ solves for the curve that reprices every quote.
 
 ```python
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, CurveInterpolator, YieldCurve
+from finance.markets.curves import CurveInterpolator
 from finance.pricing.calibration import (
     CurveCalibrator, CurveDefinition, GlobalSolver,
     deposit_helper, fra_helper, swap_helper,
@@ -405,7 +405,7 @@ helpers = [
     swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
 ]
 
-base   = MarketContext(as_of_date=as_of, curves=CurveNamespace())   # empty starting market
+base   = MarketContext(as_of)                                       # empty starting market
 target = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF)
 
 result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base, jacobian=True)
@@ -418,16 +418,15 @@ both agree to ~1e-9.
 
 ### 9.3 Tying into a market
 
-`calibrate` returns mathematical curve state. Compose that state with SOFR's index
-definition, then register the resulting `YieldCurve` in the market. This boundary is
-deliberately explicit.
+`calibrate` returns mathematical curve state. Registering it under its key is an explicit
+step; the key brings SOFR's conventions, and the market's `as_of` is the origin.
 
 ```python
 from finance.markets import RateGenerator
 
-sofr_curve = YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.ON")
-market = base.with_curve(sofr_curve).with_curve(sofr_curve, name="USD.STDCSA")   # one curve, two keys
+market = MarketContext(as_of, {"USD.SOFR.ON": result.zero_curve, "USD.STDCSA": result.zero_curve})  # one curve, two keys
 CN = "USD.SOFR.ON"
+sofr_curve = market.yield_curve(CN)
 
 # zero rates (continuously-compounded) at each pillar
 sofr_curve.zero_rate(result.pillar_dates) * 100

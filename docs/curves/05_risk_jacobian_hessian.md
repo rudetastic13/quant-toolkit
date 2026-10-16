@@ -164,8 +164,7 @@ from finance.pricing.risk import NumbaRisk
 from finance.pricing.risk.sensitivities import Sensitivities
 from finance.pricing.types import Backend
 
-sofr_only = MarketContext(as_of, CurveNamespace())
-sofr_only.curves.bind(sofr_yc)
+sofr_only = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc})
 template = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.0, tenor="5Y", as_of=as_of)
 par_engine = RateGenerator(sofr_only).par_swap_rate(template)
 par_engine
@@ -206,10 +205,7 @@ column is the parallel index risk, because a flat spread *is* a parallel move of
 curve.
 
 ```python
-ff_market = MarketContext(as_of, CurveNamespace())
-ff_market.curves.bind(sofr_yc)
-ff_market.curves.bind(sofr_yc, "USD.STDCSA")
-ff_market.curves.bind(fedfund_yc)
+ff_market = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc, "USD.STDCSA": sofr_yc, "USD.FEDFUND.ON": fedfund_yc})
 ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=as_of)
 ff_risk = NumbaRisk(SwapPricer().compile([ff_swap]), ff_market)
 ff_risk.index_ladder("USD.FEDFUND.ON")                # [ base block (SOFR pillars) | spread ]

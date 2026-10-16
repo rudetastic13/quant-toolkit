@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve
+from finance.markets.curves import CurveInterpolator, YieldCurve
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.calibration import (
     CurveCalibrator,
@@ -27,13 +27,10 @@ def _market(as_of, *, vol=0.01):
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 3 * 365, 7 * 365, 12 * 365)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
-    curves = CurveNamespace()
     sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
-    curves.bind(sofr)
-    curves.bind(sofr, "USD.STDCSA")
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(vol, VolUnits.Normal))
-    return MarketContext(as_of, curves, vols=vols)
+    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
 
 
 class TestSofrFutures(UnitTest):
@@ -78,7 +75,7 @@ class TestSofrFutures(UnitTest):
         true_market = self.market
         dep.quote = Quote(dep.implied(true_market), dep.quote.kind)
         fut.quote = Quote(fut.implied(true_market), fut.quote.kind)
-        base = MarketContext(self.as_of, CurveNamespace())
+        base = MarketContext(self.as_of)
         result = CurveCalibrator(
             [dep, fut], GlobalSolver(), CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         ).calibrate(base, jacobian=True)

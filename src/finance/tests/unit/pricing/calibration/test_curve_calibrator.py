@@ -11,7 +11,7 @@ import pytest
 from common.testing import UnitTest
 from finance.dates import Date
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, CurveNamespace, YieldCurve, ZeroCurve
+from finance.markets.curves import CurveInterpolator, YieldCurve, ZeroCurve
 from finance.pricing.types import Backend
 from finance.pricing.calibration import (
     Bootstrapper,
@@ -59,17 +59,14 @@ class TestCurveCalibrator(UnitTest):
         self.true_nd = nd
         self.true = ZeroCurve((nd.astype(np.int64) - self.origin.astype(np.int64)).astype(np.float64), dfs)
 
-        ns = CurveNamespace()
         sofr = YieldCurve.from_registry(self.origin, self.true, currency="USD", index_name="SOFR")
-        ns.bind(sofr)
-        ns.bind(sofr, "USD.STDCSA")
-        true_mkt = MarketContext(as_of_date=self.as_of, curves=ns)
+        true_mkt = MarketContext(as_of_date=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
         # Quotes generated from the true curve.
         for h in self.helpers:
             h.quote = Quote(h.implied(true_mkt), h.quote.kind)
 
-        self.base = MarketContext(as_of_date=self.as_of, curves=CurveNamespace())
+        self.base = MarketContext(as_of_date=self.as_of)
         self.defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
 
     def test_round_trip_recovers_true_dfs(self):
@@ -95,7 +92,7 @@ class TestCurveCalibrator(UnitTest):
         out = self.base.with_curve(yield_curve)
         self.assertIs(out.zero_curve(CURVE), res.zero_curve)
         # Calibration returns mathematical state and never mutates the input market.
-        self.assertNotIn(CURVE, self.base.curves)
+        self.assertNotIn(CURVE, self.base)
 
     def test_bootstrap_rejects_global_interpolator(self):
         defn = CurveDefinition("USD", "SOFR", CurveInterpolator.LogCubicDF, discount_keys=("USD.STDCSA",))
@@ -149,7 +146,7 @@ class TestCurveCalibrator(UnitTest):
                     cols = []
                     for z in (z0 + e, z0 - e):
                         curve = zc.with_dfs(np.concatenate([[1.0], np.exp(-z * t)]))
-                        mkt = defn.bind(self.base, defn.compose(res.origin, curve, self.base))
+                        mkt = defn.bind(self.base, curve)
                         cols.append(np.array([hp.implied(mkt) for hp in helpers]))
                     fd[:, k] = (cols[0] - cols[1]) / (2.0 * h)
                 np.testing.assert_allclose(res.jacobian, fd, rtol=1e-6, atol=1e-9)
@@ -170,11 +167,8 @@ class TestWithCurve(UnitTest):
         x = np.array([0.0, 731.0])
         self.c1 = ZeroCurve(x, np.array([1.0, 0.92]))
         self.c2 = ZeroCurve(x, np.array([1.0, 0.95]))
-        ns = CurveNamespace()
         sofr = YieldCurve.from_registry(self.origin, self.c1, currency="USD", index_name="SOFR")
-        ns.bind(sofr)
-        ns.bind(sofr, "USD.STDCSA")
-        self.mkt = MarketContext(as_of_date=self.as_of, curves=ns, vols=object())
+        self.mkt = MarketContext(as_of_date=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr}, vols=object())
 
     def test_with_curve_rebinds_and_leaves_original_intact(self):
         replacement = self.mkt.yield_curve(CURVE).with_zero_curve(self.c2)
@@ -188,4 +182,4 @@ class TestWithCurve(UnitTest):
         fedfund = YieldCurve.from_registry(self.origin, self.c2, currency="USD", index_name="FEDFUND")
         out = self.mkt.with_curve(fedfund)
         self.assertIs(out.zero_curve("USD.FEDFUND.ON"), self.c2)
-        self.assertNotIn("USD.FEDFUND.ON", self.mkt.curves)
+        self.assertNotIn("USD.FEDFUND.ON", self.mkt)

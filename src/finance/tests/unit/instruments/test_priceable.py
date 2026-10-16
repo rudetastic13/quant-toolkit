@@ -5,7 +5,7 @@ from common.testing import UnitTest
 from finance.dates import Date
 from finance.instruments.resolution import Swap
 from finance.markets.context import MarketContext
-from finance.markets.curves import CurveNamespace, YieldCurve
+from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import SwapPricer
 
 
@@ -15,11 +15,8 @@ def _market(as_of: Date, level: float = 0.04) -> MarketContext:
     t = (nd.astype(np.int64) - origin.astype(np.int64)) / 365.0
     dfs = np.exp(-level * t)
     dfs[0] = 1.0
-    ns = CurveNamespace()
     sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
-    ns.bind(sofr)
-    ns.bind(sofr, "USD.STDCSA")
-    return MarketContext(as_of_date=as_of, curves=ns)
+    return MarketContext(as_of_date=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
 class TestPriceableFunctor(UnitTest):
