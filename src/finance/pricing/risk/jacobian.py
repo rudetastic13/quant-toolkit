@@ -41,7 +41,9 @@ def _scatter(row: FloatArray, source: ParamLayout, target: ParamLayout, into: Fl
         src = source.block_slices[key]
         dst = target.block_slices[key]
         if dst.stop - dst.start != src.stop - src.start:
-            raise ValueError(f"block '{key}' has {src.stop - src.start} columns in one layout and {dst.stop - dst.start} in another")
+            raise ValueError(
+                f"block '{key}' has {src.stop - src.start} columns in one layout and {dst.stop - dst.start} in another"
+            )
         into[dst] += row[src]
 
 
@@ -72,7 +74,9 @@ def template_jacobian(
     from finance.pricing.pricers import FuturesPricer, SwapPricer
 
     if Backend(backend) != Backend.Numba:
-        raise NotImplementedError(f"template_jacobian needs the Numba adjoint; backend {Backend(backend).name} has none")
+        raise NotImplementedError(
+            f"template_jacobian needs the Numba adjoint; backend {Backend(backend).name} has none"
+        )
     helpers = list(helpers)
     if not helpers:
         raise ValueError("template_jacobian needs at least one helper")
@@ -99,7 +103,9 @@ def template_jacobian(
     if curves is not None:
         missing = [b for b in layout.blocks if b not in curves]
         if missing:
-            raise ValueError(f"helpers touch curve blocks {missing} that are not in the template's curves {list(curves)}")
+            raise ValueError(
+                f"helpers touch curve blocks {missing} that are not in the template's curves {list(curves)}"
+            )
 
     rows = np.zeros((len(helpers), layout.n_params), dtype=np.float64)
     implied = np.empty(len(helpers), dtype=np.float64)

@@ -1,4 +1,5 @@
 """R1: PillarRisk adapters agree with today's doors; template_jacobian agrees with the calibrator and with bumps."""
+
 import numpy as np
 import pytest
 
@@ -8,9 +9,9 @@ from finance.instruments.resolution import SofrFuture, Swap, Swaption, SwaptionM
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve, bp
 from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
-from finance.pricing.calibration import Quote, deposit_helper, fra_helper, futures_helper, swap_helper
+from finance.pricing.calibration import deposit_helper, fra_helper, futures_helper, swap_helper
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
-from finance.pricing.risk import NumbaRisk, PillarRisk, calibration_jacobian, pillar_risk, template_jacobian
+from finance.pricing.risk import NumbaRisk, calibration_jacobian, pillar_risk, template_jacobian
 
 SOFR = "USD.SOFR.ON"
 STDCSA = "USD.STDCSA"
@@ -76,8 +77,11 @@ class TestPillarRiskAdapters(UnitTest):
         from finance.instruments.enums import CouponType
 
         expired = SofrFuture(  # settled a year ago; the factory refuses these, a book can still hold one
-            contract="SR3", ref_start=Date(2025, 3, 19), ref_end=Date(2025, 6, 18),
-            coupon_type=CouponType.GeometricAveraged, entry_price=96.0,
+            contract="SR3",
+            ref_start=Date(2025, 3, 19),
+            ref_end=Date(2025, 6, 18),
+            coupon_type=CouponType.GeometricAveraged,
+            entry_price=96.0,
         )
         strip = [
             expired,
@@ -89,15 +93,21 @@ class TestPillarRiskAdapters(UnitTest):
         self.assertEqual(risk.curves, (SOFR,))
         np.testing.assert_array_equal(risk.block(SOFR), program.risk(self.market, SOFR).pnl_gradient)
         self.assertTrue(np.isfinite(risk.values).all())
-        np.testing.assert_array_equal(risk.values[0], 0.0)              # expired: no risk
+        np.testing.assert_array_equal(risk.values[0], 0.0)  # expired: no risk
         self.assertGreater(np.abs(risk.values[1]).sum(), 0.0)
         pnl = program.reprice(self.market).pnl
         np.testing.assert_array_equal(risk.pv[:2], pnl[:2])
-        self.assertEqual(risk.pv[2], 0.0)                                 # no entry price
+        self.assertEqual(risk.pv[2], 0.0)  # no entry price
 
     def test_swaption_program_matches_the_door(self):
         option = Swaption.european(
-            notional=1e6, strike=0.04, expiry="1Y", swap_tenor="5Y", as_of=self.as_of, payer=True, model=SwaptionModel.Bachelier
+            notional=1e6,
+            strike=0.04,
+            expiry="1Y",
+            swap_tenor="5Y",
+            as_of=self.as_of,
+            payer=True,
+            model=SwaptionModel.Bachelier,
         )
         program = SwaptionPricer().compile([option])
         risk = pillar_risk(program, self.market)
@@ -106,7 +116,11 @@ class TestPillarRiskAdapters(UnitTest):
 
     def test_aligned_reorders_zero_fills_and_checks_pillars(self):
         risk = pillar_risk(SwapPricer().compile(self.book[:1]), self.market)
-        dates = {FEDFUND: self.market.yield_curve(FEDFUND).node_dates[-1:], SOFR: risk.pillar_dates[SOFR], "USD.UST": np.array(["2027-06-01"], dtype="datetime64[D]")}
+        dates = {
+            FEDFUND: self.market.yield_curve(FEDFUND).node_dates[-1:],
+            SOFR: risk.pillar_dates[SOFR],
+            "USD.UST": np.array(["2027-06-01"], dtype="datetime64[D]"),
+        }
         moved = risk.aligned((FEDFUND, "USD.UST", SOFR), dates)
         self.assertEqual(moved.curves, (FEDFUND, "USD.UST", SOFR))
         np.testing.assert_array_equal(moved.block(SOFR), risk.block(SOFR))
@@ -155,8 +169,8 @@ class TestTemplateJacobian(UnitTest):
         self.assertEqual(jac.curves, (SOFR, FEDFUND))
         np.testing.assert_allclose(jac.block(SOFR), _fd(helpers, self.market, SOFR), rtol=1e-6, atol=1e-8)
         np.testing.assert_allclose(jac.block(FEDFUND), _fd(helpers, self.market, FEDFUND), rtol=1e-6, atol=1e-8)
-        np.testing.assert_array_equal(jac.block(FEDFUND)[:5], 0.0)          # SOFR quotes do not see the basis
-        self.assertTrue((np.abs(jac.block(FEDFUND)[5:]) > 0.5).all())       # a Fed Funds par rate moves ~1:1 with its basis
+        np.testing.assert_array_equal(jac.block(FEDFUND)[:5], 0.0)  # SOFR quotes do not see the basis
+        self.assertTrue((np.abs(jac.block(FEDFUND)[5:]) > 0.5).all())  # a Fed Funds par rate moves ~1:1 with its basis
 
     def test_requested_curve_order_and_zero_columns(self):
         jac = template_jacobian(self.ff_helpers, self.market, curves=(FEDFUND, SOFR))

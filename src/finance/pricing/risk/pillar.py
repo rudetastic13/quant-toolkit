@@ -105,7 +105,9 @@ class PillarRisk:
     @classmethod
     def from_layout(cls, layout, values: FloatArray, pv: FloatArray, labels=None) -> PillarRisk:
         """Wrap a full-width gradient laid out by ``layout``."""
-        offsets = np.concatenate([[0], np.cumsum([layout.block_slices[k].stop - layout.block_slices[k].start for k in layout.blocks])]).astype(np.intp)
+        offsets = np.concatenate(
+            [[0], np.cumsum([layout.block_slices[k].stop - layout.block_slices[k].start for k in layout.blocks])]
+        ).astype(np.intp)
         return cls(
             curves=tuple(layout.blocks),
             param_offsets=offsets,
@@ -143,7 +145,9 @@ def pillar_risk(program, market, *, backend: Backend = Backend.Numba, labels=Non
     if isinstance(program, PricingProgram):
         numba = program.prepare(market, backend=Backend.Numba)
         result = numba.value_and_grad(market)
-        return PillarRisk.from_layout(numba.layout, result.instrument_total_gradient, result.primal.instrument_pv, labels)
+        return PillarRisk.from_layout(
+            numba.layout, result.instrument_total_gradient, result.primal.instrument_pv, labels
+        )
     if isinstance(program, FuturesProgram):
         numba = program.program.prepare(market, backend=Backend.Numba)
         risk = program.risk(market)
