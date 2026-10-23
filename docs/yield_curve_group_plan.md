@@ -252,9 +252,13 @@ for the curve, not its source. The quote sits on the float leg, Act/360, matchin
 
 Reading the built curve needs no helper: `spread("USD.UST-OTR.1D", over="USD.SOFR.1D")` is the
 SOFR/GV spread per window, `simple_rate("USD.UST-OTR.1D")` the forward rate (`par_swap_rate` if a par
-yield is wanted). Building `ust_asw_spread` from quoted ASW levels reuses the existing `SwapHelper`
-quoted on the float leg's `spread` field (`QuoteKind.FloatSpread` next to `ParRate`; the swap builder
-already carries `spread`), no new helper type.
+yield is wanted). Building `ust_asw_spread` from quoted ASW levels (as built, Y3): `SpreadHelper`,
+two `SwapHelper`s on one schedule — fixed vs UST-OTR float and fixed vs SOFR float — whose quote is
+`par(ust) − par(sofr)` (`QuoteKind.ParSpread`): literally the bond's par coupon minus the swap's par
+rate, with the bond replaced by the curve it implies. ~20 lines composing the existing helper; a
+float-leg-spread variant was not needed because the calibrator only reads `implied`. Known gap:
+`template_jacobian` / `RiskTemplate` do not accept a `SpreadHelper` yet (they special-case helper
+types); calibration itself is helper-agnostic.
 
 ## 6. RateGenerator target API
 
@@ -287,8 +291,8 @@ annuity-weighted par quantity that belongs to calibration (`par_swap_rate`-style
 | Y0 ✔ | Conventions cleanup, done while Y1 touches the files: (a) `CurveKey` (or its string) is the one canonical name into the registry — remove `split_index_name`, `_strip_currency`, `resolve_conventions`, the `index_name`/`tenor` dual arguments and the `key`/`currency`/`index_name` triple on `YieldCurve.from_registry`/`build`; (b) `RateIndex` becomes a `(family, tenor)` tuple, the engines read `family.day_count_method`; (c) drop the `ON` label: keys spell the overnight tenor `1D` (`USD.SOFR.1D`), so every tenor slot is `Term.from_str`-parsable and `keys.py` loses `_ON`, the two `ON` branches and the separate overnight predicate; `OVERNIGHT = Term(1, Days)` stays as a constant; `.ON` → `.1D` is a sed over ~53 files. `ConventionRegistry` and the common `Registry` stay as they are | — |
 | Y1 ✔ | `YieldCurveGroup` (`add`, one `{name: YieldCurve}` map, name validation, `default_funding`, `fx_rate` as a float); `MarketContext` holds `{ccy: YCG}`, keeps the lookup facade and `__setitem__` as sugar, drops the unused `fixings=` constructor argument and the `_yield_cache` (views are stored, not derived); ownership and scenarios stay on the market and rebuild views | Y0 |
 | Y2 | `fx_rate`, `ForYc` links, `FxQuote` registry, derived spot date and forward FX; FX-swap and xccy-basis helpers; MTM-swap pricer; multi-ccy discounting in one engine | Y1 |
-| Y3 | `UST-OTR` (Act/360) and `XXX-FTP` families; `QuoteKind.FloatSpread` on the existing `SwapHelper` for ASW-spread calibration of both; the FTP chain end to end | Y1 only (not Y2) |
-| Y4 | `RateGenerator.spread` | Y3 |
+| Y3 ✔ | `UST-OTR` (Act/360) and `XXX-FTP` families; `SpreadHelper` / `spread_helper` (`QuoteKind.ParSpread`, two par swaps on one schedule) for ASW-spread calibration of both; the FTP chain end to end (`tests/unit/pricing/calibration/test_ftp_chain.py`) | Y1 only (not Y2) |
+| Y4 ✔ | `RateGenerator.spread(curve, over, starts, ends, day_count=None)`: `simple_rate(curve) − simple_rate(over)` on one day count (each full rate converted, then subtracted); same-currency check; a discount `curve` needs `day_count`. Existing methods unchanged | Y3 |
 | Later | Serialisation of a market by date (graph with ids so object sharing survives a round trip); scenarios as values | |
 | Later, after bonds | Proper FTP calibration: the bank's own bonds and comparable corporates priced off `USD.UST-OTR` + spread, solve the spread. Needs price↔yield, accrued, Act/Act ICMA, settlement rules — the same block Treasury futures need (`risk_and_engine_design.md` phase B). Until then the Y3 credit spread comes from ASW-style quotes | phase B |
 
@@ -300,7 +304,7 @@ Y3 is the shorter and more certain path and does not wait on FX.
 2. ~~Where do fixings attach?~~ Decided: on the market by projection key, as today.
 3. ~~Is `fx_rate` in the parameter vector?~~ Decided: no; translation only (section 4).
 4. ~~Chains?~~ Decided: allowed, resolved transitively to the unique root; only cycles are rejected.
-5. `spread`: default convention when none is given — continuous, or the over-curve's index day count?
+5. ~~`spread` default convention?~~ Decided (as built): the *curve* argument's index day count; pass `day_count` for a discount key.
 6. ~~Where does `leaf_owner` live?~~ Decided: on the market, market-wide (section 3).
 7. ~~`UST-OTR` projection day count?~~ Decided: `Both`, Act/360, so `spread(ust, over=sofr)` works; no ASW helper type, `spread`/`simple_rate` read it and `SwapHelper` with a float-spread quote builds it (section 5).
 8. `default_funding`: the group's default should be the only one; the builders' `funding_id="STDCSA"`

@@ -149,3 +149,20 @@ def _usd_cme_term_sofr() -> MarketConventions:
             calendar="no_holidays",
         ),
     )
+
+
+@register_convention("USD", "UST-OTR", overwrite=True)
+def _usd_ust_otr() -> MarketConventions:
+    """The US Treasury curve as an overnight index, Act/360: ``USD.UST-OTR.1D`` projects, ``USD.UST-OTR`` discounts.
+
+    Nothing resets off it; the projection identity exists so ``RateGenerator.spread`` reads the
+    SOFR/GV spread in SOFR's basis.  The curve is SOFR plus an asset-swap spread — the ASW problem
+    inverted: quoted par spreads in, par yields out (``docs/yield_curve_group_plan.md``, section 5).
+    """
+    return _usd_overnight_market("UST-OTR")
+
+
+@register_convention("USD", "XXX-FTP", overwrite=True)
+def _usd_ftp() -> MarketConventions:
+    """Funds-transfer-pricing index (placeholder name), Act/360: bank debt as a credit spread over ``USD.UST-OTR.1D``."""
+    return _usd_overnight_market("XXX-FTP")
