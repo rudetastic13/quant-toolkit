@@ -300,12 +300,13 @@ Y3 is the shorter and more certain path and does not wait on FX.
 
 ## 8. Open questions
 
-1. ~~Does the facade stay?~~ Decided: lookup stays permanently; assignment is removed.
+1. ~~Does the facade stay?~~ Decided (2026-10-23): lookup stays permanently; `market["KEY"] = curve` stays as one-line sugar over `add` (a plain assignment means a plain curve: no funding aliases, and later no `ForYc` links).
 2. ~~Where do fixings attach?~~ Decided: on the market by projection key, as today.
 3. ~~Is `fx_rate` in the parameter vector?~~ Decided: no; translation only (section 4).
 4. ~~Chains?~~ Decided: allowed, resolved transitively to the unique root; only cycles are rejected.
 5. ~~`spread` default convention?~~ Decided (as built): the *curve* argument's index day count; pass `day_count` for a discount key.
 6. ~~Where does `leaf_owner` live?~~ Decided: on the market, market-wide (section 3).
 7. ~~`UST-OTR` projection day count?~~ Decided: `Both`, Act/360, so `spread(ust, over=sofr)` works; no ASW helper type, `spread`/`simple_rate` read it and `SwapHelper` with a float-spread quote builds it (section 5).
+   Accepted gap (2026-10-23): `RiskTemplate` / `template_jacobian` do not take a `SpreadHelper`; calibration does.
 8. `default_funding`: the group's default should be the only one; the builders' `funding_id="STDCSA"`
    default would resolve `None` through the group instead, so the two cannot drift. Confirm.
