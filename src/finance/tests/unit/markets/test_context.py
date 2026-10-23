@@ -65,6 +65,33 @@ class TestMarketContext(UnitTest):
         self.assertIs(self.market.yield_curve(CURVE), view)  # cached until the curve or fixings change
         self.assertIsNone(self.market.yield_curve(DISCOUNT).conventions)
 
+    def test_add_registers_a_curve_under_its_key_and_its_funding_names(self):
+        market = MarketContext(self.as_of)
+        sofr = _yield_curve(self.origin)
+        market.add(sofr, funding_names=[DISCOUNT])
+        self.assertEqual(list(market), [CURVE, DISCOUNT])
+        self.assertIs(market.yield_curve(CURVE), sofr)
+        self.assertIs(market[DISCOUNT], sofr.zero_curve)
+        self.assertIsNone(market.yield_curve(DISCOUNT).conventions)
+        self.assertEqual(list(market.groups), ["USD"])
+        self.assertIs(market.group("usd").discount("STDCSA"), market.yield_curve(DISCOUNT))
+        self.assertIs(market.group("USD").projection("SOFR"), sofr)
+        with self.assertRaises(KeyError):
+            market.group("GBP")
+        with self.assertRaises(TypeError):
+            market.add(self.sofr)  # a bare DiscountCurve has no key: use market[key] = curve
+        with self.assertRaises(ValueError):
+            market.add(_yield_curve(np.datetime64("2026-06-02"), key=FEDFUND))
+        self.assertEqual(len(market), 2)
+
+    def test_a_scenario_copy_keeps_the_groups_settings(self):
+        market = MarketContext(self.as_of)
+        market.add(_yield_curve(self.origin), funding_names=[DISCOUNT])
+        copy = market.bump(CURVE, 1e-4)
+        self.assertTrue(copy.group("USD").frozen)
+        self.assertEqual(copy.group("USD").fx_rate, 1.0)
+        self.assertIs(copy.group("USD").discount("STDCSA").zero_curve, copy[CURVE])
+
     def test_assignment_validates_the_key_against_the_conventions(self):
         with self.assertRaises(KeyError):
             self.market["USD.NOSUCHINDEX.1D"] = self.sofr
