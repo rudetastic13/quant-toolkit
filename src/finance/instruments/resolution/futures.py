@@ -70,7 +70,7 @@ class SofrFuture:
     coupon_type: CouponType
     day_count_method: DayCountMethod = DayCountMethod.Actual360
     currency: str = "USD"
-    index_name: str = "SOFR"
+    index_name: str = "USD.SOFR.1D"
     funding_id: str = "STDCSA"
     point_value: float = 25.0
     contracts: float = 1.0
@@ -101,7 +101,7 @@ class SofrFuture:
         month: str | tuple[int, int],
         as_of: Date,
         currency: str = "USD",
-        rate_index: str = "SOFR",
+        rate_index: str = "USD.SOFR.1D",
         funding_id: str = "STDCSA",
         point_value: float | None = None,
         contracts: float = 1.0,

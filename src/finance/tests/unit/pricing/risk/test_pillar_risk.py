@@ -13,9 +13,9 @@ from finance.pricing.calibration import deposit_helper, fra_helper, futures_help
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import NumbaRisk, calibration_jacobian, pillar_risk, template_jacobian
 
-SOFR = "USD.SOFR.ON"
+SOFR = "USD.SOFR.1D"
 STDCSA = "USD.STDCSA"
-FEDFUND = "USD.FEDFUND.ON"
+FEDFUND = "USD.FEDFUND.1D"
 
 pytest.importorskip("numba")
 
@@ -55,8 +55,8 @@ class TestPillarRiskAdapters(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
         self.book = [
-            Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
-            Swap.fixed_float_swap(notional=-50e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="3Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=-50e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="3Y", as_of=self.as_of),
         ]
 
     def test_leg_program_matches_numba_risk_per_block(self):
@@ -145,14 +145,14 @@ class TestTemplateJacobian(UnitTest):
             swap_helper(rate=0.0, tenor="2Y", as_of=self.as_of),
             swap_helper(rate=0.0, tenor="5Y", as_of=self.as_of),
         ]
-        self.ff_helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of, rate_index="FEDFUND") for t in ("2Y", "5Y")]
+        self.ff_helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of, rate_index="USD.FEDFUND.1D") for t in ("2Y", "5Y")]
 
     def test_rows_follow_helper_order_and_carry_the_implied_quote(self):
         jac = template_jacobian(self.sofr_helpers, self.market)
         self.assertEqual(jac.curves, (SOFR,))
         self.assertEqual(jac.n_positions, 5)
         np.testing.assert_allclose(jac.pv, [h.implied(self.market) for h in self.sofr_helpers], rtol=1e-12)
-        self.assertTrue(jac.labels[0].startswith("USD.SOFR.ON 2026-09"))
+        self.assertTrue(jac.labels[0].startswith("USD.SOFR.1D 2026-09"))
 
     def test_single_curve_blocks_match_finite_differences(self):
         jac = template_jacobian(self.sofr_helpers, self.market)

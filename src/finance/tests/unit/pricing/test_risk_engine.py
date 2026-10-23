@@ -11,7 +11,7 @@ from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import RiskEngine, Sensitivities
 
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 
 
 def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
@@ -21,7 +21,7 @@ def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     space, interpolator = interpolation.resolve()
     sofr = YieldCurve.build(
-        dates, np.exp(-z * t), currency="USD", index_name="SOFR", space=space, interpolator=interpolator
+        dates, np.exp(-z * t), key="USD.SOFR.1D", space=space, interpolator=interpolator
     )
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(0.01, VolUnits.Normal))
@@ -35,8 +35,8 @@ class TestRiskEngine(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
         self.book = [
-            Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=self.as_of),
-            Swap.fixed_float_swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.040, tenor="10Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=-25e6, rate_index="USD.SOFR.1D", fixed_rate=0.040, tenor="10Y", as_of=self.as_of),
         ]
 
     def test_swap_book_adjoint_matches_bump(self):
@@ -102,7 +102,7 @@ class TestRiskEngineTemplate(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
         self.program = SwapPricer().compile(
-            [Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=self.as_of)]
+            [Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y", as_of=self.as_of)]
         )
         helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of) for t in ("1Y", "3Y", "7Y", "12Y")]
         for h in helpers:

@@ -350,15 +350,15 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         self.atom = self.base.with_params(self.base.params + self.spread)
 
         def market(curve):
-            sofr = YieldCurve.from_registry(origin, curve, currency="USD", index_name="SOFR")
+            sofr = YieldCurve.from_registry(origin, curve, key="USD.SOFR.1D")
             return MarketContext(self.as_of, {sofr.name: sofr, "USD.STDCSA": sofr})
 
         self.market_spread = market(self.spread_curve)
         self.market_atom = market(self.atom)
         self.market_fn = market
         book = [
-            Swap.fixed_float_swap(notional=1e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
-            Swap.fixed_float_swap(notional=2e6, rate_index="SOFR", fixed_rate=0.042, tenor="7Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=1e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=2e6, rate_index="USD.SOFR.1D", fixed_rate=0.042, tenor="7Y", as_of=self.as_of),
         ]
         self.program = SwapPricer().compile(book)
 
@@ -366,7 +366,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         from finance.pricing.types import Backend
 
         result = self.program.prepare(market, backend=Backend.Numba).value_and_grad(market)
-        return result, result.instrument_gradient("USD.SOFR.ON", role="total")
+        return result, result.instrument_gradient("USD.SOFR.1D", role="total")
 
     def test_pv_matches_the_equivalent_atom(self):
         from finance.pricing.types import Backend
@@ -381,7 +381,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         result, g_spread = self._grad(self.market_spread)
         _, g_atom = self._grad(self.market_atom)
         self.assertEqual(g_spread.shape, (2, self.base.n_params + 1))
-        self.assertEqual(result.curve_slice("USD.SOFR.ON"), slice(0, self.base.n_params + 1))
+        self.assertEqual(result.curve_slice("USD.SOFR.1D"), slice(0, self.base.n_params + 1))
         # Base block equals the atom's pillar risk; the spread parameter carries the parallel risk.
         np.testing.assert_allclose(g_spread[:, self.spread_curve.component_slice("base")], g_atom, rtol=1e-11)
         np.testing.assert_allclose(
@@ -413,7 +413,7 @@ class TestCompositeThroughNumbaEngine(UnitTest):
     def test_bump_ladder_on_a_composite_key_has_one_column_per_owned_parameter(self):
         from finance.pricing.risk.sensitivities import Sensitivities
 
-        ladder = Sensitivities(self.program, self.market_spread).key_rate_durations("USD.SOFR.ON")
+        ladder = Sensitivities(self.program, self.market_spread).key_rate_durations("USD.SOFR.1D")
         self.assertEqual(ladder.krd.shape, (2, self.base.n_params + 1))
         # the spread column is a parallel move of the base: it equals the sum of the base columns
         np.testing.assert_allclose(ladder.krd[:, -1], ladder.krd[:, :-1].sum(axis=1), rtol=1e-6)

@@ -15,7 +15,7 @@ def _market(as_of: Date, level: float = 0.04) -> MarketContext:
     t = (nd.astype(np.int64) - origin.astype(np.int64)) / 365.0
     dfs = np.exp(-level * t)
     dfs[0] = 1.0
-    sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
+    sofr = YieldCurve.build(nd, dfs, key="USD.SOFR.1D")
     return MarketContext(as_of=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
@@ -25,7 +25,7 @@ class TestPriceableFunctor(UnitTest):
     def setUp(self):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
-        self.swap = Swap.fixed_float_swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of)
+        self.swap = Swap.fixed_float_swap(notional=10e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of)
 
     def test_call_matches_pricer_path(self):
         standalone = self.swap(self.market)

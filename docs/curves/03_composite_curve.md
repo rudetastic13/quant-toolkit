@@ -175,7 +175,7 @@ jac_s[:, funding.component_slice("spread")]
 
 So a book priced on `funding` reports a ladder over SOFR pillars (index or funding risk, depending
 on the role) and a separate ladder over the spread pillars (basis risk). A spread composite
-registered as its own index (`USD.FEDFUND.ON` over the SOFR atom) does this through the engine with
+registered as its own index (`USD.FEDFUND.1D` over the SOFR atom) does this through the engine with
 no extra code; [05](05_risk_jacobian_hessian.md) shows the output.
 
 ## A basis curve

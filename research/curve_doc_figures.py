@@ -174,7 +174,7 @@ for color, member in zip(
     ),
 ):
     space, interpolator = member.resolve()
-    yc = YieldCurve.build(NODE_DATES, DFS, currency="USD", index_name="SOFR", space=space, interpolator=interpolator)
+    yc = YieldCurve.build(NODE_DATES, DFS, key="USD.SOFR.1D", space=space, interpolator=interpolator)
     rates = RateGenerator(market_for(yc))
     t = (STARTS.view(np.int64) - ORIGIN.astype(np.int64)) / 365.0
     ax_3m.plot(
@@ -197,7 +197,7 @@ save(fig, "yield_curve_cash_rates")
 # ---------------------------------------------------------------------------------------
 # 5. Mixed: log-linear front end, natural cubic beyond 2Y
 # ---------------------------------------------------------------------------------------
-base = YieldCurve.build(NODE_DATES, DFS, currency="USD", index_name="SOFR")
+base = YieldCurve.build(NODE_DATES, DFS, key="USD.SOFR.1D")
 switch = base.node_index(Term.from_str("2Y"))
 mixed_zc = ZeroCurve(base.zero_curve.x, base.zero_curve.dfs, interpolator=Mixed(Linear(), Cubic(), switch_node=switch))
 mixed = base.with_zero_curve(mixed_zc)
@@ -264,7 +264,7 @@ print("rc.zero_rate(xq) ->", rc.zero_rate(xq))
 print("CurveInterpolator.RateCubic.resolve() ->", CurveInterpolator.RateCubic.resolve())
 
 print("\n--- YieldCurve")
-yc = YieldCurve.build(NODE_DATES, DFS, currency="USD", index_name="SOFR")
+yc = YieldCurve.build(NODE_DATES, DFS, key="USD.SOFR.1D")
 print("yc ->", yc)
 dates = np.array(["2026-06-01", "2027-06-01", "2040-06-01"], dtype="datetime64[D]")
 print("yc.to_x(dates) ->", yc.to_x(dates))

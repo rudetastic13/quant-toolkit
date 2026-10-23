@@ -64,14 +64,14 @@ the SOFR ladder of a Fed Funds swap is one ladder and the Fed Funds ladder is th
 (`finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that
 sees dates: `discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`;
 `node_dates` and `node_index(Term | date)` map pillars back to the calendar. Keys follow one
-grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.ON`, `USD.CME-TERM-SOFR.3M`; it
+grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.1D`, `USD.CME-TERM-SOFR.3M`; it
 carries its index family's conventions) and `CCY.NAME` is a discount curve (`USD.STDCSA`,
 `USD.UST`; no conventions, nothing resets off it). `YieldCurve.build(node_dates, dfs, ...)` is
 the dates-in constructor; `with_zero_curve(...)` creates a scenario curve while preserving
 origin, key and fixing history; `with_key(...)` re-registers the same state under another key.
 
 `MarketContext` owns registered market data. It is a `Mapping[str, DiscountCurve]`:
-`market["USD.SOFR.ON"] = sofr` registers a curve, `market[key]` is the mathematical curve and
+`market["USD.SOFR.1D"] = sofr` registers a curve, `market[key]` is the mathematical curve and
 `yield_curve(key)` the derived date-aware view. A market registers every key its trades name;
 discounting at SOFR is `market["USD.STDCSA"] = sofr`, the same object under the discount key.
 Scenarios are frozen copies: `with_curve(key, curve)` moves a curve wherever it appears (every
@@ -131,22 +131,22 @@ helpers = [
     swap_helper(rate=0.0409, tenor="10Y", as_of=as_of),
 ]
 base = MarketContext(as_of)   # empty: nothing is discounted implicitly
-definition = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
+definition = CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",)
 )  # the curve being calibrated also discounts its own swaps
 result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(
     base,
     jacobian=True,
 )
 
-market = result.market                             # USD.SOFR.ON (SOFR conventions attach) and USD.STDCSA: one object, two keys
-# Optional for a seasoned book: market = market.with_fixings("USD.SOFR.ON", HistoricalFixings(fixing_dates, fixing_rates))
+market = result.market                             # USD.SOFR.1D (SOFR conventions attach) and USD.STDCSA: one object, two keys
+# Optional for a seasoned book: market = market.with_fixings("USD.SOFR.1D", HistoricalFixings(fixing_dates, fixing_rates))
 ```
 
 The same boundary is used for scenarios, which are frozen copies:
 
 ```python
-scenario_market = market.with_curve("USD.SOFR.ON", result.zero_curve.with_dfs(new_discount_factors))
-bumped_market = market.bump("USD.SOFR.ON", 1e-4)   # +1bp on every SOFR pillar; USD.STDCSA follows
+scenario_market = market.with_curve("USD.SOFR.1D", result.zero_curve.with_dfs(new_discount_factors))
+bumped_market = market.bump("USD.SOFR.1D", 1e-4)   # +1bp on every SOFR pillar; USD.STDCSA follows
 ```
 
 ## Pricing and rate generation
@@ -160,7 +160,7 @@ from finance.pricing.types import Backend
 
 template = Swap.fixed_float_swap(
     notional=100e6,
-    rate_index="SOFR",
+    rate_index="USD.SOFR.1D",
     fixed_rate=0.0,
     tenor="7Y",
     as_of=as_of,
@@ -168,7 +168,7 @@ template = Swap.fixed_float_swap(
 par = RateGenerator(market).par_swap_rate(template)
 swap = Swap.fixed_float_swap(
     notional=100e6,
-    rate_index="SOFR",
+    rate_index="USD.SOFR.1D",
     fixed_rate=par,
     tenor="7Y",
     as_of=as_of,
@@ -177,10 +177,10 @@ swap = Swap.fixed_float_swap(
 program = SwapPricer().compile([swap], backend=Backend.Numba)
 price = program.price(market)
 risk = NumbaRisk(program, market)
-zero_dv01 = risk.zero_ladder("USD.SOFR.ON")
-index_dv01 = risk.index_ladder("USD.SOFR.ON")
-funding_dv01 = risk.funding_ladder("USD.SOFR.ON")
-gamma = risk.gamma("USD.SOFR.ON")
+zero_dv01 = risk.zero_ladder("USD.SOFR.1D")
+index_dv01 = risk.index_ladder("USD.SOFR.1D")
+funding_dv01 = risk.funding_ladder("USD.SOFR.1D")
+gamma = risk.gamma("USD.SOFR.1D")
 
 # risk to the quotes of real instruments: a RiskTemplate view over the same pillar risk
 from finance.pricing.risk import RiskEngine, RiskTemplate

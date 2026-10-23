@@ -5,17 +5,15 @@ The slot count carries the kind of curve:
 =====================  ==========  ==============================================================
 form                   kind        examples
 =====================  ==========  ==============================================================
-``CCY.INDEX.TENOR``    projection  ``USD.SOFR.ON``, ``USD.FEDFUND.ON``, ``USD.CME-TERM-SOFR.3M``
+``CCY.INDEX.TENOR``    projection  ``USD.SOFR.1D``, ``USD.FEDFUND.1D``, ``USD.CME-TERM-SOFR.3M``
 ``CCY.NAME``           discount    ``USD.STDCSA``, ``GBP.USDSTDCSA``, ``USD.UST``
 =====================  ==========  ==============================================================
 
-A projection key names what a floating leg resets off; its tenor is always present and ``ON``
-marks an overnight index.  A discount key names a funding or collateral regime or an issuer:
+A projection key names what a floating leg resets off; its tenor is always present and ``1D``
+is an overnight index.  A discount key names a funding or collateral regime or an issuer:
 nothing resets off it, so it carries no tenor.  Dots separate slots; hyphens are allowed inside
-a slot.  This is Strata's discount-map / forward-map split written as keys.
-
-``ON`` is spelled only here: the parser maps it to :data:`OVERNIGHT` (``Term(1, Days)``) and
-``str()`` maps it back, so ``Term`` itself is untouched.
+a slot.  This is Strata's discount-map / forward-map split written as keys.  Every tenor slot is
+plain ``Term`` text, so ``Term.from_str`` parses it and ``Term`` is untouched.
 """
 
 from __future__ import annotations
@@ -28,9 +26,8 @@ from finance.dates import Term
 from finance.dates.term.term_type import TermType
 
 OVERNIGHT: Term = Term(1, TermType.Days)
-"""The tenor of an overnight index; printed as ``ON`` inside a curve key."""
+"""The tenor of an overnight index: ``1D`` inside a curve key."""
 
-_ON = "ON"
 _SLOT = re.compile(r"^[A-Z0-9][A-Z0-9-]*$")
 
 
@@ -46,7 +43,7 @@ def _tenor_info(tenor: Term | None) -> tuple[int, TermType] | None:
 
 
 def tenor_label(tenor: Term) -> str:
-    """``ON`` for the overnight tenor, otherwise ``"3M"``-style text.
+    """``"1D"``, ``"3M"``-style text of a tenor.
 
     Parameters
     ----------
@@ -56,13 +53,11 @@ def tenor_label(tenor: Term) -> str:
     -------
     str
     """
-    if _tenor_info(tenor) == _tenor_info(OVERNIGHT):
-        return _ON
     return f"{int(tenor.term_length)}{tenor.term_type.value}"
 
 
 def parse_tenor(label: str | Term) -> Term:
-    """``"ON"`` → :data:`OVERNIGHT`; anything else through ``Term.from_str``.
+    """A positive tenor from ``"1D"``, ``"3M"``-style text through ``Term.from_str``.
 
     Parameters
     ----------
@@ -80,13 +75,11 @@ def parse_tenor(label: str | Term) -> Term:
     """
     if isinstance(label, Term):
         tenor = label
-    elif label.strip().upper() == _ON:
-        return OVERNIGHT
     else:
         try:
             tenor = Term.from_str(label.strip())
         except (SyntaxError, ValueError) as exc:
-            raise ValueError(f"'{label}' is not a tenor (expected 'ON', '1M', '3M', ...)") from exc
+            raise ValueError(f"'{label}' is not a tenor (expected '1D', '1M', '3M', ...)") from exc
     if int(tenor.term_length) <= 0:
         raise ValueError(f"a curve tenor must be positive, got {label!r}")
     return tenor
@@ -104,8 +97,8 @@ class CurveKey:
         Index family (projection) or funding regime / issuer (discount), upper-cased; letters,
         digits and hyphens.
     tenor : Term or None
-        Present for a projection key (:data:`OVERNIGHT` for an overnight index), absent for a
-        discount key.
+        Present for a projection key (:data:`OVERNIGHT`, ``1D``, for an overnight index), absent for
+        a discount key.
 
     Notes
     -----
@@ -133,7 +126,7 @@ class CurveKey:
 
     @classmethod
     def parse(cls, text: str | CurveKey) -> CurveKey:
-        """``"USD.SOFR.ON"`` → projection key; ``"USD.STDCSA"`` → discount key.
+        """``"USD.SOFR.1D"`` → projection key; ``"USD.STDCSA"`` → discount key.
 
         Parameters
         ----------
@@ -157,7 +150,7 @@ class CurveKey:
         if len(slots) == 3:
             return cls(slots[0], slots[1], parse_tenor(slots[2]))
         raise ValueError(
-            f"curve key {text!r} must be 'CCY.INDEX.TENOR' (projection, 'ON' for overnight) or 'CCY.NAME' (discount)"
+            f"curve key {text!r} must be 'CCY.INDEX.TENOR' (projection, '1D' for overnight) or 'CCY.NAME' (discount)"
         )
 
     @classmethod
@@ -191,7 +184,7 @@ class CurveKey:
 
     @property
     def tenor_label(self) -> str | None:
-        """``"ON"``, ``"3M"``, ... or ``None`` for a discount key."""
+        """``"1D"``, ``"3M"``, ... or ``None`` for a discount key."""
         return None if self.tenor is None else tenor_label(self.tenor)
 
     def _value(self) -> tuple:

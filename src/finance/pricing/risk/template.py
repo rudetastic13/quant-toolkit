@@ -151,11 +151,11 @@ def _tenor_label(kind: str, item) -> str:
 
 
 def _index_of(key: str) -> tuple[str, str]:
-    """``'USD.SOFR.ON'`` → ``('USD', 'SOFR')``; ``'USD.CME-TERM-SOFR.1M'`` → ``('USD', 'CME-TERM-SOFR.1M')``."""
+    """``'USD.SOFR.1D'`` → ``('USD', 'SOFR')``; ``'USD.CME-TERM-SOFR.1M'`` → ``('USD', 'CME-TERM-SOFR.1M')``."""
     parsed = CurveKey.parse(key)
     if not parsed.is_projection:
         raise TemplateError("MISSING_CURVE", f"template specs name projection curves; '{key}' is a discount key")
-    return parsed.currency, parsed.name if parsed.is_overnight else f"{parsed.name}.{parsed.tenor_label}"
+    return parsed.currency, str(parsed)
 
 
 @dataclass(frozen=True)
@@ -217,7 +217,7 @@ class RiskTemplate:
         """Build from desk configuration.
 
         ``spec = {"name": ..., "basis": "tent" | "least_squares" | "scheme", "limits": {...},
-        "curves": {"USD.SOFR.ON": {"deposit": ["1M", "3M"], "fra": [["6M", "12M"]],
+        "curves": {"USD.SOFR.1D": {"deposit": ["1M", "3M"], "fra": [["6M", "12M"]],
         "future": [["SR3", "U26"]], "swap": ["2Y", "5Y", "10Y"]}}}``.  Instruments are built
         through the calibration factories with ``NaN`` quotes, in the order given per curve.
         """

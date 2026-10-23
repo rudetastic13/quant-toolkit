@@ -142,7 +142,7 @@ The right split is **two tiers**:
 
 - **Market/index tier** (ports with the curves): `IndexFamily` / `RateIndex` — projection
   day count, fixing calendar, fixing style, published tenors — plus curve keys
-  (`curve_name(currency, index)` → `"USD.SOFR.ON"`, `funding_curve_name` → `"USD.STDCSA"`). This is what the
+  (`curve_name(currency, index)` → `"USD.SOFR.1D"`, `funding_curve_name` → `"USD.STDCSA"`). This is what the
   curve/market/calibration layer needs: which curve a name resolves to, and how the
   index it projects accrues. Depends only on `dates`.
 - **Product tier** (stays with whichever instrument layer is in play): leg shapes,
@@ -306,7 +306,7 @@ class SwapHelper:                               # OIS: closed-form par (projecti
 ```python
 helpers = [DepositHelper(...), SwapHelper(...), ...]            # one node per pillar, increasing dates
 calibrator = CurveCalibrator(instruments=helpers, solver=GlobalSolver(),
-                             target=CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF))
+                             target=CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF))
 base = MarketShim(as_of_date=AS_OF, curves=CurveNamespace())
 result = calibrator.calibrate(base)
 yield_curve = YieldCurve(result.zero_curve, sofr_conventions)

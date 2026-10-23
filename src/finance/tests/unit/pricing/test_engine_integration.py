@@ -17,7 +17,7 @@ from finance.pricing.engines.numpy.rates import compounded
 from finance.pricing.engines.numpy.dcf import dcf
 
 ACT360 = DayCountMethod.Actual360
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 
 
 def _curve(origin: str) -> YieldCurve:
@@ -25,7 +25,7 @@ def _curve(origin: str) -> YieldCurve:
     dates = np.array([origin, "2027-06-01", "2028-06-01", "2029-06-01"], dtype="datetime64[D]")
     t = (dates.astype("datetime64[D]").astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     dfs = np.exp(-0.04 * t)
-    return YieldCurve.build(dates, dfs, currency="USD", index_name="SOFR")
+    return YieldCurve.build(dates, dfs, key="USD.SOFR.1D")
 
 
 def _obs_windows(period_start, period_end):

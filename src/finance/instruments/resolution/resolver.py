@@ -13,7 +13,7 @@ discounts at SOFR registers the SOFR curve under ``USD.STDCSA`` itself.
 
 from __future__ import annotations
 
-from finance.conventions import ConventionRegistry, CurveKey, MarketConventions, default_registry, split_index_name
+from finance.conventions import CurveKey
 from finance.dates import BDC, Date, Term, add_business_days, add_term
 from finance.dates.term import TermType
 
@@ -21,37 +21,23 @@ STDCSA = "STDCSA"
 """The default funding id: the market-standard (cleared / standard CSA) discount curve."""
 
 
-def curve_name(currency: str, index_name: str, tenor: Term | str | None = None) -> str:
-    """Projection curve key, e.g. ``('usd', 'sofr') -> 'USD.SOFR.ON'``.
+def curve_name(currency: str, index_name: str) -> str:
+    """The projection curve key an instrument in ``currency`` names, normalised: ``'USD.SOFR.1D'``.
 
-    Parameters
-    ----------
-    currency : str
-    index_name : str
-        Family name, optionally with its tenor (``"CME-TERM-SOFR.3M"``).  A full key whose
-        currency matches is accepted too.
-    tenor : Term, str or None
-        Overrides a missing tenor; a bare family name defaults to overnight.
+    ``index_name`` is the full key (``CCY.INDEX.TENOR``); it must be a projection key in the
+    instrument's currency.
 
-    Returns
-    -------
-    str
+    Raises
+    ------
+    ValueError
+        If it is not a projection key, or names another currency.
     """
-    family, embedded = _strip_currency(currency, index_name)
-    family, embedded = split_index_name(family, embedded)
-    if tenor is not None and embedded is not None:
-        raise ValueError(f"tenor given twice: in {index_name!r} and as {tenor!r}")
-    chosen = tenor if tenor is not None else embedded
-    return str(CurveKey.projection(currency, family, "ON" if chosen is None else chosen))
-
-
-def _strip_currency(currency: str, index_name: str) -> tuple[str, None]:
-    slots = str(index_name).strip().upper().split(".")
-    if len(slots) == 3:
-        if slots[0] != currency.upper():
-            raise ValueError(f"index {index_name!r} names currency {slots[0]} but the instrument is in {currency}")
-        return ".".join(slots[1:]), None
-    return ".".join(slots), None
+    key = CurveKey.parse(index_name)
+    if key.is_discount:
+        raise ValueError(f"index {index_name!r} is a discount key; a floating leg projects off 'CCY.INDEX.TENOR'")
+    if key.currency != currency.strip().upper():
+        raise ValueError(f"index {index_name!r} names currency {key.currency} but the instrument is in {currency}")
+    return str(key)
 
 
 def funding_curve_name(currency: str, funding_id: str = STDCSA) -> str:
@@ -66,14 +52,6 @@ def funding_curve_name(currency: str, funding_id: str = STDCSA) -> str:
             "register the index curve under the discount key instead"
         )
     return str(CurveKey.discount(currency, funding_id))
-
-
-def resolve_conventions(
-    currency: str, index_name: str, registry: ConventionRegistry = default_registry
-) -> MarketConventions:
-    """Look up the MarketConventions bundle for the family ``index_name`` names."""
-    family, _ = _strip_currency(currency, index_name)
-    return registry.get(currency, family)
 
 
 def roll_spot(as_of: Date, spot_lag: Term, calendar: str) -> Date:

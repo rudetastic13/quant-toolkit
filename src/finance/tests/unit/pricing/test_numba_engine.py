@@ -16,7 +16,7 @@ from finance.pricing.types import Backend
 
 pytest.importorskip("numba")
 
-CURVE = curve_name("USD", "SOFR")
+CURVE = curve_name("USD", "USD.SOFR.1D")
 
 
 def _market(as_of):
@@ -24,7 +24,7 @@ def _market(as_of):
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 182, 365, 730, 1825, 3650)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.032, 0.035, 0.039, 0.043, 0.046])
-    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
+    sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D")
     return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr})
 
 
@@ -33,7 +33,7 @@ def _book(as_of, n):
     return [
         Swap.fixed_float_swap(
             notional=(i + 1) * 1e6,
-            rate_index="SOFR",
+            rate_index="USD.SOFR.1D",
             fixed_rate=0.035 + i * 0.001,
             tenor=tenors[i % len(tenors)],
             as_of=as_of,

@@ -43,8 +43,8 @@ AS_OF = Date(2026, 6, 1)
 EFFECTIVE = Date(2026, 6, 3)
 MATURITY = Date(2029, 6, 3)
 JOIN = Date(2028, 6, 3)
-INDEX = "USD.SOFR.ON"
-CURVE = "USD.SOFR.ON"
+INDEX = "USD.SOFR.1D"
+CURVE = "USD.SOFR.1D"
 NOTIONAL = 10_000_000.0
 FIXING_1Y = 0.0435  # the 2025-06-03 print example 3 reads in advance
 
@@ -52,7 +52,7 @@ FIXING_1Y = 0.0435  # the 2025-06-03 print example 3 reads in advance
 class Legs:
     def __init__(self, legs):
         self.legs = legs
-        self.currency, self.index_name, self.funding_id = "USD", "SOFR", "STDCSA"
+        self.currency, self.index_name, self.funding_id = "USD", "USD.SOFR.1D", "STDCSA"
 
 
 def market() -> MarketContext:
@@ -61,7 +61,7 @@ def market() -> MarketContext:
     t = (dates.astype(np.int64) - origin.astype(np.int64)) / 365.0
     z = np.array([0.0, 0.041, 0.040, 0.039, 0.040, 0.042])
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([FIXING_1Y]))
-    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
+    sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D", historical_fixings=fixings)
     return MarketContext(as_of=AS_OF, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 

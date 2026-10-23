@@ -25,9 +25,9 @@ class TestQFunctions(UnitTest):
         pillars, dfs = _curve_dfs()
         as_of = "2026-06-01"
         ch = f.qBuildCurve(pillars, dfs)
-        sh = f.qSwap(100e6, "SOFR", 0.041, "5Y", as_of)
+        sh = f.qSwap(100e6, "USD.SOFR.1D", 0.041, "5Y", as_of)
         prog = f.qCompileProgram([sh])
-        mkt = f.qMarket(as_of, "USD", "SOFR", ch)
+        mkt = f.qMarket(as_of, "USD", "USD.SOFR.1D", ch)
         pv = f.qPrice(prog, mkt)
         self.assertIsInstance(pv, np.ndarray)
         self.assertTrue(np.isfinite(pv).all())
@@ -40,7 +40,7 @@ class TestQFunctions(UnitTest):
         self.assertTrue(out.startswith("#QERR:"))
 
     def test_wrong_handle_kind_becomes_qerr_string(self):
-        sh = f.qSwap(100e6, "SOFR", 0.041, "5Y", "2026-06-01")
+        sh = f.qSwap(100e6, "USD.SOFR.1D", 0.041, "5Y", "2026-06-01")
         out = f.qDiscountFactor(sh, ["2026-06-01"])  # swap handle where curve expected
         self.assertIsInstance(out, str)
         self.assertTrue(out.startswith("#QERR:"))

@@ -53,7 +53,7 @@ def _clock(fn, n: int, warmup: int = 1) -> float:
 
 
 def build_market(as_of: Date):
-    cn = curve_name("USD", "SOFR")
+    cn = curve_name("USD", "USD.SOFR.1D")
     helpers = [
         deposit_helper(rate=0.0430, tenor="1M", as_of=as_of),
         deposit_helper(rate=0.0432, tenor="3M", as_of=as_of),
@@ -66,10 +66,10 @@ def build_market(as_of: Date):
     ]
     base = MarketContext(as_of=as_of)
     result = CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
+        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
-        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.1D")
     )
     return market, cn
 
@@ -83,7 +83,7 @@ def build_book(as_of: Date, n: int) -> list:
         book.append(
             Swap.fixed_float_swap(
                 notional=notl,
-                rate_index="SOFR",
+                rate_index="USD.SOFR.1D",
                 fixed_rate=0.040 + 0.001 * (i % 5),
                 tenor=tenors[i % len(tenors)],
                 as_of=as_of,

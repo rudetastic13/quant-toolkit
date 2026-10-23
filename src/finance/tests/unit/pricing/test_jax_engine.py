@@ -21,7 +21,7 @@ from finance.pricing.engines.jax.program import JaxProgram  # noqa: E402
 from finance.pricing.risk.autodiff import AutodiffRisk  # noqa: E402
 from finance.pricing.risk.sensitivities import Sensitivities  # noqa: E402
 
-CURVE = curve_name("USD", "SOFR")
+CURVE = curve_name("USD", "USD.SOFR.1D")
 
 
 def _market(as_of: Date) -> MarketContext:
@@ -34,7 +34,7 @@ def _market(as_of: Date) -> MarketContext:
     z = np.interp(t, [0.0, t[-1]], [0.035, 0.048])
     dfs = np.exp(-z * t)
     dfs[0] = 1.0
-    sofr = YieldCurve.build(nd, dfs, currency="USD", index_name="SOFR")
+    sofr = YieldCurve.build(nd, dfs, key="USD.SOFR.1D")
     return MarketContext(as_of=as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr})
 
 
@@ -50,9 +50,9 @@ class TestJaxEngineParity(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
         self.book = [
-            Swap.fixed_float_swap(notional=10e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
-            Swap.fixed_float_swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.045, tenor="7Y", as_of=self.as_of),
-            Swap.fixed_float_swap(notional=5e6, rate_index="SOFR", fixed_rate=0.038, tenor="3Y", as_of=self.as_of,
+            Swap.fixed_float_swap(notional=10e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=-25e6, rate_index="USD.SOFR.1D", fixed_rate=0.045, tenor="7Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=5e6, rate_index="USD.SOFR.1D", fixed_rate=0.038, tenor="3Y", as_of=self.as_of,
                  index_floor=0.0, cap=0.06, floor=0.005),
         ]
         self.program = SwapPricer().compile(self.book)

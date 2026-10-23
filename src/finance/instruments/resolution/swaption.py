@@ -34,7 +34,7 @@ class Swaption:
         as_of: Date,
         payer: bool = True,
         model: SwaptionModel = SwaptionModel.Black,
-        rate_index: str = "SOFR",
+        rate_index: str = "USD.SOFR.1D",
         currency: str = "USD",
         funding_id: str = "STDCSA",
         vol_name: str | None = None,

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
 
+from finance.conventions import CurveKey
 from finance.dates import DayCountMethod, period_fractions
 
 if TYPE_CHECKING:
@@ -77,11 +78,11 @@ class RateGenerator:
         starts, ends = _check_windows(starts, ends)
         yield_curve = self.market.yield_curve(curve_name)
         if day_count is None:
-            if yield_curve.index is None:
+            if yield_curve.family is None:
                 raise ValueError(
                     f"curve '{curve_name}' is a discount curve with no index; pass day_count for a simple rate"
                 )
-            day_count = yield_curve.index.day_count_method
+            day_count = yield_curve.family.day_count_method
         basis = day_count
         tau = period_fractions(basis, starts, ends)
         rates = np.zeros_like(tau, dtype=np.float64)
@@ -102,6 +103,39 @@ class RateGenerator:
             df_start, df_end = _discount_pairs(yield_curve, starts[projected], ends[projected])
             rates[projected] = (df_start / df_end - 1.0) / tau[projected]
         return rates
+
+    def spread(
+        self,
+        curve_name: str,
+        over: str,
+        starts: DateArray,
+        ends: DateArray,
+        day_count: DayCountMethod | None = None,
+    ) -> FloatArray:
+        """Simple-rate spread of ``curve_name`` over ``over`` per window, on one day count.
+
+        Each curve's full rate is converted on ``day_count`` (:meth:`simple_rate`) and the two
+        are subtracted, so this is the spread *in that convention*.  Converting the continuous
+        spread alone would drop the ``r_over * tau`` cross term; the two curves' log-DFs add,
+        so the continuous spread is exact but the convention spread is not its image.
+        ``day_count`` defaults to ``curve_name``'s index basis; a discount key needs it passed.
+        Realised windows (before the origin) need fixings on both curves, as ``simple_rate`` does.
+
+        Raises
+        ------
+        ValueError
+            If the keys are in different currencies (a cross-currency spread means nothing
+            without FX), or ``curve_name`` is a discount key and ``day_count`` is omitted.
+        """
+        a, b = CurveKey.parse(curve_name), CurveKey.parse(over)
+        if a.currency != b.currency:
+            raise ValueError(f"spread of '{a}' over '{b}': the curves are in different currencies")
+        if day_count is None:
+            family = self.market.yield_curve(curve_name).family
+            if family is None:
+                raise ValueError(f"curve '{curve_name}' is a discount curve with no index; pass day_count for a spread")
+            day_count = family.day_count_method
+        return self.simple_rate(curve_name, starts, ends, day_count) - self.simple_rate(over, starts, ends, day_count)
 
     def continuous_forward_rate(
         self,

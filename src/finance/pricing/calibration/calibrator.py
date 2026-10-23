@@ -13,7 +13,7 @@ Two cases, one loop:
   ``discount_keys`` entry (``USD.STDCSA`` for a SOFR OIS curve that funds its own swaps).
 * **A registered curve.**  The target key is in the market and owns exactly one atom
   (``market.owned(key)``): the calibrator solves that atom's parameters with everything else
-  held, through ``market.with_params``.  Registering ``USD.CME-TERM-SOFR.1M = USD.SOFR.ON +
+  held, through ``market.with_params``.  Registering ``USD.CME-TERM-SOFR.1M = USD.SOFR.1D +
   spread`` and calibrating the 1M key solves the spread alone: the sequential basis
   bootstrap (OIS, then the 1M basis, then 6M over 1M) is this loop run three times.
   :meth:`CurveDefinition.flat_on_pillars` builds the spread atom on the instruments' pillars.
@@ -57,7 +57,7 @@ class CurveDefinition:
     Parameters
     ----------
     key : str
-        ``'USD.SOFR.ON'`` (projection), ``'USD.CME-TERM-SOFR.1M'``, ``'USD.UST'`` (discount).
+        ``'USD.SOFR.1D'`` (projection), ``'USD.CME-TERM-SOFR.1M'``, ``'USD.UST'`` (discount).
     interpolation : CurveInterpolator or Interpolator
         A named scheme (which carries its own space, so ``space`` is ignored) or an
         interpolator instance combined with ``space``.  Used when the key is new to the
@@ -117,7 +117,7 @@ class CurveDefinition:
         """A flat curve (zero rate ``rate`` everywhere) with one pillar per instrument, in this definition's scheme.
 
         The starting point of a basis calibration: ``market["USD.CME-TERM-SOFR.1M"] =
-        market["USD.SOFR.ON"] + definition.flat_on_pillars(market, helpers)`` registers a spread
+        market["USD.SOFR.1D"] + definition.flat_on_pillars(market, helpers)`` registers a spread
         atom the calibrator can then solve.
         """
         pillars = _pillars(instruments, market.origin)

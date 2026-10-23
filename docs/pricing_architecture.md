@@ -299,7 +299,7 @@ that object into a `MarketContext`; the input market is never mutated.
   interpolator up front. Parameterisation is continuously-compounded zero rates at the
   pillars (`DF = exp(-x·t)`), with the origin node pinned at `DF = 1`.
 - **Proj/disc split via `funding_id`.** A trade carries a **rate index** (projection curve,
-  key `USD.SOFR.ON`) and a **funding id** (discount curve, key `USD.STDCSA` by default); the
+  key `USD.SOFR.1D`) and a **funding id** (discount curve, key `USD.STDCSA` by default); the
   pricer resolves both keys at compile time and the market must register both. There is no
   alias from a funding id to an index: discounting at SOFR is the SOFR curve bound under
   `USD.STDCSA` as well, one object under two keys, and the engines give it one parameter
@@ -327,7 +327,7 @@ from finance.instruments.resolution import Swap, Deposit, Fra
 
 as_of = Date(2026, 6, 1)
 
-swap = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y", as_of=as_of)
+swap = Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y", as_of=as_of)
 depo = Deposit.spot_deposit(rate=0.0432, tenor="3M", as_of=as_of)      # spot-start cash deposit
 fra  = Fra.forward_starting(rate=0.0440, start="6M", end="12M", as_of=as_of)  # 6x12 FRA
 
@@ -346,7 +346,7 @@ recv.payment_frequency.name            # 'Annually'
 recv.day_count_method.name             # 'Actual360'
 
 # negative notional flips orientation: receive leg becomes the floating leg
-recv_of_pay_fixed = list(Swap.fixed_float_swap(notional=-50e6, rate_index="SOFR", fixed_rate=0.041,
+recv_of_pay_fixed = list(Swap.fixed_float_swap(notional=-50e6, rate_index="USD.SOFR.1D", fixed_rate=0.041,
                               tenor="5Y", as_of=as_of))[0]
 recv_of_pay_fixed.coupon_type.name     # 'GeometricAveraged'
 ```
@@ -368,9 +368,9 @@ from finance.instruments.schedules import CouponSchedule, FixedCouponEvent, Comp
 
 step_up = recv.replace(coupon_schedule=CouponSchedule(events=[
     FixedCouponEvent(start_date=recv.effective, coupon_rate=0.03),
-    CompoundedCouponEvent(start_date=Date(2029, 6, 3), rate_index="USD.SOFR.ON", spread=0.001),
-]), rate_index="USD.SOFR.ON", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
-Swap(receive_leg=step_up, pay_leg=pay, currency="USD", index_name="SOFR")   # fixed 3% then SOFR+10bp
+    CompoundedCouponEvent(start_date=Date(2029, 6, 3), rate_index="USD.SOFR.1D", spread=0.001),
+]), rate_index="USD.SOFR.1D", reset_frequency=Frequency.Daily, rate_calendar=pay.rate_calendar)
+Swap(receive_leg=step_up, pay_leg=pay, key="USD.SOFR.1D")   # fixed 3% then SOFR+10bp
 
 step_up.coupon_type                # CouponType.Custom — the flat type says a schedule was supplied
 recv.replace(coupon_rate=1.0)      # a derived schedule follows the flat field (unit annuity)
@@ -407,7 +407,7 @@ helpers = [
 ]
 
 base   = MarketContext(as_of)                                       # empty starting market
-target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))  # the swaps discount at SOFR
+target = CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))  # the swaps discount at SOFR
 
 result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base, jacobian=True)
 result.solver_result.converged          # True
@@ -425,11 +425,11 @@ only the spread moves, and the result's market still has the 1M curve built on t
 ```python
 basis = MarketContext(as_of, result.market)                                   # a mutable copy of the OIS market
 term_1m = CurveDefinition("USD.CME-TERM-SOFR.1M")
-basis["USD.CME-TERM-SOFR.1M"] = basis["USD.SOFR.ON"] + term_1m.flat_on_pillars(basis, helpers_1m)
+basis["USD.CME-TERM-SOFR.1M"] = basis["USD.SOFR.1D"] + term_1m.flat_on_pillars(basis, helpers_1m)
 result_1m = CurveCalibrator(helpers_1m, GlobalSolver(), term_1m).calibrate(basis, jacobian=True)
 result_1m.zero_curve.params         # the 1M spread at each pillar (zero-rate units)
 result_1m.jacobian                  # ∂implied/∂spread: (n_helpers, n_helpers), the owned columns only
-result_1m.market["USD.CME-TERM-SOFR.1M"]["base"] is result_1m.market["USD.SOFR.ON"]   # True
+result_1m.market["USD.CME-TERM-SOFR.1M"]["base"] is result_1m.market["USD.SOFR.1D"]   # True
 ```
 
 Repeat with the 6M key built on the 1M curve for the 6M/1M basis.
@@ -443,8 +443,8 @@ the market's `as_of` is the origin.
 ```python
 from finance.markets import RateGenerator
 
-market = result.market                       # USD.SOFR.ON and USD.STDCSA: one curve, two keys
-CN = "USD.SOFR.ON"
+market = result.market                       # USD.SOFR.1D and USD.STDCSA: one curve, two keys
+CN = "USD.SOFR.1D"
 sofr_curve = market.yield_curve(CN)
 
 # zero rates (continuously-compounded) at each pillar
@@ -469,7 +469,7 @@ rates.simple_rate(CN, t_6m, t_5y)     # 6M→5Y simple, SOFR's Act/360 conventio
 ### 9.4 Tying to a pricer
 
 The market plugs straight into the compile-once / reprice-many pricer. The pricer resolves
-the swap's projection curve from `rate_index` (`USD.SOFR.ON`) and its discount curve from
+the swap's projection curve from `rate_index` (`USD.SOFR.1D`) and its discount curve from
 `funding_id` (`USD.STDCSA`) — the same SOFR object under both keys here.
 
 ```python
@@ -495,8 +495,8 @@ cf.flow_pv[:3]                  # [3,977,564.21, 3,853,881.73, 3,667,857.12]
 
 ```python
 book = [
-    Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.041, tenor="5Y",  as_of=as_of),
-    Swap.fixed_float_swap(notional=-25e6, rate_index="SOFR", fixed_rate=0.040, tenor="10Y", as_of=as_of),
+    Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y",  as_of=as_of),
+    Swap.fixed_float_swap(notional=-25e6, rate_index="USD.SOFR.1D", fixed_rate=0.040, tenor="10Y", as_of=as_of),
 ]
 program = SwapPricer().compile(book)
 program.price(market).instrument_pv      # [224,696.22, 305,787.36]  (first matches the swap above)
@@ -509,7 +509,7 @@ DV01 and a key-rate ladder across the curve's pillars:
 from finance.pricing.risk import Sensitivities
 
 sens = Sensitivities(program, market)
-CN = curve_name("USD", "SOFR")
+CN = curve_name("USD", "USD.SOFR.1D")
 
 sens.dv01(CN)                       # [-46,296.63, 20,760.53]  (recv-fixed / pay-fixed signs)
 krd = sens.key_rate_durations(CN)

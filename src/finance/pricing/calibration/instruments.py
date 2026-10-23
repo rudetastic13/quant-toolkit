@@ -40,6 +40,7 @@ class QuoteKind(IntEnum):
     SimpleRate = 2   # deposits / FRAs (money-market simple rate)
     Yield = 3        # bonds — designed seam, no helper yet
     FuturesRate = 4  # (100 - quoted price) / 100
+    ParSpread = 5    # par rate of one swap minus par rate of another on the same schedule (ASW-style)
 
 
 @dataclass(frozen=True)
@@ -173,6 +174,35 @@ class SwapHelper:
 
 
 @dataclass
+class SpreadHelper:
+    """Two par swaps on one schedule; the quote is the difference of their par rates.
+
+    The asset-swap style quote of a spread curve: ``swap`` projects off the curve being
+    calibrated (``USD.UST-OTR.1D``), ``over`` off the reference index (``USD.SOFR.1D``), both
+    fixed legs on the same dates, so ``implied = par(swap) - par(over)`` is the par spread on
+    the fixed leg's basis — the bond's par coupon minus the swap's par rate, with the bond
+    replaced by the curve it implies.  ``curve`` is ``swap``'s projection curve; ``over`` is
+    read, never solved.  Both families must share the fixed-leg conventions for the two
+    schedules to coincide.
+    """
+
+    swap: SwapHelper
+    over: SwapHelper
+    quote: Quote
+    curve: str
+
+    @property
+    def pillar_date(self) -> np.datetime64:
+        return self.swap.pillar_date
+
+    def implied(self, market: MarketContext) -> float:
+        return self.swap.implied(market) - self.over.implied(market)
+
+    def residual(self, market: MarketContext) -> float:
+        return self.implied(market) - self.quote.value
+
+
+@dataclass
 class FuturesHelper:
     """SOFR future helper targeting the convexity-adjusted curve forward."""
 
@@ -210,7 +240,7 @@ class FuturesHelper:
 
 
 def deposit_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> DepositHelper:
     dep = Deposit.spot_deposit(
@@ -224,7 +254,7 @@ def deposit_helper(
 
 
 def fra_helper(
-    *, rate: float, start: str, end: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, start: str, end: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> FraHelper:
     fra = Fra.forward_starting(
@@ -238,7 +268,7 @@ def fra_helper(
 
 
 def swap_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> SwapHelper:
     swap = Swap.fixed_float_swap(
@@ -251,6 +281,22 @@ def swap_helper(
     )
 
 
+def spread_helper(
+    *, spread: float, tenor: str, as_of, rate_index: str = "USD.UST-OTR.1D", over: str = "USD.SOFR.1D",
+    currency: str = "USD", funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
+) -> SpreadHelper:
+    """Par spread of ``rate_index`` over ``over`` for one tenor: the quoted ASW that pins a UST-OTR pillar."""
+    swap = swap_helper(
+        rate=spread, tenor=tenor, as_of=as_of, rate_index=rate_index,
+        currency=currency, funding_id=funding_id, registry=registry,
+    )
+    base = swap_helper(
+        rate=0.0, tenor=tenor, as_of=as_of, rate_index=over,
+        currency=currency, funding_id=funding_id, registry=registry,
+    )
+    return SpreadHelper(swap=swap, over=base, quote=Quote(float(spread), QuoteKind.ParSpread), curve=swap.curve)
+
+
 def futures_helper(
     *,
     price: float,
@@ -258,7 +304,7 @@ def futures_helper(
     month: str | tuple[int, int],
     as_of,
     convexity: float | object = 0.0,
-    rate_index: str = "SOFR",
+    rate_index: str = "USD.SOFR.1D",
     currency: str = "USD",
     funding_id: str = "STDCSA",
 ) -> FuturesHelper:

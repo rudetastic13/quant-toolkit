@@ -23,9 +23,9 @@ from finance.pricing.risk import PillarRisk, pillar_risk
 from finance.pricing.risk.basis import LeastSquaresBasis, SchemeBasis, TentBasis
 from finance.pricing.risk.template import RiskTemplate, TemplateError, TemplateLimits
 
-SOFR = "USD.SOFR.ON"
+SOFR = "USD.SOFR.1D"
 STDCSA = "USD.STDCSA"
-FEDFUND = "USD.FEDFUND.ON"
+FEDFUND = "USD.FEDFUND.1D"
 AS_OF = Date(2026, 6, 1)
 
 pytest.importorskip("numba")
@@ -61,9 +61,9 @@ def _market() -> MarketContext:
 
 def _book():
     return [
-        Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=AS_OF),
-        Swap.fixed_float_swap(notional=-40e6, rate_index="SOFR", fixed_rate=0.042, tenor="12Y", as_of=AS_OF),
-        Swap.fixed_float_swap(notional=25e6, rate_index="SOFR", fixed_rate=0.041, tenor="18M", as_of=AS_OF),
+        Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=AS_OF),
+        Swap.fixed_float_swap(notional=-40e6, rate_index="USD.SOFR.1D", fixed_rate=0.042, tenor="12Y", as_of=AS_OF),
+        Swap.fixed_float_swap(notional=25e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="18M", as_of=AS_OF),
     ]
 
 
@@ -182,7 +182,7 @@ class TestRiskTemplate(UnitTest):
         with self.assertRaises(TemplateError) as ctx:
             RiskTemplate(helpers).bind(self.market)
         self.assertEqual(ctx.exception.code, "UNSORTED_NODES")
-        other = RiskTemplate([swap_helper(rate=0.0, tenor="5Y", as_of=AS_OF, rate_index="CME-TERM-SOFR.3M")])
+        other = RiskTemplate([swap_helper(rate=0.0, tenor="5Y", as_of=AS_OF, rate_index="USD.CME-TERM-SOFR.3M")])
         with self.assertRaises(TemplateError) as ctx:
             other.bind(self.market)
         self.assertEqual(ctx.exception.code, "MISSING_CURVE")
@@ -250,14 +250,14 @@ class TestRiskTemplate(UnitTest):
         sofr_nodes = _quoted(
             [swap_helper(rate=0.0, tenor=t, as_of=AS_OF) for t in ("1Y", "3Y", "5Y", "10Y")], self.market
         )
-        ff_nodes = _quoted([swap_helper(rate=0.0, tenor="5Y", as_of=AS_OF, rate_index="FEDFUND")], self.market)
+        ff_nodes = _quoted([swap_helper(rate=0.0, tenor="5Y", as_of=AS_OF, rate_index="USD.FEDFUND.1D")], self.market)
         template = RiskTemplate(sofr_nodes + ff_nodes, labels=("1Y", "3Y", "5Y", "10Y", "FF 5Y"))
         bound = template.bind(self.market)
         self.assertEqual(bound.curves, (SOFR, FEDFUND))
         M = bound.jacobian @ bound.basis
         np.testing.assert_array_equal(M[:4, 4], 0.0)  # SOFR quotes ignore the basis node
         self.assertNotEqual(M[4, :4].tolist(), [0.0] * 4)  # the FF par rate depends on SOFR nodes
-        ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=AS_OF)
+        ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="5Y", as_of=AS_OF)
         program = SwapPricer().compile([ff_swap])
         risk = bound.quote_risk(pillar_risk(program, self.market))
         self.assertLess(risk.values[0, 4], 0.0)  # receiver: basis up, PV down
@@ -268,7 +268,7 @@ class TestRiskTemplate(UnitTest):
             np.testing.assert_allclose(pv, risk.values[:, k], rtol=2e-6, atol=1e-3)
 
     def test_uncovered_curves_are_reported_not_dropped(self):
-        ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=AS_OF)
+        ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="5Y", as_of=AS_OF)
         pillar = pillar_risk(SwapPricer().compile([ff_swap]), self.market)
         risk = self.identity.bind(self.market).quote_risk(pillar)
         self.assertEqual(list(risk.uncovered), [FEDFUND])

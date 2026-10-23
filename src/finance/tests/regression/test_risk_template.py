@@ -35,7 +35,7 @@ from finance.pricing.risk.template import RiskTemplate
 EXPECTS_MODULE = "finance.tests.regression.expects.risk_template"
 UPDATE = os.environ.get("REGRESSION_UPDATE_EXPECTS") == "1"
 AS_OF = Date(2026, 6, 1)
-SOFR = "USD.SOFR.ON"
+SOFR = "USD.SOFR.1D"
 
 DEPOSITS = {"3M": 0.0431, "6M": 0.0428}
 FUTURES = {"Z26": 95.78, "H27": 95.94, "M27": 96.07, "U27": 96.16, "Z27": 96.21, "H28": 96.24, "M28": 96.25}
@@ -66,9 +66,9 @@ class TestRiskTemplateRegression(UnitTest):
         self.bound = self.template.bind(self.market)
         swaps = SwapPricer().compile(
             [
-                Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=AS_OF),
-                Swap.fixed_float_swap(notional=-60e6, rate_index="SOFR", fixed_rate=0.041, tenor="10Y", as_of=AS_OF),
-                Swap.fixed_float_swap(notional=30e6, rate_index="SOFR", fixed_rate=0.043, tenor="18M", as_of=AS_OF),
+                Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=AS_OF),
+                Swap.fixed_float_swap(notional=-60e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="10Y", as_of=AS_OF),
+                Swap.fixed_float_swap(notional=30e6, rate_index="USD.SOFR.1D", fixed_rate=0.043, tenor="18M", as_of=AS_OF),
             ]
         )
         futures = FuturesPricer().compile(

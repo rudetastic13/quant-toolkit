@@ -2,7 +2,6 @@
 from finance.instruments.resolution.resolver import (
     curve_name,
     funding_curve_name,
-    resolve_conventions,
     roll_spot,
     STDCSA,
 )
@@ -17,7 +16,6 @@ from finance.instruments.resolution.swaption import Swaption, SwaptionModel
 __all__ = [
     "curve_name",
     "funding_curve_name",
-    "resolve_conventions",
     "roll_spot",
     "STDCSA",
     "Deposit",

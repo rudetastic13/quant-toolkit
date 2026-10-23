@@ -94,7 +94,7 @@ def make_market(
 ) -> str:
     """Bind a cached curve into a ``MarketContext``; return a Market handle.
 
-    The curve is registered under its projection key (``USD.SOFR.ON``) and, as the market's
+    The curve is registered under its projection key (``USD.SOFR.1D``) and, as the market's
     discount curve, under the funding key the swaps name (``USD.STDCSA`` by default): one
     curve, two keys.
     """

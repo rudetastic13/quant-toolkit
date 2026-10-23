@@ -14,7 +14,7 @@ One :class:`MarketConventions` bundle per index family is what the ``ConventionR
 stores: builders look up the bundle once and read their product's section.  ``None`` on a
 leg/product day count means "use the index's"; :data:`MATCH_TENOR` on a float-leg frequency
 means "one period per index tenor" (a 3M term index pays and resets quarterly).  The
-resolved accessors on the bundle apply that defaulting for one :class:`RateIndex`.
+resolved accessors on the bundle apply that defaulting for one :class:`RateIndex` (its tenor).
 """
 
 from __future__ import annotations

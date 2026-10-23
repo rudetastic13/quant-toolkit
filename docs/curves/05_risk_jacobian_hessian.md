@@ -164,26 +164,26 @@ from finance.pricing.risk import NumbaRisk
 from finance.pricing.risk.sensitivities import Sensitivities
 from finance.pricing.types import Backend
 
-sofr_only = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc, "USD.STDCSA": sofr_yc})   # the swaps discount at SOFR
-template = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=0.0, tenor="5Y", as_of=as_of)
+sofr_only = MarketContext(as_of, {"USD.SOFR.1D": sofr_yc, "USD.STDCSA": sofr_yc})   # the swaps discount at SOFR
+template = Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.0, tenor="5Y", as_of=as_of)
 par_engine = RateGenerator(sofr_only).par_swap_rate(template)
 par_engine
 # 0.041209832892398726                             (differs from §4: real dates, Act/360 floating leg, compounding)
 
-swap = Swap.fixed_float_swap(notional=100e6, rate_index="SOFR", fixed_rate=par_engine, tenor="5Y", as_of=as_of)
+swap = Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=par_engine, tenor="5Y", as_of=as_of)
 program = SwapPricer().compile([swap])
 program.reprice(sofr_only, backend=Backend.Numba).instrument_pv
 # [0.]
 
 risk = NumbaRisk(program, sofr_only)
-ladder = risk.zero_ladder("USD.SOFR.ON")              # (n_instruments, P) · bp, adjoint
+ladder = risk.zero_ladder("USD.SOFR.1D")              # (n_instruments, P) · bp, adjoint
 ladder
 # [[    54.782212   -399.156099  -1503.399885 -44164.759033   -139.458284]]
 ladder.sum()
 # -46151.99108965049
-Sensitivities(program, sofr_only).key_rate_durations("USD.SOFR.ON").krd     # bump-and-reprice oracle
+Sensitivities(program, sofr_only).key_rate_durations("USD.SOFR.1D").krd     # bump-and-reprice oracle
 # [[    54.782212   -399.1561    -1503.399891 -44164.760817   -139.458284]]
-risk.gamma("USD.SOFR.ON")                             # ½ H bp², by central difference of the exact gradient
+risk.gamma("USD.SOFR.1D")                             # ½ H bp², by central difference of the exact gradient
 # [[-0.000015 -0.        0.        0.        0.      ]
 #  [-0.        0.019848  0.000219  0.        0.      ]
 #  [ 0.        0.000219  0.11738   0.081307 -0.      ]
@@ -197,36 +197,36 @@ falls past the 5Y pillar, into the segment that the 5Y and 10Y nodes share.
 
 ## 6. Composite curves: one block per owning key
 
-A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND.ON`
+A Fed Funds swap projected off the spread composite registered as `USD.FEDFUND.1D`
 ([04](04_yield_curve.md)) and discounted off `USD.STDCSA`, the SOFR curve under its discount key.
 The engine lays its parameters out by ownership (`ParamLayout`, built from
-`market.leaf_owner()`): the SOFR atom is one block named `USD.SOFR.ON`, reached three ways (the
-projection key, the discount alias, the base of the Fed Funds composite), and `USD.FEDFUND.ON`
+`market.leaf_owner()`): the SOFR atom is one block named `USD.SOFR.1D`, reached three ways (the
+projection key, the discount alias, the base of the Fed Funds composite), and `USD.FEDFUND.1D`
 owns only its spread. So the SOFR ladder of a Fed Funds swap is one ladder, and the Fed Funds
 ladder is one number, the basis.
 
 ```python
-ff_market = MarketContext(as_of, {"USD.SOFR.ON": sofr_yc, "USD.STDCSA": sofr_yc, "USD.FEDFUND.ON": fedfund_yc})
-ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=as_of)
+ff_market = MarketContext(as_of, {"USD.SOFR.1D": sofr_yc, "USD.STDCSA": sofr_yc, "USD.FEDFUND.1D": fedfund_yc})
+ff_swap = Swap.fixed_float_swap(notional=100e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="5Y", as_of=as_of)
 ff_risk = NumbaRisk(SwapPricer().compile([ff_swap]), ff_market)
 ff_risk.base.layout.blocks
-# ('USD.SOFR.ON', 'USD.FEDFUND.ON')
-ff_risk.zero_ladder("USD.SOFR.ON")                    # all SOFR pillar risk: projection through the composite + discounting
+# ('USD.SOFR.1D', 'USD.FEDFUND.1D')
+ff_risk.zero_ladder("USD.SOFR.1D")                    # all SOFR pillar risk: projection through the composite + discounting
 # [[    54.754828   -392.252403  -1477.157004 -44083.347309   -139.29408 ]]
-ff_risk.index_ladder("USD.SOFR.ON")                   # ... split by role: the projection part
+ff_risk.index_ladder("USD.SOFR.1D")                   # ... split by role: the projection part
 # [[    54.754828   -389.556882  -1472.34591  -44265.337577   -139.586974]]
 ff_risk.funding_ladder("USD.STDCSA")                  # ... and the discounting part (an alias reports under its owner)
 # [[  0.        -2.695521  -4.811094 181.990268   0.292894]]
-ff_risk.zero_ladder("USD.FEDFUND.ON")                 # the basis: a flat spread is a parallel move of the projection curve
+ff_risk.zero_ladder("USD.FEDFUND.1D")                 # the basis: a flat spread is a parallel move of the projection curve
 # [[-46212.072515]]
-ff_risk.index_ladder("USD.SOFR.ON").sum()
+ff_risk.index_ladder("USD.SOFR.1D").sum()
 # -46212.07251531829
-ff_risk.gamma(keys=("USD.SOFR.ON", "USD.FEDFUND.ON"))     # cross-block gamma: SOFR pillars against the basis
+ff_risk.gamma(keys=("USD.SOFR.1D", "USD.FEDFUND.1D"))     # cross-block gamma: SOFR pillars against the basis
 # [[-0.000015 -0.        0.        0.        0.        0.002738]
 #  [-0.        0.019505  0.000215 -0.        0.        0.481346]
 #  ...
 #  [ 0.002738  0.481346  1.788927  2.17578  -0.       -2.312109]]
-Sensitivities(SwapPricer().compile([ff_swap]), ff_market).key_rate_durations("USD.SOFR.ON").krd  # bump oracle: market.bump moves the atom everywhere
+Sensitivities(SwapPricer().compile([ff_swap]), ff_market).key_rate_durations("USD.SOFR.1D").krd  # bump oracle: market.bump moves the atom everywhere
 # [[    54.754828   -392.252403  -1477.157011 -44083.349091   -139.29408 ]]
 ```
 

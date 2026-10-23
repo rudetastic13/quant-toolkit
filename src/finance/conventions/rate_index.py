@@ -4,7 +4,8 @@ An :class:`IndexFamily` describes an index independently of any product traded o
 accrual basis, where fixings come from, how they apply, and the tenors it publishes.  An
 overnight family publishes the single tenor :data:`~finance.conventions.keys.OVERNIGHT`; a
 term family (CME Term SOFR, an IBOR) lists several.  A :class:`RateIndex` is one family at
-one tenor and is what a projection curve key names: ``USD.SOFR.ON``, ``USD.CME-TERM-SOFR.3M``.
+one tenor, ``(family, tenor)``, and is what a projection curve key names: ``USD.SOFR.1D``,
+``USD.CME-TERM-SOFR.3M``.
 
 Product conventions (``SwapConventions``, ``DepositConventions``, ...) reference the family
 for anything index-derived — most importantly the day count, which is the *projection* basis
@@ -15,8 +16,9 @@ count defaults to the index's, so accrual and projection align by construction.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import NamedTuple
 
-from finance.conventions.keys import OVERNIGHT, CurveKey, parse_tenor, tenor_label
+from finance.conventions.keys import OVERNIGHT, parse_tenor, tenor_label
 from finance.dates import Term
 from finance.dates.enums import DayCountMethod, FixingType
 
@@ -104,78 +106,23 @@ class IndexFamily:
                     "name one, e.g. "
                     f"'{self.name}.{self.tenor_labels[0]}'"
                 )
-            return RateIndex(family=self, tenor=self.tenors[0])
+            return RateIndex(self, self.tenors[0])
         wanted = parse_tenor(tenor)
         for t in self.tenors:
             if _same(wanted, t):
-                return RateIndex(family=self, tenor=t)
+                return RateIndex(self, t)
         raise KeyError(
             f"{self.currency}.{self.name} does not publish a {tenor_label(wanted)} tenor "
             f"(available: {list(self.tenor_labels)})"
         )
 
 
-@dataclass(frozen=True, kw_only=True)
-class RateIndex:
-    """One tenor of an :class:`IndexFamily`: what a projection curve key names.
+class RateIndex(NamedTuple):
+    """One tenor of an :class:`IndexFamily`: ``(family, tenor)``.
 
-    Parameters
-    ----------
-    family : IndexFamily
-    tenor : Term
-        Must be one the family publishes.
+    Built by :meth:`IndexFamily.index`, which checks the family publishes the tenor; the
+    index-level conventions are the family's (``index.family.day_count_method``).
     """
 
     family: IndexFamily
     tenor: Term
-
-    def __post_init__(self) -> None:
-        if not self.family.has_tenor(self.tenor):
-            raise ValueError(
-                f"{self.family.currency}.{self.family.name} does not publish a {tenor_label(self.tenor)} tenor"
-            )
-
-    # -- family pass-through ------------------------------------------------------------
-
-    @property
-    def currency(self) -> str:
-        return self.family.currency
-
-    @property
-    def name(self) -> str:
-        return self.family.name
-
-    @property
-    def day_count_method(self) -> DayCountMethod:
-        return self.family.day_count_method
-
-    @property
-    def fixing_calendar(self) -> str:
-        return self.family.fixing_calendar
-
-    @property
-    def fixing_type(self) -> FixingType:
-        return self.family.fixing_type
-
-    @property
-    def publication_lag(self) -> Term | None:
-        return self.family.publication_lag
-
-    # -- identity -----------------------------------------------------------------------
-
-    @property
-    def is_overnight(self) -> bool:
-        return _same(self.tenor, OVERNIGHT)
-
-    @property
-    def key(self) -> CurveKey:
-        """The projection curve key, e.g. ``CurveKey('USD.SOFR.ON')``."""
-        return CurveKey(self.currency, self.name, self.tenor)
-
-    @property
-    def label(self) -> str:
-        """The label a floating leg carries in ``rate_index``: the key string, ``'USD.SOFR.ON'``."""
-        return str(self.key)
-
-    def __repr__(self) -> str:
-        return f"RateIndex({self.label!r})"

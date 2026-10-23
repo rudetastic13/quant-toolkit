@@ -17,10 +17,12 @@ from finance.pricing.calibration.instruments import (
     FuturesHelper,
     Quote,
     QuoteKind,
+    SpreadHelper,
     SwapHelper,
     deposit_helper,
     fra_helper,
     futures_helper,
+    spread_helper,
     swap_helper,
 )
 from finance.pricing.calibration.calibrator import (
@@ -44,10 +46,12 @@ __all__ = [
     "DepositHelper",
     "FraHelper",
     "FuturesHelper",
+    "SpreadHelper",
     "SwapHelper",
     "deposit_helper",
     "fra_helper",
     "futures_helper",
+    "spread_helper",
     "swap_helper",
     # calibrator
     "CurveDefinition",

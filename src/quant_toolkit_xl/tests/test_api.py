@@ -35,7 +35,7 @@ class TestCurveApi(UnitTest):
         self.assertAlmostEqual(float(zr[0]), 0.04, places=4)
 
     def test_wrong_handle_kind_raises(self):
-        sh = api.make_swap(100e6, "SOFR", 0.041, "5Y", "2026-06-01")
+        sh = api.make_swap(100e6, "USD.SOFR.1D", 0.041, "5Y", "2026-06-01")
         with self.assertRaises(TypeError):
             api.discount_factor(sh, ["2026-06-01"])
 
@@ -49,9 +49,9 @@ class TestPricingChain(UnitTest):
     def test_full_chain_prices_a_swap(self):
         as_of = "2026-06-01"
         ch = _curve_handle()
-        sh = api.make_swap(100e6, "SOFR", 0.041, "5Y", as_of)
+        sh = api.make_swap(100e6, "USD.SOFR.1D", 0.041, "5Y", as_of)
         prog = api.compile_program([sh])
-        mkt = api.make_market(as_of, "USD", "SOFR", ch)
+        mkt = api.make_market(as_of, "USD", "USD.SOFR.1D", ch)
         pv = api.price(prog, mkt)
         self.assertEqual(pv.shape, (1,))
         self.assertTrue(np.isfinite(pv).all())
@@ -63,6 +63,6 @@ class TestPricingChain(UnitTest):
     def test_handles_accepts_2d_range(self):
         # swap handles arriving as an Excel column (nested lists) still compile
         as_of = "2026-06-01"
-        sh = api.make_swap(50e6, "SOFR", 0.04, "2Y", as_of)
+        sh = api.make_swap(50e6, "USD.SOFR.1D", 0.04, "2Y", as_of)
         prog = api.compile_program([[sh]])
         self.assertTrue(prog.startswith("Program::"))

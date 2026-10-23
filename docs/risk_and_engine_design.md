@@ -76,7 +76,7 @@ Product coverage and the facts the design relies on. File references are `path:l
 ### 1.2 Facts the design depends on
 
 - **Curve identity.** Curves are keyed by `CurveKey` (`finance/conventions/keys.py`):
-  projection `"CCY.INDEX.TENOR"` (`USD.SOFR.ON`) and discount `"CCY.NAME"` (`USD.STDCSA`,
+  projection `"CCY.INDEX.TENOR"` (`USD.SOFR.1D`) and discount `"CCY.NAME"` (`USD.STDCSA`,
   `USD.UST`). `funding_curve_name(ccy, funding_id)` is literally the discount key; there is no
   alias from `STDCSA` to an index, the market binds the SOFR curve under `USD.STDCSA` itself
   (curves_and_market_plan.md PR C, done).

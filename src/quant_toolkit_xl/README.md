@@ -104,10 +104,10 @@ Lay out a curve and price a 5Y SOFR swap end-to-end:
 
 ```excel
 D1:  =qBuildCurve(A2:A6, B2:B6)              ' -> Curve handle  (default LogLinearDF)
-D2:  =qSwap(100000000, "SOFR", 0.041, "5Y", A2)   ' -> Swap handle (sign on notional:
+D2:  =qSwap(100000000, "USD.SOFR.1D", 0.041, "5Y", A2)   ' -> Swap handle (sign on notional:
                                                   '    + = receive fixed, − = pay fixed)
 D3:  =qCompileProgram(D2)                    ' -> Program handle (D2 may be a range of swaps)
-D4:  =qMarket(A2, "USD", "SOFR", D1)         ' -> Market handle (curve under USD.SOFR.ON and USD.STDCSA)
+D4:  =qMarket(A2, "USD", "USD.SOFR.1D", D1)         ' -> Market handle (curve under USD.SOFR.1D and USD.STDCSA)
 D5:  =qPrice(D3, D4)                         ' -> per-instrument PV(s); spills down
 
 ' curve queries (dates may be ranges; results spill)

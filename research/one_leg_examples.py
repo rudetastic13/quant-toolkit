@@ -40,7 +40,7 @@ from finance.pricing.types import RateKind
 AS_OF = Date(2026, 6, 1)
 EFFECTIVE = Date(2026, 6, 3)
 MATURITY = Date(2029, 6, 3)
-INDEX = "USD.SOFR.ON"       # the leg's projection key
+INDEX = "USD.SOFR.1D"       # the leg's projection key
 NOTIONAL = 10_000_000.0
 
 
@@ -51,7 +51,7 @@ NOTIONAL = 10_000_000.0
 class Legs:
     legs: tuple[tuple[CommonInstrument, float], ...]
     currency: str = "USD"
-    index_name: str = "SOFR"
+    index_name: str = "USD.SOFR.1D"
     funding_id: str = "STDCSA"
 
 
@@ -64,7 +64,7 @@ def market() -> MarketContext:
     # the curve carries that print.  Fixings travel with the curve; the generator decides
     # "historical" by comparing the window start with the curve origin.
     fixings = HistoricalFixings(dates=np.array(["2025-06-03"], dtype="datetime64[D]"), values=np.array([0.0435]))
-    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR", historical_fixings=fixings)
+    sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D", historical_fixings=fixings)
     return MarketContext(AS_OF, {sofr.name: sofr, "USD.STDCSA": sofr})
 
 

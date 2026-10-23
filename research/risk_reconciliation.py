@@ -58,7 +58,7 @@ def build_book(market) -> tuple[list, list[str]]:
         par = S.swap_helper(rate=0.0, tenor=tenor, as_of=AS_OF).implied(market)
         swaps.append(
             S.Swap.fixed_float_swap(
-                notional=100e6, rate_index="SOFR", fixed_rate=par, as_of=AS_OF, tenor=tenor,
+                notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=par, as_of=AS_OF, tenor=tenor,
             )
         )
         labels.append(f"{tenor} recv-fixed @par")

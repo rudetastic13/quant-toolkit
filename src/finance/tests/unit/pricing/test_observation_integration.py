@@ -16,13 +16,13 @@ from finance.pricing.engines.numpy.rates import compounded
 
 ACT360 = DayCountMethod.Actual360
 CAL = "no_holidays"
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 
 
 def _curve() -> YieldCurve:
     dates = np.array(["2026-06-01", "2028-06-01", "2030-06-01"], dtype="datetime64[D]")
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
-    return YieldCurve.build(dates, np.exp(-0.04 * t), currency="USD", index_name="SOFR")
+    return YieldCurve.build(dates, np.exp(-0.04 * t), key="USD.SOFR.1D")
 
 
 class TestRealGridTelescopes(UnitTest):

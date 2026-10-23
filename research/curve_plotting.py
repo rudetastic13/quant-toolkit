@@ -70,7 +70,7 @@ def _build(scheme: CurveInterpolator) -> YieldCurve:
     """Dates-in construction: the named scheme resolves to (space, interpolator)."""
     space, interpolator = scheme.resolve()
     return YieldCurve.build(
-        NODE_DATES, NODE_VALUES, currency="USD", index_name="SOFR", space=space, interpolator=interpolator,
+        NODE_DATES, NODE_VALUES, key="USD.SOFR.1D", space=space, interpolator=interpolator,
     )
 
 

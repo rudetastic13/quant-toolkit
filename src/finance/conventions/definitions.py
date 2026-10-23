@@ -83,7 +83,7 @@ def _usd_overnight_market(index_name: str) -> MarketConventions:
 
 @register_convention("USD", "SOFR", overwrite=True)
 def _usd_sofr() -> MarketConventions:
-    """Standard USD SOFR OIS market (compounded-in-arrears, annual pay); key ``USD.SOFR.ON``."""
+    """Standard USD SOFR OIS market (compounded-in-arrears, annual pay); key ``USD.SOFR.1D``."""
     return _usd_overnight_market("SOFR")
 
 
@@ -92,7 +92,7 @@ def _usd_fedfund() -> MarketConventions:
     """USD Fed Funds OIS market — same shape as SOFR (compounded, annual pay).
 
     Fed Funds is the projection index of a SOFR-discounted basis trade: a Fed-Funds-vs-fixed
-    swap projects off ``USD.FEDFUND.ON`` and discounts off the market's ``USD.STDCSA`` curve,
+    swap projects off ``USD.FEDFUND.1D`` and discounts off the market's ``USD.STDCSA`` curve,
     so projection and funding are genuinely different curves.
     """
     return _usd_overnight_market("FEDFUND")
@@ -149,3 +149,20 @@ def _usd_cme_term_sofr() -> MarketConventions:
             calendar="no_holidays",
         ),
     )
+
+
+@register_convention("USD", "UST-OTR", overwrite=True)
+def _usd_ust_otr() -> MarketConventions:
+    """The US Treasury curve as an overnight index, Act/360: ``USD.UST-OTR.1D`` projects, ``USD.UST-OTR`` discounts.
+
+    Nothing resets off it; the projection identity exists so ``RateGenerator.spread`` reads the
+    SOFR/GV spread in SOFR's basis.  The curve is SOFR plus an asset-swap spread — the ASW problem
+    inverted: quoted par spreads in, par yields out (``docs/yield_curve_group_plan.md``, section 5).
+    """
+    return _usd_overnight_market("UST-OTR")
+
+
+@register_convention("USD", "XXX-FTP", overwrite=True)
+def _usd_ftp() -> MarketConventions:
+    """Funds-transfer-pricing index (placeholder name), Act/360: bank debt as a credit spread over ``USD.UST-OTR.1D``."""
+    return _usd_overnight_market("XXX-FTP")

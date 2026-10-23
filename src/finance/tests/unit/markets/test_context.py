@@ -11,9 +11,9 @@ from finance.markets.curves import CompositeCurve, YieldCurve, ZeroCurve, bp
 from finance.markets.rate_generator import RateGenerator
 from finance.pricing.pricers import SwapPricer
 
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 DISCOUNT = "USD.STDCSA"
-FEDFUND = "USD.FEDFUND.ON"
+FEDFUND = "USD.FEDFUND.1D"
 TERM3M = "USD.CME-TERM-SOFR.3M"
 TERM6M = "USD.CME-TERM-SOFR.6M"
 AT = np.array([1825.0])
@@ -26,8 +26,8 @@ def _zero_curve(level: float = 0.04) -> ZeroCurve:
     return ZeroCurve(x, dfs)
 
 
-def _yield_curve(origin: np.datetime64, level: float = 0.04, index: str = "SOFR") -> YieldCurve:
-    return YieldCurve.from_registry(origin, _zero_curve(level), currency="USD", index_name=index)
+def _yield_curve(origin: np.datetime64, level: float = 0.04, key: str = CURVE) -> YieldCurve:
+    return YieldCurve.from_registry(origin, _zero_curve(level), key=key)
 
 
 class TestMarketContext(UnitTest):
@@ -46,7 +46,7 @@ class TestMarketContext(UnitTest):
         self.assertEqual(list(self.market), [CURVE, DISCOUNT])
         self.assertEqual(len(self.market), 2)
         self.assertIs(self.market[CURVE], self.sofr)
-        self.assertIs(self.market["usd.sofr.on"], self.sofr)  # keys are normalised
+        self.assertIs(self.market["usd.sofr.1d"], self.sofr)  # keys are normalised
         self.assertIn("usd.stdcsa", self.market)
         self.assertNotIn(FEDFUND, self.market)
         self.assertNotIn(42, self.market)
@@ -54,7 +54,7 @@ class TestMarketContext(UnitTest):
             self.market[FEDFUND]
         self.assertEqual(self.market.as_of, self.as_of)
         self.assertEqual(self.market.origin, self.origin)
-        self.assertIn("USD.SOFR.ON", repr(self.market))
+        self.assertIn("USD.SOFR.1D", repr(self.market))
 
     def test_market_resolves_yield_and_zero_curve(self):
         view = self.market.yield_curve(CURVE)
@@ -65,9 +65,36 @@ class TestMarketContext(UnitTest):
         self.assertIs(self.market.yield_curve(CURVE), view)  # cached until the curve or fixings change
         self.assertIsNone(self.market.yield_curve(DISCOUNT).conventions)
 
+    def test_add_registers_a_curve_under_its_key_and_its_funding_names(self):
+        market = MarketContext(self.as_of)
+        sofr = _yield_curve(self.origin)
+        market.add(sofr, funding_names=[DISCOUNT])
+        self.assertEqual(list(market), [CURVE, DISCOUNT])
+        self.assertIs(market.yield_curve(CURVE), sofr)
+        self.assertIs(market[DISCOUNT], sofr.zero_curve)
+        self.assertIsNone(market.yield_curve(DISCOUNT).conventions)
+        self.assertEqual(list(market.groups), ["USD"])
+        self.assertIs(market.group("usd").discount("STDCSA"), market.yield_curve(DISCOUNT))
+        self.assertIs(market.group("USD").projection("SOFR"), sofr)
+        with self.assertRaises(KeyError):
+            market.group("GBP")
+        with self.assertRaises(TypeError):
+            market.add(self.sofr)  # a bare DiscountCurve has no key: use market[key] = curve
+        with self.assertRaises(ValueError):
+            market.add(_yield_curve(np.datetime64("2026-06-02"), key=FEDFUND))
+        self.assertEqual(len(market), 2)
+
+    def test_a_scenario_copy_keeps_the_groups_settings(self):
+        market = MarketContext(self.as_of)
+        market.add(_yield_curve(self.origin), funding_names=[DISCOUNT])
+        copy = market.bump(CURVE, 1e-4)
+        self.assertTrue(copy.group("USD").frozen)
+        self.assertEqual(copy.group("USD").fx_rate, 1.0)
+        self.assertIs(copy.group("USD").discount("STDCSA").zero_curve, copy[CURVE])
+
     def test_assignment_validates_the_key_against_the_conventions(self):
         with self.assertRaises(KeyError):
-            self.market["USD.NOSUCHINDEX.ON"] = self.sofr
+            self.market["USD.NOSUCHINDEX.1D"] = self.sofr
         with self.assertRaises(ValueError):
             self.market["USD"] = self.sofr
         with self.assertRaises(TypeError):
@@ -151,7 +178,7 @@ class TestMarketContext(UnitTest):
         self.assertFalse(self.market.frozen)
 
     def test_with_curve_accepts_a_yield_curve_under_its_own_key(self):
-        market = self.market.with_curve(_yield_curve(self.origin, level=0.045, index="FEDFUND"))
+        market = self.market.with_curve(_yield_curve(self.origin, level=0.045, key=FEDFUND))
         self.assertIn(FEDFUND, market)
         self.assertNotIn(FEDFUND, self.market)
         with self.assertRaises(TypeError):
@@ -284,9 +311,9 @@ class TestMarketContext(UnitTest):
         self.assertAlmostEqual(self.rates.continuous_forward_rate(CURVE, starts, ends)[0], 0.04, places=10)
 
     def test_par_swap_rate_prices_unit_fixed_swap_to_zero(self):
-        template = Swap.fixed_float_swap(notional=1e6, rate_index="SOFR", fixed_rate=0.0, tenor="3Y", as_of=self.as_of)
+        template = Swap.fixed_float_swap(notional=1e6, rate_index="USD.SOFR.1D", fixed_rate=0.0, tenor="3Y", as_of=self.as_of)
         par = self.rates.par_swap_rate(template)
-        swap = Swap.fixed_float_swap(notional=1e6, rate_index="SOFR", fixed_rate=par, tenor="3Y", as_of=self.as_of)
+        swap = Swap.fixed_float_swap(notional=1e6, rate_index="USD.SOFR.1D", fixed_rate=par, tenor="3Y", as_of=self.as_of)
         self.assertAlmostEqual(SwapPricer().price([swap], self.market).pv, 0.0, places=8)
 
     def test_simple_rate_on_a_discount_curve_needs_a_day_count(self):

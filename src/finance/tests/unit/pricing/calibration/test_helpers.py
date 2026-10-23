@@ -15,7 +15,7 @@ from finance.markets.curves import YieldCurve
 from finance.pricing.calibration.instruments import deposit_helper, fra_helper, swap_helper
 from finance.pricing.pricers.swap import SwapPricer
 
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 
 
 def _curve(origin: str) -> YieldCurve:
@@ -26,7 +26,7 @@ def _curve(origin: str) -> YieldCurve:
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     dfs = np.exp(-0.04 * t)
     dfs[0] = 1.0
-    return YieldCurve.build(dates, dfs, currency="USD", index_name="SOFR")
+    return YieldCurve.build(dates, dfs, key="USD.SOFR.1D")
 
 
 @pytest.mark.calibration
@@ -60,7 +60,7 @@ class TestHelpers(UnitTest):
         h = swap_helper(rate=0.0, tenor="3Y", as_of=self.as_of)
         par = h.implied(self.mkt)
         # A swap struck at the implied par rate must price to ~0.
-        swap = Swap.fixed_float_swap(notional=100.0, rate_index="SOFR", fixed_rate=par, tenor="3Y", as_of=self.as_of)
+        swap = Swap.fixed_float_swap(notional=100.0, rate_index="USD.SOFR.1D", fixed_rate=par, tenor="3Y", as_of=self.as_of)
         pv = SwapPricer().price([swap], self.mkt).pv
         self.assertAlmostEqual(float(pv), 0.0, places=6)
 

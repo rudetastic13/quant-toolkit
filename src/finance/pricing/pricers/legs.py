@@ -42,7 +42,7 @@ def _business_days(term) -> int:
 
 
 def projection_curve_name(leg: CommonInstrument, default: str) -> str:
-    """The leg's projection curve: its ``rate_index`` key (``'USD.SOFR.ON'``) when set, else ``default``.
+    """The leg's projection curve: its ``rate_index`` key (``'USD.SOFR.1D'``) when set, else ``default``.
 
     Lets a basis swap's legs project off different indices without any product-level field.
 

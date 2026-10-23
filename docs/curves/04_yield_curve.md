@@ -16,7 +16,7 @@ Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says wh
 
 | form | kind | examples |
 |---|---|---|
-| `CCY.INDEX.TENOR` | projection: what a floating leg resets off; `ON` for overnight | `USD.SOFR.ON`, `USD.FEDFUND.ON`, `USD.CME-TERM-SOFR.3M` |
+| `CCY.INDEX.TENOR` | projection: what a floating leg resets off; `1D` for overnight | `USD.SOFR.1D`, `USD.FEDFUND.1D`, `USD.CME-TERM-SOFR.3M` |
 | `CCY.NAME` | discounting: a funding or collateral regime, or an issuer; no tenor | `USD.STDCSA`, `GBP.USDSTDCSA`, `USD.UST` |
 
 A projection key carries its index family's conventions (day count, fixing rules, published
@@ -41,23 +41,23 @@ from finance.markets.curves import YieldCurve, dates_to_x
 
 as_of = Date(2026, 6, 1)
 origin = as_of.to_numpy()
-sofr_yc = YieldCurve.from_registry(origin, sofr, currency="USD", index_name="SOFR")
+sofr_yc = YieldCurve.from_registry(origin, sofr, key="USD.SOFR.1D")
 sofr_yc
-# YieldCurve(name='USD.SOFR.ON', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Linear(), extrapolation=FlatForward))
+# YieldCurve(name='USD.SOFR.1D', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Linear(), extrapolation=FlatForward))
 sofr_yc.name
 # 'USD.SOFR'
 sofr_yc.node_dates
 # ['2026-06-01' '2026-08-30' '2027-06-01' '2028-05-31' '2031-05-31' '2036-05-29']
 sofr_yc.key
-# CurveKey('USD.SOFR.ON')
+# CurveKey('USD.SOFR.1D')
 sofr_yc.index
-# RateIndex('USD.SOFR.ON')
+# RateIndex('USD.SOFR.1D')
 sofr_yc.index.family
-# IndexFamily('USD.SOFR', tenors=('ON',), day_count=Actual360, fixing_calendar='no_holidays', fixing_type=Arrears)
+# IndexFamily('USD.SOFR', tenors=('1D',), day_count=Actual360, fixing_calendar='no_holidays', fixing_type=Arrears)
 
-built = YieldCurve.build(sofr_yc.node_dates, dfs, currency="USD", index_name="SOFR", interpolator=Cubic())
+built = YieldCurve.build(sofr_yc.node_dates, dfs, key="USD.SOFR.1D", interpolator=Cubic())
 built
-# YieldCurve(name='USD.SOFR.ON', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Cubic(bc_type='natural'), extrapolation=FlatForward))
+# YieldCurve(name='USD.SOFR.1D', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Cubic(bc_type='natural'), extrapolation=FlatForward))
 
 csa = sofr_yc.with_key("USD.STDCSA")               # the same state as a discount curve
 csa.name, csa.index
@@ -115,14 +115,14 @@ seasoned.historical_fixings.get_value(np.array(["2026-05-30", "2026-05-29"], dty
 
 ## A spread curve as its own index
 
-A Fed Funds swap projects off `USD.FEDFUND.ON` and discounts off the market's `USD.STDCSA`
+A Fed Funds swap projects off `USD.FEDFUND.1D` and discounts off the market's `USD.STDCSA`
 curve. Its projection curve is the labelled spread composite from [03](03_composite_curve.md),
 sharing the SOFR atom by reference.
 
 ```python
-fedfund_yc = YieldCurve.from_registry(origin, fedfund, currency="USD", index_name="FEDFUND")
+fedfund_yc = YieldCurve.from_registry(origin, fedfund, key="USD.FEDFUND.1D")
 fedfund_yc
-# YieldCurve(name='USD.FEDFUND.ON', origin=2026-06-01, zero_curve=CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...)))
+# YieldCurve(name='USD.FEDFUND.1D', origin=2026-06-01, zero_curve=CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...)))
 fedfund_yc.node_dates                              # the composite's union of pillars
 # ['2026-06-01' '2026-08-30' '2027-06-01' '2028-05-31' '2031-05-31' '2036-05-29']
 ```
@@ -139,22 +139,22 @@ from finance.markets import RateGenerator
 from finance.markets.context import MarketContext
 
 market = MarketContext(as_of)
-market["USD.SOFR.ON"] = seasoned                  # a YieldCurve: its ZeroCurve and its fixings
-market["USD.STDCSA"] = market["USD.SOFR.ON"]      # the same object under the discount key
-market["USD.FEDFUND.ON"] = market["USD.SOFR.ON"] - 5 * bp
+market["USD.SOFR.1D"] = seasoned                  # a YieldCurve: its ZeroCurve and its fixings
+market["USD.STDCSA"] = market["USD.SOFR.1D"]      # the same object under the discount key
+market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"] - 5 * bp
 market
-# MarketContext(as_of=2026-06-01, curves=['USD.SOFR.ON', 'USD.STDCSA', 'USD.FEDFUND.ON'], mutable)
-market["USD.FEDFUND.ON"]
+# MarketContext(as_of=2026-06-01, curves=['USD.SOFR.1D', 'USD.STDCSA', 'USD.FEDFUND.1D'], mutable)
+market["USD.FEDFUND.1D"]
 # CompositeCurve(base=+1*ZeroCurve(nodes=6, ...), spread=+1*ZeroCurve(nodes=2, ...))
 {k: id(v) for k, v in market.items()}             # one object under two keys
-market.owned("USD.SOFR.ON"), market.owned("USD.STDCSA"), market.owned("USD.FEDFUND.ON")
+market.owned("USD.SOFR.1D"), market.owned("USD.STDCSA"), market.owned("USD.FEDFUND.1D")
 # ((ZeroCurve(nodes=6, ...),), (), (ZeroCurve(nodes=2, ...),))
 ```
 
 Ownership is by shortest path: an atom belongs to the key reaching it by the fewest composite
 levels, a projection key beats a discount key at equal depth, and the first registered wins
-among registered objects. So the SOFR atom belongs to `USD.SOFR.ON` wherever else it appears
-(under `USD.STDCSA`, inside the Fed Funds composite), and `USD.FEDFUND.ON` owns only its spread.
+among registered objects. So the SOFR atom belongs to `USD.SOFR.1D` wherever else it appears
+(under `USD.STDCSA`, inside the Fed Funds composite), and `USD.FEDFUND.1D` owns only its spread.
 The engines lay parameters out by that ownership ([05](05_risk_jacobian_hessian.md) §6): one
 block per owning key, and a ladder asked under an alias is its owner's ladder.
 
@@ -165,27 +165,27 @@ the origin is read from the fixings; one that starts after it is projected.
 gen = RateGenerator(market)
 starts = np.array(["2026-05-29", "2026-09-01"], dtype="datetime64[D]")
 ends = np.array(["2026-06-01", "2026-12-01"], dtype="datetime64[D]")
-gen.simple_rate("USD.SOFR.ON", starts, ends)          # [historical print, projected Act/360 simple rate]
+gen.simple_rate("USD.SOFR.1D", starts, ends)          # [historical print, projected Act/360 simple rate]
 # [0.0429   0.039323]
-gen.simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:])
+gen.simple_rate("USD.FEDFUND.1D", starts[1:], ends[1:])
 # [0.038825]
 
-scenario_market = market.bump("USD.SOFR.ON", 0.0010)        # +10bp on every SOFR pillar
-RateGenerator(scenario_market).simple_rate("USD.SOFR.ON", starts[1:], ends[1:]) - gen.simple_rate("USD.SOFR.ON", starts[1:], ends[1:])
+scenario_market = market.bump("USD.SOFR.1D", 0.0010)        # +10bp on every SOFR pillar
+RateGenerator(scenario_market).simple_rate("USD.SOFR.1D", starts[1:], ends[1:]) - gen.simple_rate("USD.SOFR.1D", starts[1:], ends[1:])
 # [0.000996]                                        # +10bp continuous ≈ +9.96bp simple Act/360
-market["USD.SOFR.ON"] is sofr
+market["USD.SOFR.1D"] is sofr
 # True                                              # the original market is untouched
-scenario_market["USD.STDCSA"] is scenario_market["USD.SOFR.ON"]
+scenario_market["USD.STDCSA"] is scenario_market["USD.SOFR.1D"]
 # True
-scenario_market["USD.FEDFUND.ON"]["base"] is scenario_market["USD.SOFR.ON"]
+scenario_market["USD.FEDFUND.1D"]["base"] is scenario_market["USD.SOFR.1D"]
 # True                                              # Fed Funds was rebuilt on the moved SOFR atom
-RateGenerator(scenario_market).simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:]) - gen.simple_rate("USD.FEDFUND.ON", starts[1:], ends[1:])
+RateGenerator(scenario_market).simple_rate("USD.FEDFUND.1D", starts[1:], ends[1:]) - gen.simple_rate("USD.FEDFUND.1D", starts[1:], ends[1:])
 # [0.000996]                                        # ... so it moved by the same amount; the basis did not
 ```
 
-A scenario propagates by object identity. Bumping `USD.SOFR.ON` replaces the SOFR atom wherever
+A scenario propagates by object identity. Bumping `USD.SOFR.1D` replaces the SOFR atom wherever
 it appears: under `USD.STDCSA`, which holds the same object, and inside the Fed Funds composite,
-which is rebuilt on the moved atom with its spread untouched. `bump("USD.FEDFUND.ON", ...)` moves
+which is rebuilt on the moved atom with its spread untouched. `bump("USD.FEDFUND.1D", ...)` moves
 only the spread, because that is the only parameter Fed Funds owns. `with_curve(key, curve)` is
 the same move with a replacement curve: on the key that owns the object it propagates the same
 way; on an alias such as `USD.STDCSA` it changes that key alone. Both return frozen copies.

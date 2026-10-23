@@ -1,6 +1,7 @@
 # YieldCurveGroup (YCG) — plan
 
-Status: design only, nothing built. Written Oct 2026; revised after a design review the same day.
+Status: Y0 and Y1 built on `feature/carlos/yield_curve_group` (Oct 2026); Y2+ design only. Revised after a design
+review and again as Y1 landed.
 
 ## 1. Why
 
@@ -38,7 +39,7 @@ never behaves like an index.
 
 ```python
 class YieldCurveGroup:
-    currency: str                 # taken from the first add; every later key must match
+    currency: str                 # constructor argument; every key registered must be in it
     fx_rate: float = 1.0          # spot, as quoted in `fx_quote` style; stored normalised (base per 1 local)
     fx_quote: FxQuoteStyle | None # American (base per 1 local) or European (local per 1 base); None -> pair convention
     default_funding: str | None   # funding name used when a trade names none
@@ -69,22 +70,26 @@ Role is derived, never declared:
   (a discount-keyed curve with no `funding_names` registers under its own key);
 - both → both. The `zero_curve` is stored once; each name gets its own view.
 
-Two maps, both of views over shared `zero_curve`s:
+One map of views over shared `zero_curve`s, `{name: YieldCurve}`; the key grammar of the name says
+which role the view plays, so `projection("SOFR")` and `discount("STDCSA")` are key constructions
+followed by a lookup, not separate stores (as built: one dict, not two).
 
-- `_projection[(index_name, tenor)]`, e.g. `("SOFR", ON)`, `("XXX-FTP", ON)`
-- `_discount[funding_name]`, e.g. `"STDCSA"`, `"CMECSA"`, `"UST-OTR"`, `"USDSTDCSA"`
-
-`add` is the only registration path. `market["KEY"] = curve` is **removed**: keeping it would leave
-the implicit-role path of section 1 alive and force `add` to merge a second registration of the same
-object. `market["KEY"]` for *lookup* stays permanently (decided): it parses the key, picks the group
-by currency and returns the view, so engines and `RateGenerator` are untouched.
+`add` is the registration path; `market["KEY"] = curve` **stays as one-line sugar** for `add` under
+that single name (as built: 41 test sites and the Excel API assemble markets as `{name: curve}`
+dicts, and the role comes from the key grammar either way, so removing it was churn without a
+semantic gain). What `add` uniquely gives is saying "projects *and* discounts" in one call. A second
+view over an already-registered object under a new name is fine — it is also how `with_curve`
+aliases — so nothing needs merging. `market["KEY"]` for *lookup* stays permanently (decided): it
+parses the key, picks the group by currency and returns the view, so engines and `RateGenerator`
+are untouched.
 
 ### Validation at `add`
 
 Objects carry no currency (a `ZeroCurve` or composite has none, and a collateralised curve legitimately
 contains a foreign atom), so validation is on the **names**:
 
-- every key (the curve's and each funding name) is in the group's currency;
+- every key (the curve's and each funding name) is in the group's currency (the group's constructor
+  argument; the market creates a group on the first key in a new currency);
 - a projection key's `IndexFamily` is registered and publishes the tenor (what `YieldCurve` already checks);
 - a funding name is `CCY.NAME`, one slot after the currency, no tenor;
 - no duplicate projection key or funding name;
@@ -247,9 +252,13 @@ for the curve, not its source. The quote sits on the float leg, Act/360, matchin
 
 Reading the built curve needs no helper: `spread("USD.UST-OTR.1D", over="USD.SOFR.1D")` is the
 SOFR/GV spread per window, `simple_rate("USD.UST-OTR.1D")` the forward rate (`par_swap_rate` if a par
-yield is wanted). Building `ust_asw_spread` from quoted ASW levels reuses the existing `SwapHelper`
-quoted on the float leg's `spread` field (`QuoteKind.FloatSpread` next to `ParRate`; the swap builder
-already carries `spread`), no new helper type.
+yield is wanted). Building `ust_asw_spread` from quoted ASW levels (as built, Y3): `SpreadHelper`,
+two `SwapHelper`s on one schedule — fixed vs UST-OTR float and fixed vs SOFR float — whose quote is
+`par(ust) − par(sofr)` (`QuoteKind.ParSpread`): literally the bond's par coupon minus the swap's par
+rate, with the bond replaced by the curve it implies. ~20 lines composing the existing helper; a
+float-leg-spread variant was not needed because the calibrator only reads `implied`. Known gap:
+`template_jacobian` / `RiskTemplate` do not accept a `SpreadHelper` yet (they special-case helper
+types); calibration itself is helper-agnostic.
 
 ## 6. RateGenerator target API
 
@@ -279,11 +288,11 @@ annuity-weighted par quantity that belongs to calibration (`par_swap_rate`-style
 
 | Phase | Content | Depends on |
 |---|---|---|
-| Y0 | Conventions cleanup, done while Y1 touches the files: (a) `CurveKey` (or its string) is the one canonical name into the registry — remove `split_index_name`, `_strip_currency`, `resolve_conventions`, the `index_name`/`tenor` dual arguments and the `key`/`currency`/`index_name` triple on `YieldCurve.from_registry`/`build`; (b) `RateIndex` becomes a `(family, tenor)` tuple, the engines read `family.day_count_method`; (c) drop the `ON` label: keys spell the overnight tenor `1D` (`USD.SOFR.1D`), so every tenor slot is `Term.from_str`-parsable and `keys.py` loses `_ON`, the two `ON` branches and the separate overnight predicate; `OVERNIGHT = Term(1, Days)` stays as a constant; `.ON` → `.1D` is a sed over ~53 files. `ConventionRegistry` and the common `Registry` stay as they are | — |
-| Y1 | `YieldCurveGroup` (`add`, views per name, name validation, `default_funding`); `MarketContext` holds `{ccy: YCG}`, keeps the lookup facade, drops `__setitem__`; ownership and scenarios stay on the market and rebuild views instead of the cache | Y0 |
+| Y0 ✔ | Conventions cleanup, done while Y1 touches the files: (a) `CurveKey` (or its string) is the one canonical name into the registry — remove `split_index_name`, `_strip_currency`, `resolve_conventions`, the `index_name`/`tenor` dual arguments and the `key`/`currency`/`index_name` triple on `YieldCurve.from_registry`/`build`; (b) `RateIndex` becomes a `(family, tenor)` tuple, the engines read `family.day_count_method`; (c) drop the `ON` label: keys spell the overnight tenor `1D` (`USD.SOFR.1D`), so every tenor slot is `Term.from_str`-parsable and `keys.py` loses `_ON`, the two `ON` branches and the separate overnight predicate; `OVERNIGHT = Term(1, Days)` stays as a constant; `.ON` → `.1D` is a sed over ~53 files. `ConventionRegistry` and the common `Registry` stay as they are | — |
+| Y1 ✔ | `YieldCurveGroup` (`add`, one `{name: YieldCurve}` map, name validation, `default_funding`, `fx_rate` as a float); `MarketContext` holds `{ccy: YCG}`, keeps the lookup facade and `__setitem__` as sugar, drops the unused `fixings=` constructor argument and the `_yield_cache` (views are stored, not derived); ownership and scenarios stay on the market and rebuild views | Y0 |
 | Y2 | `fx_rate`, `ForYc` links, `FxQuote` registry, derived spot date and forward FX; FX-swap and xccy-basis helpers; MTM-swap pricer; multi-ccy discounting in one engine | Y1 |
-| Y3 | `UST-OTR` (Act/360) and `XXX-FTP` families; `QuoteKind.FloatSpread` on the existing `SwapHelper` for ASW-spread calibration of both; the FTP chain end to end | Y1 only (not Y2) |
-| Y4 | `RateGenerator.spread` | Y3 |
+| Y3 ✔ | `UST-OTR` (Act/360) and `XXX-FTP` families; `SpreadHelper` / `spread_helper` (`QuoteKind.ParSpread`, two par swaps on one schedule) for ASW-spread calibration of both; the FTP chain end to end (`tests/unit/pricing/calibration/test_ftp_chain.py`) | Y1 only (not Y2) |
+| Y4 ✔ | `RateGenerator.spread(curve, over, starts, ends, day_count=None)`: `simple_rate(curve) − simple_rate(over)` on one day count (each full rate converted, then subtracted); same-currency check; a discount `curve` needs `day_count`. Existing methods unchanged | Y3 |
 | Later | Serialisation of a market by date (graph with ids so object sharing survives a round trip); scenarios as values | |
 | Later, after bonds | Proper FTP calibration: the bank's own bonds and comparable corporates priced off `USD.UST-OTR` + spread, solve the spread. Needs price↔yield, accrued, Act/Act ICMA, settlement rules — the same block Treasury futures need (`risk_and_engine_design.md` phase B). Until then the Y3 credit spread comes from ASW-style quotes | phase B |
 
@@ -291,12 +300,13 @@ Y3 is the shorter and more certain path and does not wait on FX.
 
 ## 8. Open questions
 
-1. ~~Does the facade stay?~~ Decided: lookup stays permanently; assignment is removed.
+1. ~~Does the facade stay?~~ Decided (2026-10-23): lookup stays permanently; `market["KEY"] = curve` stays as one-line sugar over `add` (a plain assignment means a plain curve: no funding aliases, and later no `ForYc` links).
 2. ~~Where do fixings attach?~~ Decided: on the market by projection key, as today.
 3. ~~Is `fx_rate` in the parameter vector?~~ Decided: no; translation only (section 4).
 4. ~~Chains?~~ Decided: allowed, resolved transitively to the unique root; only cycles are rejected.
-5. `spread`: default convention when none is given — continuous, or the over-curve's index day count?
+5. ~~`spread` default convention?~~ Decided (as built): the *curve* argument's index day count; pass `day_count` for a discount key.
 6. ~~Where does `leaf_owner` live?~~ Decided: on the market, market-wide (section 3).
 7. ~~`UST-OTR` projection day count?~~ Decided: `Both`, Act/360, so `spread(ust, over=sofr)` works; no ASW helper type, `spread`/`simple_rate` read it and `SwapHelper` with a float-spread quote builds it (section 5).
+   Accepted gap (2026-10-23): `RiskTemplate` / `template_jacobian` do not take a `SpreadHelper`; calibration does.
 8. `default_funding`: the group's default should be the only one; the builders' `funding_id="STDCSA"`
    default would resolve `None` through the group instead, so the two cannot drift. Confirm.

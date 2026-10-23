@@ -68,7 +68,7 @@ def template_jacobian(
     -------
     PillarRisk
         ``values`` is ``J_T`` (K, P); ``pv`` is each helper's implied quote; ``labels`` name the
-        rows (``"USD.SOFR.ON 2028-06-01"`` by default).
+        rows (``"USD.SOFR.1D 2028-06-01"`` by default).
     """
     from finance.pricing.engines.numba.program import NumbaProgram
     from finance.pricing.pricers import FuturesPricer, SwapPricer
