@@ -1,4 +1,4 @@
-"""ConventionRegistry — market conventions per index family, indices per (family, tenor)."""
+"""ConventionRegistry — market conventions per index family, looked up by curve key."""
 
 from __future__ import annotations
 
@@ -6,77 +6,61 @@ from common.registry import Registry
 from finance.conventions.keys import CurveKey
 from finance.conventions.market_conventions import MarketConventions
 from finance.conventions.rate_index import IndexFamily, RateIndex
-from finance.dates import Term
 
 # Internal registry keyed by (currency, family_name) tuples.
 _registry: Registry[MarketConventions] = Registry("ConventionRegistry")
-
-
-def split_index_name(index_name: str, tenor: Term | str | None = None) -> tuple[str, Term | str | None]:
-    """``"CME-TERM-SOFR.3M"`` → ``("CME-TERM-SOFR", "3M")``; ``"SOFR"`` → ``("SOFR", tenor)``.
-
-    A tenor embedded in the name and one passed explicitly must not both be given.
-    """
-    family, dot, embedded = str(index_name).strip().upper().partition(".")
-    if dot:
-        if tenor is not None:
-            raise ValueError(f"tenor given twice: in {index_name!r} and as {tenor!r}")
-        return family, embedded
-    return family, tenor
 
 
 class ConventionRegistry:
     """Lookup table: ``(currency, family_name) -> MarketConventions``.
 
     Static definitions are registered via ``@register_convention``; runtime overrides with
-    :meth:`register`.  Index names may carry their tenor (``"CME-TERM-SOFR.3M"``); the
-    family part is what is looked up and the tenor part selects the :class:`RateIndex`.
+    :meth:`register`.  Lookups take a :class:`CurveKey` or its text (``"USD.SOFR.1D"``,
+    ``"USD.CME-TERM-SOFR.3M"``): the key's currency and name select the family, its tenor the
+    :class:`RateIndex`.
     """
 
     def __init__(self, registry: Registry[MarketConventions] | None = None) -> None:
         self._registry = registry if registry is not None else _registry
 
     @staticmethod
-    def _key(currency: str, index_name: str) -> tuple[str, str]:
-        family, _ = split_index_name(index_name)
-        return (currency.upper(), family)
+    def _key(currency: str, family_name: str) -> tuple[str, str]:
+        return (currency.strip().upper(), family_name.strip().upper())
 
-    def get(self, currency: str, index_name: str) -> MarketConventions:
-        """The conventions of the family ``index_name`` names (a tenor suffix is ignored).
+    def get(self, key: CurveKey | str) -> MarketConventions:
+        """The conventions of the family ``key`` names (its tenor, if any, is not checked).
 
         Raises
         ------
         KeyError
             If no convention is registered for the family.
         """
-        key = self._key(currency, index_name)
-        result = self._registry.get(key)
+        parsed = CurveKey.parse(key)
+        result = self._registry.get(self._key(parsed.currency, parsed.name))
         if result is None:
             raise KeyError(
-                f"No convention registered for ({currency!r}, {key[1]!r}). "
+                f"No convention registered for ({parsed.currency!r}, {parsed.name!r}). "
                 "Register one with @register_convention or ConventionRegistry.register()."
             )
         return result
 
-    def family(self, currency: str, index_name: str) -> IndexFamily:
-        return self.get(currency, index_name).family
+    def family(self, key: CurveKey | str) -> IndexFamily:
+        return self.get(key).family
 
-    def index(self, currency: str, index_name: str, tenor: Term | str | None = None) -> RateIndex:
-        """The :class:`RateIndex` for ``currency`` and ``"NAME"`` / ``"NAME.TENOR"`` (+ optional tenor).
-
-        A bare family name is enough for an overnight family; a term family needs the tenor.
+    def index(self, key: CurveKey | str) -> RateIndex:
+        """The :class:`RateIndex` a projection key names, e.g. ``"USD.SOFR.1D"``.
 
         Raises
         ------
         KeyError
-            If the family is unknown or does not publish the tenor.
+            If the family is unknown or does not publish the key's tenor.
+        ValueError
+            If ``key`` is a discount key (no tenor).
         """
-        family_name, tenor = split_index_name(index_name, tenor)
-        return self.family(currency, family_name).index(tenor)
-
-    def key(self, currency: str, index_name: str, tenor: Term | str | None = None) -> CurveKey:
-        """The projection curve key of :meth:`index`, e.g. ``CurveKey('USD.SOFR.ON')``."""
-        return self.index(currency, index_name, tenor).key
+        parsed = CurveKey.parse(key)
+        if parsed.is_discount:
+            raise ValueError(f"{parsed} is a discount key; an index is named by 'CCY.INDEX.TENOR'")
+        return self.family(parsed).index(parsed.tenor)
 
     def validate(self, key: CurveKey | str) -> CurveKey:
         """Parse a key and, for a projection key, check its family publishes the tenor.
@@ -85,27 +69,27 @@ class ConventionRegistry:
         """
         parsed = CurveKey.parse(key)
         if parsed.is_projection:
-            self.family(parsed.currency, parsed.name).index(parsed.tenor)
+            self.index(parsed)
         return parsed
 
     def register(
         self,
         currency: str,
-        index_name: str,
+        family_name: str,
         convention: MarketConventions,
         *,
         overwrite: bool = False,
     ) -> None:
         """Register or overwrite a family's conventions at runtime."""
-        self._registry.register(self._key(currency, index_name), convention, overwrite=overwrite)
+        self._registry.register(self._key(currency, family_name), convention, overwrite=overwrite)
 
-    def has(self, currency: str, index_name: str) -> bool:
-        return self._registry.has(self._key(currency, index_name))
+    def has(self, currency: str, family_name: str) -> bool:
+        return self._registry.has(self._key(currency, family_name))
 
 
 def register_convention(
     currency: str,
-    index_name: str,
+    family_name: str,
     *,
     overwrite: bool = False,
 ):
@@ -123,8 +107,7 @@ def register_convention(
 
     def decorator(fn):
         convention = fn()
-        key = (currency.upper(), index_name.upper())
-        _registry.register(key, convention, overwrite=overwrite)
+        _registry.register(ConventionRegistry._key(currency, family_name), convention, overwrite=overwrite)
         return fn
 
     return decorator

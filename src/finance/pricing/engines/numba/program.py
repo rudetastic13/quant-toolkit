@@ -288,7 +288,7 @@ class NumbaAdjointResult:
 
     def curve_slice(self, curve_name: str) -> slice:
         """Columns of the block ``curve_name`` reports under: its own block when it owns parameters
-        (``USD.FEDFUND.ON`` → its spread), otherwise the block owning its atom (``USD.STDCSA`` → SOFR)."""
+        (``USD.FEDFUND.1D`` → its spread), otherwise the block owning its atom (``USD.STDCSA`` → SOFR)."""
         return self.layout.block_slice(curve_name)
 
     @property
@@ -348,8 +348,8 @@ class NumbaProgram:
         self._origin_ord = self.origin.astype(np.int64)
 
         # -- parameter blocks: one per owning key, each atom once (see ParamLayout) ---------
-        # ``USD.SOFR.ON`` and ``USD.STDCSA`` on one object are one block; the SOFR atom inside
-        # ``USD.FEDFUND.ON = sofr - 5bp`` is that same block, and Fed Funds' own block is its spread.
+        # ``USD.SOFR.1D`` and ``USD.STDCSA`` on one object are one block; the SOFR atom inside
+        # ``USD.FEDFUND.1D = sofr - 5bp`` is that same block, and Fed Funds' own block is its spread.
         self.layout = ParamLayout.build(market, self.curve_names)
         self.block_names = self.layout.blocks
         self.n_params = self.layout.n_params

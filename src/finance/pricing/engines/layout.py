@@ -9,8 +9,8 @@ one block whichever curves it reaches, and the adjoints of every path that leads
 land in the same columns.
 
 A block is named after its owning key and holds that key's owned atoms in the parameter order
-of the key's curve (:meth:`MarketContext.owned`).  ``ladder("USD.SOFR.ON")`` is then all SOFR
-pillar risk however it arrived, and ``ladder("USD.FEDFUND.ON")`` is the basis alone.
+of the key's curve (:meth:`MarketContext.owned`).  ``ladder("USD.SOFR.1D")`` is then all SOFR
+pillar risk however it arrived, and ``ladder("USD.FEDFUND.1D")`` is the basis alone.
 
 For each program curve the layout also records the *column map* from that curve's own
 ``params`` (components concatenated, see ``CompositeCurve``) to columns of ``z``; a curve's
@@ -170,7 +170,7 @@ class ParamLayout:
         """The block ``key`` reports under.
 
         A block's own key, a program curve name resolving to one block (an alias such as
-        ``USD.STDCSA`` reports under ``USD.SOFR.ON``), or ``KeyError`` naming the blocks when
+        ``USD.STDCSA`` reports under ``USD.SOFR.1D``), or ``KeyError`` naming the blocks when
         the key spans several and owns none of them.
         """
         if key in self.block_slices:

@@ -83,7 +83,7 @@ def _usd_overnight_market(index_name: str) -> MarketConventions:
 
 @register_convention("USD", "SOFR", overwrite=True)
 def _usd_sofr() -> MarketConventions:
-    """Standard USD SOFR OIS market (compounded-in-arrears, annual pay); key ``USD.SOFR.ON``."""
+    """Standard USD SOFR OIS market (compounded-in-arrears, annual pay); key ``USD.SOFR.1D``."""
     return _usd_overnight_market("SOFR")
 
 
@@ -92,7 +92,7 @@ def _usd_fedfund() -> MarketConventions:
     """USD Fed Funds OIS market — same shape as SOFR (compounded, annual pay).
 
     Fed Funds is the projection index of a SOFR-discounted basis trade: a Fed-Funds-vs-fixed
-    swap projects off ``USD.FEDFUND.ON`` and discounts off the market's ``USD.STDCSA`` curve,
+    swap projects off ``USD.FEDFUND.1D`` and discounts off the market's ``USD.STDCSA`` curve,
     so projection and funding are genuinely different curves.
     """
     return _usd_overnight_market("FEDFUND")

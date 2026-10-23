@@ -4,7 +4,7 @@ Every bump is ``market.bump(key, ...)``: a frozen copy of the market in which th
 ``key`` owns are shifted and every curve built on them follows.  The compiled program is never
 rebuilt; a scenario is one ``reprice``.  Pillars are those of the block ``key`` reports under
 (:class:`~finance.pricing.engines.layout.ParamLayout`): an alias such as ``USD.STDCSA`` bumps
-the SOFR atom it holds, and ``USD.FEDFUND.ON`` built as ``sofr - 5 * bp`` bumps its spread
+the SOFR atom it holds, and ``USD.FEDFUND.1D`` built as ``sofr - 5 * bp`` bumps its spread
 alone.
 """
 

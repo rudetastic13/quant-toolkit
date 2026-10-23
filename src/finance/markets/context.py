@@ -1,7 +1,7 @@
 """MarketContext — the curves a market knows, by key, plus vols, fixings and conventions.
 
-A market is a ``Mapping[str, DiscountCurve]``: ``market["USD.SOFR.ON"]`` is the mathematical
-curve registered under that key and ``market.yield_curve("USD.SOFR.ON")`` the date-aware view
+A market is a ``Mapping[str, DiscountCurve]``: ``market["USD.SOFR.1D"]`` is the mathematical
+curve registered under that key and ``market.yield_curve("USD.SOFR.1D")`` the date-aware view
 the engines read (origin = ``as_of``, the key's conventions, the key's fixings).  Keys follow
 the grammar of :class:`finance.conventions.CurveKey`: ``CCY.INDEX.TENOR`` projects, ``CCY.NAME``
 discounts, and a market registers every key its trades name — discounting at SOFR is the SOFR
@@ -10,9 +10,9 @@ object bound under ``USD.STDCSA`` as well.
 Assembly is by assignment and reads like finance::
 
     market = MarketContext(as_of)
-    market["USD.SOFR.ON"] = sofr                      # a ZeroCurve, or a YieldCurve built with dates
+    market["USD.SOFR.1D"] = sofr                      # a ZeroCurve, or a YieldCurve built with dates
     market["USD.STDCSA"] = sofr                       # discount at SOFR: one object, two keys
-    market["USD.FEDFUND.ON"] = market["USD.SOFR.ON"] - 5 * bp
+    market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"] - 5 * bp
 
 Sharing is by object identity, declared by construction: writing ``sofr - 5 * bp`` already says
 the Fed Funds curve is built on ``sofr``.  Scenarios propagate through that structure:
@@ -88,12 +88,12 @@ class MarketContext(Mapping[str, DiscountCurve]):
     Examples
     --------
     >>> market = MarketContext(Date(2026, 6, 1))                              # doctest: +SKIP
-    >>> market["USD.SOFR.ON"] = sofr                                          # doctest: +SKIP
+    >>> market["USD.SOFR.1D"] = sofr                                          # doctest: +SKIP
     >>> market["USD.STDCSA"] = sofr                                           # doctest: +SKIP
-    >>> market["USD.FEDFUND.ON"] = market["USD.SOFR.ON"] - 5 * bp              # doctest: +SKIP
+    >>> market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"] - 5 * bp              # doctest: +SKIP
     >>> market.leaf_owner()                                                   # doctest: +SKIP
-    {<id of sofr>: 'USD.SOFR.ON', <id of the spread>: 'USD.FEDFUND.ON'}
-    >>> up = market.bump("USD.SOFR.ON", 1e-4)      # Fed Funds follows, the spread does not  # doctest: +SKIP
+    {<id of sofr>: 'USD.SOFR.1D', <id of the spread>: 'USD.FEDFUND.1D'}
+    >>> up = market.bump("USD.SOFR.1D", 1e-4)      # Fed Funds follows, the spread does not  # doctest: +SKIP
     """
 
     __slots__ = ("_as_of", "_origin", "_curves", "_fixings", "_conventions", "_vols", "_yield_cache", "_frozen")
@@ -206,7 +206,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
         parsed = CurveKey.parse(key)
         name = str(parsed)
         if parsed.is_projection:  # the family and tenor must be known before anything is stored
-            self._conventions.get(parsed.currency, parsed.name).index(parsed.tenor)
+            self._conventions.index(parsed)
         curve, history = self._coerce(name, curve)
         previous = self._curves.get(name)
         if previous is not None and previous is not curve and _contains(curve, previous):

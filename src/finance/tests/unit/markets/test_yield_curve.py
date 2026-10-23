@@ -19,7 +19,7 @@ def _dfs(level: float = 0.04) -> np.ndarray:
 
 
 def _yield_curve(level: float = 0.04, **kwargs) -> YieldCurve:
-    return YieldCurve.build(NODE_DATES, _dfs(level), currency="USD", index_name="SOFR", **kwargs)
+    return YieldCurve.build(NODE_DATES, _dfs(level), key="USD.SOFR.1D", **kwargs)
 
 
 class TestDatesToX(UnitTest):
@@ -42,33 +42,31 @@ class TestYieldCurveConstruction(UnitTest):
         np.testing.assert_array_equal(yc.node_dates, NODE_DATES)
         self.assertEqual(yc.max_date, NODE_DATES[-1])
         np.testing.assert_array_equal(yc.zero_curve.x, dates_to_x(ORIGIN, NODE_DATES))
-        self.assertEqual(yc.name, "USD.SOFR.ON")
-        self.assertEqual(yc.index.label, "USD.SOFR.ON")
+        self.assertEqual(yc.name, "USD.SOFR.1D")
+        self.assertEqual(yc.key.tenor, Term.from_str("1D"))
         self.assertEqual(yc.family.name, "SOFR")
 
     def test_build_by_key(self):
         yc = YieldCurve.build(NODE_DATES, _dfs(), key="USD.CME-TERM-SOFR.3M")
         self.assertEqual(yc.name, "USD.CME-TERM-SOFR.3M")
-        self.assertEqual(yc.index.tenor, Term.from_str("3M"))
+        self.assertEqual(yc.key.tenor, Term.from_str("3M"))
+        self.assertEqual(yc.family.name, "CME-TERM-SOFR")
         with self.assertRaises(KeyError):
             YieldCurve.build(NODE_DATES, _dfs(), key="USD.SOFR.3M")
-        with self.assertRaises(ValueError):
-            YieldCurve.build(NODE_DATES, _dfs(), key="USD.SOFR.ON", currency="USD", index_name="SOFR")
-        with self.assertRaises(ValueError):
+        with self.assertRaises(TypeError):  # key is required
             YieldCurve.build(NODE_DATES, _dfs())
 
     def test_discount_key_carries_no_conventions(self):
         yc = YieldCurve.build(NODE_DATES, _dfs(), key="USD.STDCSA")
         self.assertEqual(yc.name, "USD.STDCSA")
         self.assertIsNone(yc.conventions)
-        self.assertIsNone(yc.index)
         self.assertIsNone(yc.family)
         self.assertTrue(yc.key.is_discount)
         np.testing.assert_allclose(yc.zero_rate(NODE_DATES[1:]), 0.04)
         with self.assertRaises(ValueError):
             YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.STDCSA", conventions=_yield_curve().conventions)
         with self.assertRaises(ValueError):
-            YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.SOFR.ON")
+            YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.SOFR.1D")
 
     def test_with_key_rebinds_the_same_state(self):
         sofr = _yield_curve()
@@ -77,7 +75,8 @@ class TestYieldCurveConstruction(UnitTest):
         self.assertEqual(csa.name, "USD.STDCSA")
         self.assertIsNone(csa.conventions)
         term = sofr.with_key("USD.CME-TERM-SOFR.6M")
-        self.assertEqual(term.index.label, "USD.CME-TERM-SOFR.6M")
+        self.assertEqual(term.name, "USD.CME-TERM-SOFR.6M")
+        self.assertEqual(term.family.name, "CME-TERM-SOFR")
 
     def test_build_forwards_scheme(self):
         yc = _yield_curve(space=CurveSpace.ZeroRate, interpolator=Cubic())
@@ -86,7 +85,7 @@ class TestYieldCurveConstruction(UnitTest):
 
     def test_from_registry_composes_origin_and_zero_curve(self):
         zc = ZeroCurve(np.array([0.0, 365.0]), np.array([1.0, 0.96]))
-        yc = YieldCurve.from_registry(ORIGIN, zc, currency="USD", index_name="SOFR")
+        yc = YieldCurve.from_registry(ORIGIN, zc, key="USD.SOFR.1D")
         self.assertIs(yc.zero_curve, zc)
         self.assertEqual(yc.origin, ORIGIN)
         np.testing.assert_array_equal(yc.node_dates, NODE_DATES[[0, 2]])

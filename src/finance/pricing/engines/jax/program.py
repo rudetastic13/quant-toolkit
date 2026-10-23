@@ -59,7 +59,7 @@ class JaxProgram:
 
         # -- static curve geometry (gradient-free), one block per owning key ----------------
         # The oracle models log-linear atoms only: every program curve must be a ZeroCurve, and
-        # keys on one object (``USD.SOFR.ON`` / ``USD.STDCSA``) share the block of the owning key.
+        # keys on one object (``USD.SOFR.1D`` / ``USD.STDCSA``) share the block of the owning key.
         owner = market.leaf_owner()
         self._block_of: dict[str, str] = {}
         for name in self.curve_names:

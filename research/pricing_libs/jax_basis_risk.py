@@ -54,7 +54,7 @@ def _fmt(a, w: int = 10, p: int = 1) -> str:
 
 def build_basis_market(as_of: Date):
     """Calibrate a SOFR discount curve, then a SOFR-discounted Fed Funds projection curve."""
-    SOFR, FF = curve_name("USD", "SOFR"), curve_name("USD", "FEDFUND")
+    SOFR, FF = curve_name("USD", "USD.SOFR.1D"), curve_name("USD", "USD.FEDFUND.1D")
 
     sofr_helpers = [
         deposit_helper(rate=0.0432, tenor="3M", as_of=as_of),
@@ -64,26 +64,26 @@ def build_basis_market(as_of: Date):
     ]
     base = MarketContext(as_of=as_of)
     r_sofr = CurveCalibrator(
-        sofr_helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
+        sofr_helpers, GlobalSolver(), CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     sofr_market = base.with_curve(
-        YieldCurve.from_registry(r_sofr.origin, r_sofr.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(r_sofr.origin, r_sofr.zero_curve, key="USD.SOFR.1D")
     )
 
     # Fed Funds projection curve — discounted on the SOFR curve just built (funding_id='SOFR').
     ff_helpers = [
-        deposit_helper(rate=0.0427, tenor="3M", as_of=as_of, rate_index="FEDFUND", funding_id="SOFR"),
-        swap_helper(rate=0.0415, tenor="2Y", as_of=as_of, rate_index="FEDFUND", funding_id="SOFR"),
-        swap_helper(rate=0.0400, tenor="5Y", as_of=as_of, rate_index="FEDFUND", funding_id="SOFR"),
-        swap_helper(rate=0.0410, tenor="10Y", as_of=as_of, rate_index="FEDFUND", funding_id="SOFR"),
+        deposit_helper(rate=0.0427, tenor="3M", as_of=as_of, rate_index="USD.FEDFUND.1D", funding_id="SOFR"),
+        swap_helper(rate=0.0415, tenor="2Y", as_of=as_of, rate_index="USD.FEDFUND.1D", funding_id="SOFR"),
+        swap_helper(rate=0.0400, tenor="5Y", as_of=as_of, rate_index="USD.FEDFUND.1D", funding_id="SOFR"),
+        swap_helper(rate=0.0410, tenor="10Y", as_of=as_of, rate_index="USD.FEDFUND.1D", funding_id="SOFR"),
     ]
     r_ff = CurveCalibrator(
         ff_helpers,
         GlobalSolver(),
-        CurveDefinition("USD.FEDFUND.ON", CurveInterpolator.LogLinearDF),
+        CurveDefinition("USD.FEDFUND.1D", CurveInterpolator.LogLinearDF),
     ).calibrate(sofr_market, jacobian=True)   # <-- the JAX hook: capture ∂implied/∂z
     market = sofr_market.with_curve(
-        YieldCurve.from_registry(r_ff.origin, r_ff.zero_curve, currency="USD", index_name="FEDFUND")
+        YieldCurve.from_registry(r_ff.origin, r_ff.zero_curve, key="USD.FEDFUND.1D")
     )
 
     return market, r_sofr, r_ff, SOFR, FF
@@ -103,7 +103,7 @@ def main() -> None:
     # A SOFR-discounted Fed Funds swap.
     swap = Swap.fixed_float_swap(
         notional=100e6,
-        rate_index="FEDFUND",
+        rate_index="USD.FEDFUND.1D",
         fixed_rate=0.041,
         tenor="5Y",
         as_of=as_of,

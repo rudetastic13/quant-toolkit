@@ -37,7 +37,7 @@ class TestCurvePerformance(PerformanceTest):
         log_linear = ZeroCurve(X, DFS)
         log_cubic = ZeroCurve(X, DFS, interpolator=Cubic())
         rate_linear = ZeroCurve(X, DFS, space=CurveSpace.ZeroRate, interpolator=Linear())
-        yc = YieldCurve.from_registry(ORIGIN, log_linear, currency="USD", index_name="SOFR")
+        yc = YieldCurve.from_registry(ORIGIN, log_linear, key="USD.SOFR.1D")
         suite = _suite("curve_query")
 
         result = suite.run(

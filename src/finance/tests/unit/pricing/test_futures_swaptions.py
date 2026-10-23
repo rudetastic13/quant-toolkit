@@ -18,7 +18,7 @@ from finance.pricing.calibration import (
 from finance.pricing.pricers import FuturesPricer, SwaptionPricer
 from finance.pricing.types import Backend
 
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 
 
 def _market(as_of, *, vol=0.01):
@@ -26,7 +26,7 @@ def _market(as_of, *, vol=0.01):
     dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 3 * 365, 7 * 365, 12 * 365)])
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
-    sofr = YieldCurve.build(dates, np.exp(-z * t), currency="USD", index_name="SOFR")
+    sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D")
     vols = VolNamespace()
     vols.bind(CURVE, FlatVolSurface(vol, VolUnits.Normal))
     return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
@@ -75,7 +75,7 @@ class TestSofrFutures(UnitTest):
         fut.quote = Quote(fut.implied(true_market), fut.quote.kind)
         base = MarketContext(self.as_of)
         result = CurveCalibrator(
-            [dep, fut], GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+            [dep, fut], GlobalSolver(), CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
         ).calibrate(base, jacobian=True)
         self.assertLess(np.max(np.abs(result.residuals)), 1e-10)
         self.assertEqual(result.jacobian.shape, (2, 2))

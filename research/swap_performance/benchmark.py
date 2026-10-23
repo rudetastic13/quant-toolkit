@@ -57,7 +57,7 @@ def build_market() -> MarketContext:
     ]
     base = MarketContext(as_of=AS_OF)
     # the swaps discount at SOFR: the calibrated curve also serves the USD.STDCSA discount key
-    target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
+    target = CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF, discount_keys=("USD.STDCSA",))
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration did not converge"
     return result.market
@@ -73,7 +73,7 @@ def build_population(n: int) -> list[Swap]:
     return [
         Swap.fixed_float_swap(
             notional=float(sign * notion),
-            rate_index="SOFR",
+            rate_index="USD.SOFR.1D",
             fixed_rate=float(rate),
             tenor=f"{int(yrs)}Y",
             as_of=AS_OF,
@@ -106,7 +106,7 @@ def main() -> None:
     print(f"rates-lib swap performance study  —  as_of={AS_OF.to_str()}, n={N_SWAPS}, seed={SEED}\n")
 
     market = build_market()
-    CN = curve_name("USD", "SOFR")
+    CN = curve_name("USD", "USD.SOFR.1D")
 
     swaps = build_population(N_SWAPS)
     pricer = SwapPricer()

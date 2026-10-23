@@ -32,7 +32,6 @@ from finance.conventions import default_registry
 from finance.dates import Date, Term, TermType, add_term
 from finance.instruments.enums import CouponType
 from finance.instruments.resolution import Deposit, Swap, curve_name
-from finance.instruments.resolution.resolver import resolve_conventions
 from finance.markets.context import MarketContext
 from finance.markets import RateGenerator
 from finance.markets.curves import CurveInterpolator, YieldCurve
@@ -62,7 +61,7 @@ def _partial_dv01(unit_jacobian: np.ndarray, jacobian: np.ndarray) -> np.ndarray
 # ---------------------------------------------------------------------------
 
 AS_OF = Date(2026, 6, 3)
-CURVE = curve_name("USD", "SOFR")   # "USD.SOFR"
+CURVE = curve_name("USD", "USD.SOFR.1D")   # "USD.SOFR"
 
 # (tenor, quote %, helper kind) — 1D/2D are cash deposits, the rest par swaps.
 SOFR_QUOTES: list[tuple[str, float, str]] = [
@@ -100,7 +99,7 @@ def _short_deposit_helper(rate: float, tenor: str) -> DepositHelper:
     The very short end of a SOFR curve is overnight money, so these two deposits run
     from the market date itself: 1D = as_of -> +1BD, 2D = as_of -> +2BD.
     """
-    conv = resolve_conventions("USD", "SOFR", default_registry)
+    conv = default_registry.get("USD.SOFR.1D")
     dep_conv = conv.deposit
     n_days = int(tenor.rstrip("Dd"))
     maturity = Date.from_numpy(
@@ -113,7 +112,7 @@ def _short_deposit_helper(rate: float, tenor: str) -> DepositHelper:
     )
     dep = Deposit(
         effective=AS_OF, maturity=maturity, rate=rate,
-        day_count_method=conv.deposit_day_count, currency="USD", index_name="SOFR",
+        day_count_method=conv.deposit_day_count, currency="USD", index_name="USD.SOFR.1D",
     )
     return DepositHelper(deposit=dep, quote=Quote(rate, QuoteKind.SimpleRate), curve=CURVE)
 
@@ -144,7 +143,7 @@ def calibrate(
     calibrator = CurveCalibrator(
         instruments=build_helpers(),
         solver=solver,
-        target=CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF),
+        target=CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF),
     )
     t0 = time.perf_counter()
     result = calibrator.calibrate(
@@ -164,7 +163,7 @@ def calibrate(
 
 def _yield_curve(result: CalibrationResult) -> YieldCurve:
     """Origin + calibrated ``ZeroCurve`` as a date-addressable SOFR curve (not registered)."""
-    return YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+    return YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.1D")
 
 
 def register_sofr_curve(
@@ -181,8 +180,7 @@ def register_sofr_curve(
     sofr_curve = YieldCurve.from_registry(
         result.origin,
         result.zero_curve,
-        currency="USD",
-        index_name="SOFR",
+        key="USD.SOFR.1D",
         registry=market.conventions,
     )
     return market.with_curve(sofr_curve)
@@ -222,7 +220,7 @@ def price_examples(market: MarketContext) -> None:
 
     print("\n=== Example swap pricing (calibrated market) ===")
     for label, kwargs in examples:
-        swap = Swap.fixed_float_swap(rate_index="SOFR", as_of=AS_OF, **kwargs)
+        swap = Swap.fixed_float_swap(rate_index="USD.SOFR.1D", as_of=AS_OF, **kwargs)
         res = swap(market, requests=["pv", "leg_pvs"])
         pv = float(res.instrument_pv[0])
         recv, pay = (float(x) for x in res.leg_pv)
@@ -256,14 +254,14 @@ def _example_swaps(market: MarketContext) -> tuple[list, list[str]]:
         par = swap_helper(rate=0.0, tenor=tenor, as_of=AS_OF).implied(market)
         swaps.append(
             Swap.fixed_float_swap(
-                notional=100e6, rate_index="SOFR", fixed_rate=par, as_of=AS_OF, tenor=tenor,
+                notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=par, as_of=AS_OF, tenor=tenor,
             )
         )
         labels.append(f"{tenor} recv-fixed @ {par * 100:.4f}%")
 
     swaps.append(
         Swap.fixed_float_swap(
-            notional=100e6, rate_index="SOFR", fixed_rate=0.038, as_of=AS_OF, tenor="5Y",
+            notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.038, as_of=AS_OF, tenor="5Y",
         )
     )
     labels.append("5Y recv-fixed @ 3.8000% (off-mkt)")
@@ -297,7 +295,7 @@ def seven_year_swap_report(
     par_rate = swap_helper(rate=0.0, tenor="7Y", as_of=AS_OF).implied(market)
     swap = Swap.fixed_float_swap(
         notional=notional,
-        rate_index="SOFR",
+        rate_index="USD.SOFR.1D",
         fixed_rate=par_rate,
         as_of=AS_OF,
         tenor="7Y",
@@ -453,7 +451,7 @@ def random_swap_portfolio(
         if tenor not in par_by_tenor:
             template = Swap.fixed_float_swap(
                 notional=1.0,
-                rate_index="SOFR",
+                rate_index="USD.SOFR.1D",
                 fixed_rate=0.0,
                 as_of=AS_OF,
                 tenor=tenor,
@@ -462,7 +460,7 @@ def random_swap_portfolio(
         swaps.append(
             Swap.fixed_float_swap(
                 notional=float(sign * notional),
-                rate_index="SOFR",
+                rate_index="USD.SOFR.1D",
                 fixed_rate=par_by_tenor[tenor] + float(strike_offset),
                 as_of=AS_OF,
                 tenor=tenor,

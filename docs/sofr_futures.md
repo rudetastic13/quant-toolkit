@@ -44,7 +44,7 @@ class ResolvedSofrFuture:
     day_count_method: DayCountMethod   # Actual360
     currency: str = "USD"
     index_name: str = "SOFR"
-    funding_id: str = "STDCSA"         # discount key USD.STDCSA; projection key USD.SOFR.ON
+    funding_id: str = "STDCSA"         # discount key USD.STDCSA; projection key USD.SOFR.1D
     point_value: float = 25.0          # $/bp per contract (SR3 = $25; SR1 per its 1m spec)
 ```
 
@@ -53,7 +53,7 @@ from the contract-month conventions (§2):
 
 ```python
 def SofrFuture(*, contract: str, month: str | tuple[int, int], as_of: Date,
-               currency="USD", rate_index="SOFR", funding_id="STDCSA") -> ResolvedSofrFuture:
+               currency="USD", rate_index="USD.SOFR.1D", funding_id="STDCSA") -> ResolvedSofrFuture:
     ...   # "SR3", "Z26"  or  ("SR3", (2026, 12))  -> Dec-2026 IMM reference period
 ```
 

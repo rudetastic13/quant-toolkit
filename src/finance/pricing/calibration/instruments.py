@@ -210,7 +210,7 @@ class FuturesHelper:
 
 
 def deposit_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> DepositHelper:
     dep = Deposit.spot_deposit(
@@ -224,7 +224,7 @@ def deposit_helper(
 
 
 def fra_helper(
-    *, rate: float, start: str, end: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, start: str, end: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> FraHelper:
     fra = Fra.forward_starting(
@@ -238,7 +238,7 @@ def fra_helper(
 
 
 def swap_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "SOFR", currency: str = "USD",
+    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> SwapHelper:
     swap = Swap.fixed_float_swap(
@@ -258,7 +258,7 @@ def futures_helper(
     month: str | tuple[int, int],
     as_of,
     convexity: float | object = 0.0,
-    rate_index: str = "SOFR",
+    rate_index: str = "USD.SOFR.1D",
     currency: str = "USD",
     funding_id: str = "STDCSA",
 ) -> FuturesHelper:

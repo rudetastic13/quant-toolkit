@@ -279,17 +279,17 @@ node_dates = np.array(
      "2029-06-01", "2031-06-01", "2033-06-01", "2036-06-01"],
     dtype="datetime64[D]",
 )
-yc = YieldCurve.build(node_dates, dfs, currency="USD", index_name="SOFR")
+yc = YieldCurve.build(node_dates, dfs, key="USD.SOFR.1D")
 yc
-# YieldCurve(name='USD.SOFR.ON', origin=2026-06-01, zero_curve=ZeroCurve(nodes=9, max_x=3653, ...))
+# YieldCurve(name='USD.SOFR.1D', origin=2026-06-01, zero_curve=ZeroCurve(nodes=9, max_x=3653, ...))
 
-YieldCurve.build(node_dates, dfs, currency="USD", index_name="SOFR",
+YieldCurve.build(node_dates, dfs, key="USD.SOFR.1D",
                  space=CurveSpace.ZeroRate, interpolator=Cubic(),
                  extrapolation=RateExtrapolator.NotAllowed)
 ```
 
 The first node date is the origin. The rest become the `ZeroCurve` pillars. The key is
-`USD.SOFR.ON` (`index_name="SOFR"` names the overnight family); a projection key's conventions
+`USD.SOFR.1D` (`index_name="USD.SOFR.1D"` names the overnight family); a projection key's conventions
 come from the `ConventionRegistry` (default registry unless `registry=` is passed), and a
 discount curve is built with `key="USD.STDCSA"` instead.
 
@@ -297,7 +297,7 @@ From an existing `ZeroCurve`, which is what the calibrator hands back:
 
 ```python
 result = CurveCalibrator(helpers, GlobalSolver(), definition).calibrate(base_market)
-yc = YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+yc = YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.1D")
 ```
 
 Scenario copies keep origin, conventions and fixings:
@@ -360,7 +360,7 @@ or after it projects from the curve.
 ```python
 rates = RateGenerator(market)              # market holds `seasoned`, see below
 starts = np.array(["2026-05-28", "2026-05-30", "2026-06-01"], dtype="datetime64[D]")
-rates.simple_rate("USD.SOFR.ON", starts, starts + np.timedelta64(1, "D"))
+rates.simple_rate("USD.SOFR.1D", starts, starts + np.timedelta64(1, "D"))
 # -> [0.0428, 0.0431, 0.04192]             (27th's print, 29th's print, projected)
 ```
 
@@ -371,18 +371,18 @@ from finance.dates import Date
 from finance.markets.context import MarketContext
 
 market = MarketContext(Date(2026, 6, 1))
-market["USD.SOFR.ON"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
+market["USD.SOFR.1D"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
 market["USD.STDCSA"] = yc                  # the same curve is the discount curve
 
-market.yield_curve("USD.SOFR.ON")             # the YieldCurve view
-market["USD.SOFR.ON"]                         # its ZeroCurve
-market.with_curve("USD.SOFR.ON", bumped)      # frozen copy, original untouched; USD.STDCSA follows
-market.bump("USD.SOFR.ON", 1e-4)              # +1bp on every pillar the key owns
+market.yield_curve("USD.SOFR.1D")             # the YieldCurve view
+market["USD.SOFR.1D"]                         # its ZeroCurve
+market.with_curve("USD.SOFR.1D", bumped)      # frozen copy, original untouched; USD.STDCSA follows
+market.bump("USD.SOFR.1D", 1e-4)              # +1bp on every pillar the key owns
 
 rates = RateGenerator(market)
 starts = np.array(["2027-06-01"], dtype="datetime64[D]")
-rates.simple_rate("USD.SOFR.ON", starts, starts + np.timedelta64(91, "D"))   # index day count (Act/360 for SOFR)
-rates.continuous_forward_rate("USD.SOFR.ON", starts, starts + np.timedelta64(91, "D"))
+rates.simple_rate("USD.SOFR.1D", starts, starts + np.timedelta64(91, "D"))   # index day count (Act/360 for SOFR)
+rates.continuous_forward_rate("USD.SOFR.1D", starts, starts + np.timedelta64(91, "D"))
 ```
 
 `simple_rate` is the pseudo cash rate: `(DF(start) / DF(end) - 1) / tau` with `tau` on the
@@ -403,7 +403,7 @@ forwards is right there. Past a couple of years traders want smooth forwards. `M
 both on one curve, switching at a pillar.
 
 ```python
-base = YieldCurve.build(node_dates, dfs, currency="USD", index_name="SOFR")   # Linear in log-DF
+base = YieldCurve.build(node_dates, dfs, key="USD.SOFR.1D")   # Linear in log-DF
 switch = base.node_index(Term.from_str("2Y"))                                 # -> 4
 
 mixed_zc = ZeroCurve(

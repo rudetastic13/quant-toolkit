@@ -16,7 +16,6 @@ from finance.conventions.convention_registry import (
     ConventionRegistry,
     register_convention,
     default_registry,
-    split_index_name,
 )
 
 # Import for side effect: registers the bundled MarketConventions definitions
@@ -42,5 +41,4 @@ __all__ = [
     "ConventionRegistry",
     "register_convention",
     "default_registry",
-    "split_index_name",
 ]

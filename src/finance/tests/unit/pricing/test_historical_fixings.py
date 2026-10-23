@@ -20,7 +20,7 @@ from finance.pricing.types import Backend, RateKind
 
 pytest.importorskip("numba")
 
-CURVE = "USD.SOFR.ON"
+CURVE = "USD.SOFR.1D"
 ORIGIN = np.datetime64("2026-06-01", "D")
 
 
@@ -46,8 +46,7 @@ def _market() -> MarketContext:
     yield_curve = YieldCurve.build(
         dates,
         np.exp(-0.04 * years),
-        currency="USD",
-        index_name="SOFR",
+        key="USD.SOFR.1D",
         historical_fixings=_sofr_history(),
     )
     return MarketContext(as_of=Date.from_numpy(ORIGIN), curves={yield_curve.name: yield_curve, "USD.STDCSA": yield_curve})
@@ -58,7 +57,7 @@ def _seasoned_book() -> list[Swap]:
     # its floating coupon is pure history and must have zero index risk.
     pure_history = Swap.fixed_float_swap(
         notional=25e6,
-        rate_index="SOFR",
+        rate_index="USD.SOFR.1D",
         fixed_rate=0.04,
         tenor="2Y",
         as_of=Date(2024, 5, 27),
@@ -68,7 +67,7 @@ def _seasoned_book() -> list[Swap]:
     # observations carry projection risk. Its first annual payment is already expired.
     straddling = Swap.fixed_float_swap(
         notional=25e6,
-        rate_index="SOFR",
+        rate_index="USD.SOFR.1D",
         fixed_rate=0.04,
         tenor="3Y",
         as_of=Date(2024, 9, 16),

@@ -85,7 +85,7 @@ BP = 1e-4  # one basis point, in continuously-compounded-rate units
 # ---------------------------------------------------------------------------
 def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
     """Calibrate a USD SOFR curve from a deposit/FRA/swap strip and bind it into a market."""
-    cn = curve_name("USD", "SOFR")
+    cn = curve_name("USD", "USD.SOFR.1D")
     helpers = [
         deposit_helper(rate=0.0430, tenor="1M", as_of=as_of),
         deposit_helper(rate=0.0432, tenor="3M", as_of=as_of),
@@ -97,11 +97,11 @@ def build_market(as_of: Date) -> tuple[MarketContext, ZeroCurve, str]:
         swap_helper(rate=0.0415, tenor="10Y", as_of=as_of),
     ]
     base = MarketContext(as_of=as_of)
-    target = CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
+    target = CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF)
     result = CurveCalibrator(helpers, GlobalSolver(), target).calibrate(base)
     assert result.solver_result.converged, "calibration failed"
     market = base.with_curve(
-        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.1D")
     )
     return market, result.zero_curve, cn
 
@@ -226,7 +226,7 @@ def main() -> None:
 
     swap = Swap.fixed_float_swap(
         notional=100e6,
-        rate_index="SOFR",
+        rate_index="USD.SOFR.1D",
         fixed_rate=0.041,
         tenor="5Y",
         as_of=as_of,
@@ -300,14 +300,14 @@ def main() -> None:
     book = [
         Swap.fixed_float_swap(
             notional=100e6,
-            rate_index="SOFR",
+            rate_index="USD.SOFR.1D",
             fixed_rate=0.041,
             tenor="5Y",
             as_of=as_of,
         ),
         Swap.fixed_float_swap(
             notional=-25e6,
-            rate_index="SOFR",
+            rate_index="USD.SOFR.1D",
             fixed_rate=0.040,
             tenor="10Y",
             as_of=as_of,

@@ -13,9 +13,9 @@ from finance.pricing.pricers import SwapPricer
 from finance.pricing.risk import RiskEngine, Sensitivities
 from finance.pricing.types import Backend
 
-SOFR = "USD.SOFR.ON"
+SOFR = "USD.SOFR.1D"
 STDCSA = "USD.STDCSA"
-FEDFUND = "USD.FEDFUND.ON"
+FEDFUND = "USD.FEDFUND.1D"
 TERM3M = "USD.CME-TERM-SOFR.3M"
 TERM6M = "USD.CME-TERM-SOFR.6M"
 
@@ -76,7 +76,7 @@ class TestParamLayout(UnitTest):
         with self.assertRaisesRegex(KeyError, "spans several blocks"):
             layout.block_of("USD.BLEND")
         with self.assertRaisesRegex(KeyError, "no curve named"):
-            layout.block_of("USD.FEDFUND.ON")
+            layout.block_of("USD.FEDFUND.1D")
 
     def test_pillars_follow_the_block(self):
         layout = ParamLayout.build(self.market, [FEDFUND, STDCSA])
@@ -107,10 +107,10 @@ class TestLayoutThroughTheEngines(UnitTest):
         self.market = _market(self.as_of)
         self.n = self.market[SOFR].n_params
         self.ff_swap = Swap.fixed_float_swap(
-            notional=100e6, rate_index="FEDFUND", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
+            notional=100e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
         )
         self.sofr_swap = Swap.fixed_float_swap(
-            notional=100e6, rate_index="SOFR", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
+            notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
         )
 
     def _risk(self, swaps, market=None):
@@ -144,7 +144,7 @@ class TestLayoutThroughTheEngines(UnitTest):
 
     def test_three_deep_chain_through_the_engine(self):
         swap_6m = Swap.fixed_float_swap(
-            notional=50e6, rate_index="CME-TERM-SOFR.6M", fixed_rate=0.04, tenor="3Y", as_of=self.as_of
+            notional=50e6, rate_index="USD.CME-TERM-SOFR.6M", fixed_rate=0.04, tenor="3Y", as_of=self.as_of
         )
         program = SwapPricer().compile([swap_6m])
         risk = self._risk([swap_6m])

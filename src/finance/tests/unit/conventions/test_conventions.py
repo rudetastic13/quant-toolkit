@@ -132,19 +132,20 @@ class TestConventionRegistry(UnitTest):
         reg = self._fresh_registry()
         conv = _make_market()
         reg.register("USD", "TEST", conv)
-        self.assertEqual(reg.get("USD", "TEST"), conv)
+        self.assertEqual(reg.get("USD.TEST.1D"), conv)
+        self.assertEqual(reg.get(CurveKey.parse("USD.TEST.3M")), conv)  # the tenor is not checked by get
 
     def test_key_is_case_insensitive(self):
         reg = self._fresh_registry()
         conv = _make_market()
         reg.register("usd", "test", conv)
-        self.assertEqual(reg.get("USD", "TEST"), conv)
-        self.assertEqual(reg.get("Usd", "Test"), conv)
+        self.assertEqual(reg.get("USD.TEST.1D"), conv)
+        self.assertEqual(reg.get("Usd.Test.1D"), conv)
 
     def test_missing_key_raises(self):
         reg = self._fresh_registry()
         with self.assertRaises(KeyError):
-            reg.get("EUR", "EURIBOR")
+            reg.get("EUR.EURIBOR.3M")
 
     def test_duplicate_raises_without_overwrite(self):
         reg = self._fresh_registry()
@@ -159,7 +160,7 @@ class TestConventionRegistry(UnitTest):
         c2 = replace(c1, deposit=replace(c1.deposit, calendar="LON"))
         reg.register("USD", "TEST", c1)
         reg.register("USD", "TEST", c2, overwrite=True)
-        self.assertEqual(reg.get("USD", "TEST").deposit.calendar, "LON")
+        self.assertEqual(reg.get("USD.TEST.1D").deposit.calendar, "LON")
 
     def test_has(self):
         reg = self._fresh_registry()
@@ -169,38 +170,38 @@ class TestConventionRegistry(UnitTest):
 
     def test_bundled_usd_sofr_definition(self):
         from finance.conventions import default_registry
-        m = default_registry.get("USD", "SOFR")
-        self.assertEqual(m.index().label, "USD.SOFR.ON")
+        m = default_registry.get("USD.SOFR.1D")
+        self.assertEqual(m.index().tenor, Term.from_str("1D"))
         self.assertTrue(m.family.is_overnight)
         self.assertEqual(m.float_leg_day_count, DayCountMethod.Actual360)
         self.assertEqual(m.swap.float_leg.coupon_type, CouponType.GeometricAveraged)
 
-    def test_index_lookup_by_name_and_tenor(self):
+    def test_index_lookup_by_key(self):
         from finance.conventions import default_registry as reg
-        self.assertEqual(reg.index("USD", "SOFR").label, "USD.SOFR.ON")
-        self.assertEqual(reg.index("usd", "sofr.on").label, "USD.SOFR.ON")
-        self.assertEqual(reg.key("USD", "CME-TERM-SOFR.3M"), CurveKey.parse("USD.CME-TERM-SOFR.3M"))
-        self.assertEqual(reg.key("USD", "CME-TERM-SOFR", "6M"), CurveKey.parse("USD.CME-TERM-SOFR.6M"))
-        self.assertEqual(reg.get("USD", "CME-TERM-SOFR.3M").family.name, "CME-TERM-SOFR")
+        sofr = reg.index("usd.sofr.1d")
+        self.assertEqual((sofr.family.name, sofr.tenor), ("SOFR", Term.from_str("1D")))
+        three = reg.index(CurveKey.parse("USD.CME-TERM-SOFR.3M"))
+        self.assertEqual((three.family.name, three.tenor), ("CME-TERM-SOFR", Term.from_str("3M")))
+        self.assertEqual(reg.family("USD.CME-TERM-SOFR.3M").name, "CME-TERM-SOFR")
         with self.assertRaises(KeyError):
-            reg.index("USD", "CME-TERM-SOFR")  # tenor required for a term family
+            reg.index("USD.CME-TERM-SOFR.2M")  # the family does not publish 2M
         with self.assertRaises(KeyError):
-            reg.index("USD", "SOFR.3M")  # overnight family publishes ON only
+            reg.index("USD.SOFR.3M")  # overnight family publishes 1D only
         with self.assertRaises(ValueError):
-            reg.index("USD", "CME-TERM-SOFR.3M", "6M")  # tenor twice
+            reg.index("USD.STDCSA")  # a discount key names no index
 
     def test_validate_key(self):
         from finance.conventions import default_registry as reg
         self.assertEqual(reg.validate("USD.STDCSA"), CurveKey.parse("USD.STDCSA"))  # no conventions needed
-        self.assertEqual(reg.validate("USD.SOFR.ON"), CurveKey.parse("USD.SOFR.ON"))
+        self.assertEqual(reg.validate("USD.SOFR.1D"), CurveKey.parse("USD.SOFR.1D"))
         with self.assertRaises(KeyError):
             reg.validate("USD.SOFR.3M")
         with self.assertRaises(KeyError):
-            reg.validate("USD.NOTANINDEX.ON")
+            reg.validate("USD.NOTANINDEX.1D")
 
     def test_bundled_cme_term_sofr(self):
         from finance.conventions import default_registry
-        m = default_registry.get("USD", "CME-TERM-SOFR")
+        m = default_registry.get("USD.CME-TERM-SOFR.3M")
         self.assertEqual(m.family.tenor_labels, ("1M", "3M", "6M", "12M"))
         self.assertIs(m.swap.float_leg.payment_frequency, MATCH_TENOR)
         self.assertEqual(m.swap.float_leg.coupon_type, CouponType.Floating)

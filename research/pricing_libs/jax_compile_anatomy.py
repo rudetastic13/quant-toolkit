@@ -44,7 +44,7 @@ from finance.pricing.engines.jax import JaxProgram  # noqa: E402
 
 
 def build_market(as_of: Date):
-    cn = curve_name("USD", "SOFR")
+    cn = curve_name("USD", "USD.SOFR.1D")
     helpers = [
         deposit_helper(rate=0.0430, tenor="1M", as_of=as_of),
         deposit_helper(rate=0.0432, tenor="3M", as_of=as_of),
@@ -57,10 +57,10 @@ def build_market(as_of: Date):
     ]
     base = MarketContext(as_of=as_of)
     result = CurveCalibrator(
-        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.ON", CurveInterpolator.LogLinearDF)
+        helpers, GlobalSolver(), CurveDefinition("USD.SOFR.1D", CurveInterpolator.LogLinearDF)
     ).calibrate(base)
     market = base.with_curve(
-        YieldCurve.from_registry(result.origin, result.zero_curve, currency="USD", index_name="SOFR")
+        YieldCurve.from_registry(result.origin, result.zero_curve, key="USD.SOFR.1D")
     )
     return market, cn
 
@@ -70,7 +70,7 @@ def book(as_of: Date, n: int) -> list:
     return [
         Swap.fixed_float_swap(
             notional=(1.0 + i) * 1e6,
-            rate_index="SOFR",
+            rate_index="USD.SOFR.1D",
             fixed_rate=0.04,
             tenor=tenors[i % 5],
             as_of=as_of,

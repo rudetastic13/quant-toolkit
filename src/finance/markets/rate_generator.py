@@ -77,11 +77,11 @@ class RateGenerator:
         starts, ends = _check_windows(starts, ends)
         yield_curve = self.market.yield_curve(curve_name)
         if day_count is None:
-            if yield_curve.index is None:
+            if yield_curve.family is None:
                 raise ValueError(
                     f"curve '{curve_name}' is a discount curve with no index; pass day_count for a simple rate"
                 )
-            day_count = yield_curve.index.day_count_method
+            day_count = yield_curve.family.day_count_method
         basis = day_count
         tau = period_fractions(basis, starts, ends)
         rates = np.zeros_like(tau, dtype=np.float64)
