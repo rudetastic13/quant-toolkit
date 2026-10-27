@@ -10,13 +10,12 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
-import numpy as np
-
 from finance.conventions import CurveKey
 from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.priceable import pricer_registry
 from finance.instruments.resolution.resolver import curve_name, funding_curve_name
+from finance.instruments.schedules.amortization import notional_profile
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
 from finance.pricing.kernels import LegSpec, compile_portfolio
 from finance.pricing.pricers.base import PricingProgram
@@ -68,7 +67,7 @@ def projection_curve_name(leg: CommonInstrument, default: str) -> str:
 def leg_spec(
     leg: CommonInstrument, sign: float, discount_curve: str, projection_curve: str, instrument: int
 ) -> LegSpec:
-    """Lower one leg: its schedules are the only thing read."""
+    """Lower one leg: its schedules and its outstanding-notional profile are the only things read."""
     schedule = build_payment_schedule(
         effective=leg.effective, maturity=leg.maturity, frequency=leg.payment_frequency,
         day_count_method=leg.day_count_method, bdc=leg.business_day_convention,
@@ -84,7 +83,7 @@ def leg_spec(
     return LegSpec(
         schedule=schedule, coupon=leg.coupon_schedule, sign=sign, discount_curve=discount_curve,
         projection_curve=projection_curve if leg.is_floating else None,
-        notional=np.full(schedule.n_periods, float(leg.notional)), instrument=instrument,
+        notional=notional_profile(leg, schedule), instrument=instrument,
         principal_exchange=leg.principal_exchange,
     )
 

@@ -203,7 +203,7 @@ single-fixing floats.
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
 | **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` / `SofrFuture` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. Every product is signed legs (`instrument.legs`) and prices through one `LegPricer`; a deposit is one fixed leg with principal out and back, a FRA a one-period fixed vs float pair, a future's reference period a unit-notional leg. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
-| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortization is meant to follow the same shape: a named `amortization_type` generator, or `Custom` with a notional schedule. |
+| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortisation follows the same shape: `amortization` names a generator (`Bullet`, `StraightLine`, `LevelPay`) driven by the window fields, or a supplied `notional_schedule` tags the leg `Custom`; `notional_profile(leg, schedule)` is the one per-period array the compiler reads. |
 | **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)`, `deposit(market)`, `fra(market)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Leg-bearing types dispatch to `LegPricer` through `pricer_registry`. |
 | **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (the schedule); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. Bullet principal (`PrincipalExchange`) lowers to fixed flows with `rate = period_frac = 1`, so no kernel knows about it. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
@@ -261,27 +261,26 @@ single-fixing floats.
   `RiskEngine` front door that dispatches between them per
   [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
   rebuild-per-pillar KRD.
-- **Amortisation.** `LegSpec.notional` is a per-period array and the compiler lowers the
-  principal flows from it: under `PrincipalExchange.Final` each drop in outstanding notional is
-  paid on its payment date, so a bullet repays once and an amortiser as it goes. The kernel
-  needs nothing else. What remains is the *generator* on the leg, following the coupon pattern
-  (a flat `notional` lowers to one event; a `NotionalSchedule` of `(start_date, notional)`
-  events is the custom path), with these rules agreed Oct 2026 and not yet built:
-  - *Scheduled* paydowns are contract data: straight-line, level-pay on a fixed rate, a custom
-    schedule, or a constant prepayment speed (CPR/SMM) are all vectors known at compile time.
-  - A principal frequency may be the coupon frequency or **slower** (quarterly interest with
-    annual principal), never faster; validated like the reset-vs-pay check. The notional is flat
-    between principal dates, so the lowering emits no flow there.
-  - *Level-pay on a floater* (an ARM): the payment is solved from the rate at each reset and held
-    until the next reset, so it is rate-dependent and belongs in the kernel, not the column.
-  - *Unscheduled* prepayment driven by a behavioural model (speed as a function of rates) is
-    likewise rate-dependent and is the same seam as level-pay on a floater.
-  - The generator takes three window parameters: `amort_start` (default effective; flat,
-    interest-only balance before it), `amort_end` (default maturity; the balloon date, where
-    whatever is outstanding is repaid, and it may precede maturity), and `amortization_term`
-    (default `amort_end - amort_start`; the horizon the level payment is solved on, longer than
-    the window for a balloon). A seasoned loan is today's outstanding as the face with
-    `amort_start` today and the remaining term; known curtailments go in a custom schedule.
+- **Amortisation.** Built Oct 2026. `LegSpec.notional` is a per-period array and the compiler
+  lowers the principal flows from it: under `PrincipalExchange.Final` each drop in outstanding
+  notional is paid on its payment date, so a bullet repays once, an amortiser as it goes, and a
+  balance left on the balloon date is repaid there. The leg says what is outstanding through
+  `finance.instruments.schedules.amortization`:
+  - `amortization = Bullet | StraightLine | LevelPay`, or `Custom` with a `NotionalSchedule` of
+    `(start_date, notional)` events ("from this period the outstanding is X": known
+    curtailments, a seasoned loan's history).
+  - Window: `amort_start` (interest-only before it, default effective), `amort_end` (the
+    balloon date, default maturity, may precede it), `amortization_term` (the solve horizon from
+    `amort_start`; longer than the window leaves a balloon), `principal_frequency` (the coupon
+    frequency or a slower multiple; principal dates must fall on coupon payment dates).
+  - `LevelPay` solves the annuity payment on the principal grid for the schedule's own accrual
+    fractions and re-solves it only when the coupon rate changes (a fixed step-up), holding it
+    between changes; on a floating leg the payment depends on each reset, so it is
+    rate-dependent and rejected at compile time rather than approximated.
+  - A seasoned loan is today's outstanding as the face with `amort_start` today and the
+    remaining term; the payment is recomputed from what is actually owed.
+  - Not built: rate-dependent notionals (level pay on a floater, behavioural prepayment as a
+    function of rates). They are a kernel computation, not a compile-time column.
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
