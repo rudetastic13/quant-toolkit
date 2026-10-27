@@ -28,7 +28,7 @@ import jax.numpy as jnp
 from jax.ops import segment_sum
 
 from finance.markets.curves import ZeroCurve
-from finance.pricing.engines.jax.curves import CurveGeometry, curve_geometry, make_df
+from finance.pricing.engines.jax.curves import LOG_LINEAR, CurveGeometry, curve_geometry, make_df
 from finance.pricing.kernels.inputs import KernelInputs
 from finance.pricing.kernels.shaping import prep_obs, shape_float, shape_period
 from finance.pricing.types import RateKind
@@ -64,7 +64,7 @@ class JaxProgram:
         self._block_of: dict[str, str] = {}
         for name in self.curve_names:
             curve = market[name]
-            if not isinstance(curve, ZeroCurve) or not curve.is_log_linear:
+            if not isinstance(curve, ZeroCurve) or curve.scheme != LOG_LINEAR:
                 raise NotImplementedError(
                     f"the JAX oracle models log-linear ZeroCurve atoms only; '{name}' is {curve!r}"
                 )

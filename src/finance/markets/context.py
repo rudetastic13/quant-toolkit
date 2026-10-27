@@ -99,14 +99,12 @@ class MarketContext(Mapping[str, DiscountCurve]):
 
     def __init__(
         self,
-        as_of: Date | None = None,
+        as_of: Date,
         curves: Mapping[str, DiscountCurve | YieldCurve] | None = None,
         *,
         conventions: ConventionRegistry = default_registry,
         vols: Any | None = None,
     ) -> None:
-        if as_of is None:
-            raise ValueError("MarketContext needs a valuation date: as_of")
         self._as_of = as_of
         self._origin = np.datetime64(as_of.to_numpy(), "D")
         self._groups: dict[str, YieldCurveGroup] = {}

@@ -24,7 +24,10 @@ import numpy as np
 
 import jax.numpy as jnp
 
-from finance.markets.curves import ZeroCurve
+from common.math.interpolation import Linear
+from finance.markets.curves import CurveSpace, ZeroCurve
+
+LOG_LINEAR = (CurveSpace.LogDF, Linear())  # the one ``ZeroCurve.scheme`` the oracle models
 
 FloatArray = np.ndarray
 
@@ -54,7 +57,7 @@ def curve_geometry(curve: ZeroCurve) -> CurveGeometry:
         x_nodes=x_nodes,
         t_nodes=x_nodes[1:] / 365.0,
         z0=curve.node_zero_rates,
-        log_linear=curve.is_log_linear,
+        log_linear=curve.scheme == LOG_LINEAR,
         description=repr(curve),
     )
 

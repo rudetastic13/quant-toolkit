@@ -63,11 +63,6 @@ class TestCurveOperators(UnitTest):
         explicit = CompositeCurve({"base": self.sofr, "spread": ZeroCurve.constant(0.0005, self.sofr.max_x)})
         self.assertEqual(plus.scheme, explicit.scheme)
 
-    def test_scalar_minus_curve(self):
-        c = 0.0005 - self.sofr
-        self.assertEqual(c.weights, (1.0, -1.0))
-        np.testing.assert_allclose(c.zero_rate(XQ), 0.0005 - self.sofr.zero_rate(XQ), rtol=1e-12)
-
     def test_subtract_curves_is_an_unlabelled_basis(self):
         fedfund = self.sofr - 5 * bp
         basis = fedfund - self.sofr
@@ -76,34 +71,29 @@ class TestCurveOperators(UnitTest):
         self.assertIs(basis.components[0], fedfund)
         np.testing.assert_allclose(basis.zero_rate(XQ), -0.0005, atol=1e-15)
 
-    def test_scale_and_negate(self):
-        half = 0.5 * self.sofr
-        self.assertEqual(half.weights, (0.5,))
-        np.testing.assert_allclose(half.log_discount_factor(XQ), 0.5 * self.sofr.log_discount_factor(XQ), rtol=1e-15)
-        np.testing.assert_allclose((self.sofr * 0.5).log_discount_factor(XQ), half.log_discount_factor(XQ), rtol=1e-15)
-        neg = -self.sofr
-        self.assertEqual(neg.weights, (-1.0,))
-        np.testing.assert_allclose(neg.zero_rate(XQ), -self.sofr.zero_rate(XQ), rtol=1e-15)
-
     def test_composites_support_the_same_operators(self):
         fedfund = self.sofr - 5 * bp
         chained = fedfund + self.s3m
         self.assertIs(chained["base"], fedfund)
         self.assertEqual(chained.n_params, self.sofr.n_params + 1 + self.s3m.n_params)
-        twice = 2 * chained
-        np.testing.assert_allclose(twice.log_discount_factor(XQ), 2 * chained.log_discount_factor(XQ), rtol=1e-15)
+        basis = chained - fedfund
+        np.testing.assert_allclose(basis.log_discount_factor(XQ), self.s3m.log_discount_factor(XQ), rtol=1e-14)
 
-    def test_forbidden_operations(self):
+    def test_only_plus_and_minus_are_defined(self):
         with self.assertRaises(TypeError):
             self.sofr * self.s3m
+        with self.assertRaises(TypeError):
+            0.5 * self.sofr  # any other weight is spelled CompositeCurve((curve,), (weight,))
+        with self.assertRaises(TypeError):
+            -self.sofr
         with self.assertRaises(TypeError):
             self.sofr / 2.0
         with self.assertRaises(TypeError):
             self.sofr + "spread"
         with self.assertRaises(TypeError):
             self.sofr + True
-        with self.assertRaises(ValueError):
-            0.0 * self.sofr  # a zero weight has no parameters to own
+        half = CompositeCurve((self.sofr,), (0.5,))
+        np.testing.assert_allclose(half.log_discount_factor(XQ), 0.5 * self.sofr.log_discount_factor(XQ), rtol=1e-15)
 
     def test_operators_define_but_do_not_move(self):
         defined = self.sofr + 10 * bp
@@ -131,7 +121,7 @@ class TestLeavesAndReplace(UnitTest):
         self.assertEqual(leaf.columns, slice(0, 5))
 
     def test_leaves_of_a_chain_accumulate_weights_and_shift_columns(self):
-        leaves = (2.0 * self.term6m).leaves()
+        leaves = CompositeCurve((self.term6m,), (2.0,)).leaves()
         self.assertEqual([lf.curve for lf in leaves], [self.sofr, self.s1m, self.b6m1m])
         self.assertEqual([lf.weight for lf in leaves], [2.0, 2.0, 2.0])
         self.assertEqual([lf.columns for lf in leaves], [slice(0, 5), slice(5, 6), slice(6, 7)])

@@ -202,7 +202,7 @@ pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba pric
 engine takes any of them: at prepare time each curve hands over `ZeroCurve.log_df_affine` on
 the program's static queries — the exact `(offset, jacobian)` of `ln DF` in the pillar zero
 rates — and the kernel never sees the scheme. Only the JAX oracle still models log-linear DF
-(`ZeroCurve.is_log_linear`). Every bound interpolator also exports PPoly `coefficients` for a
+(it checks `ZeroCurve.scheme` against `(LogDF, Linear())`). Every bound interpolator also exports PPoly `coefficients` for a
 kernel that wants to evaluate the curve itself.
 
 Same pillar discount factors under the five named schemes. Zero rates agree at the pillars;

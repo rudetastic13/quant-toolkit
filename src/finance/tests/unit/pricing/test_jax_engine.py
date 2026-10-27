@@ -15,7 +15,6 @@ from finance.markets.curves import YieldCurve
 from finance.pricing.pricers import SwapPricer
 
 jax = pytest.importorskip("jax")
-jax.config.update("jax_enable_x64", True)
 
 from finance.pricing.engines.jax.program import JaxProgram  # noqa: E402
 from finance.pricing.risk.autodiff import AutodiffRisk  # noqa: E402

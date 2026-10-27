@@ -7,9 +7,9 @@ ln DF(x) = Σᵢ wᵢ · ln DFᵢ(x)        ⇔        DF = Πᵢ DFᵢ(x)^{wᵢ
 ```
 
 Zero rates and instantaneous forwards add with the same weights. Components are any
-`DiscountCurve`, so composites nest. Parameters are the components' parameters concatenated;
-`param_offsets` and `component_slice` recover the blocks. Passing a mapping labels the
-components, and labels are how a spread curve says which part is the base and which the spread.
+`DiscountCurve`, so composites nest. Parameters are the components' parameters concatenated in
+component order. Passing a mapping labels the components, and labels are how a spread curve says
+which part is the base and which the spread.
 
 Continues from [01](01_discount_curve.md) (`sofr`, `xq`).
 
@@ -33,8 +33,9 @@ is a labelled two-component composite, and everything a desk wants from it is on
 
 ## Arithmetic
 
-Because a spread is arithmetic, the arithmetic is the API. Every operator builds a
-`CompositeCurve`, so nothing outside the weighted-sum family can be written.
+Because a spread is arithmetic, the arithmetic is the API. `+` and `-` build a `CompositeCurve`,
+so nothing outside the weighted-sum family can be written; any other weight is spelled out with
+the constructor.
 
 ```python
 from finance.markets.curves import bp          # bp = 1e-4
@@ -48,10 +49,9 @@ termsofr_3m = sofr + s3m                       # base plus a term structure of s
 basis = fedfund - sofr                         # a basis has no base: unlabelled, weights (1, -1)
 basis.weights, basis.labels, basis.zero_rate(xq)
 # ((1.0, -1.0), None, array([-0.0005, -0.0005, -0.0005]))
-(0.5 * sofr).weights
-# (0.5,)
+half = CompositeCurve((sofr,), (0.5,))               # any other weight: the constructor
 sofr * fedfund
-# TypeError: curves multiply only by scalars: a product of curves is not affine in the parameters.
+# TypeError                                          # a product of curves is not affine in the parameters
 ```
 
 | expression | builds |
@@ -60,8 +60,7 @@ sofr * fedfund
 | `a + s`, `s + a` | `CompositeCurve({"base": a, "spread": ZeroCurve.constant(s, a.max_x)})` |
 | `a - b` | `CompositeCurve((a, b), (1, -1))` |
 | `a - s` | base plus `ZeroCurve.constant(-s, a.max_x)` |
-| `w * a`, `a * w`, `-a` | `CompositeCurve((a,), (w,))` |
-| `a * b`, `a / w` | `TypeError` |
+| anything else | `TypeError`; use `CompositeCurve(components, weights)` |
 
 **Operators define curves; they do not move them.** `sofr + 10 * bp` is a new curve with one
 more parameter, a 10bp spread. `sofr.with_params(sofr.params + 10 * bp)` is the same five
@@ -113,10 +112,8 @@ fedfund = CompositeCurve({"base": sofr, "spread": ZeroCurve.constant(-0.0005, so
 fedfund
 # CompositeCurve(base=+1*ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Linear(), extrapolation=FlatForward),
 #                spread=+1*ZeroCurve(nodes=2, max_x=3650, space=LogDF, interpolator=Linear(), extrapolation=FlatForward))
-fedfund.params
+fedfund.params                                          # the base's five pillars, then the spread
 # [ 0.041   0.04    0.039   0.041   0.043  -0.0005]
-fedfund.component_slice("base"), fedfund.component_slice("spread")
-# (slice(0, 5, None), slice(5, 6, None))
 np.allclose(fedfund.discount_factor(xq), sofr.discount_factor(xq) * fedfund["spread"].discount_factor(xq))
 # True
 ```
@@ -156,27 +153,28 @@ funding.instantaneous_forward(xq) - sofr.instantaneous_forward(xq)     # forward
 # [0.0008 0.0013 0.0018]
 ```
 
-## Risk splits by block
+## Risk splits by component
 
-The affine map is the components' maps side by side. The base block is the atom's own Jacobian,
-unchanged; the spread block is the spread atom's.
+The affine map is the components' maps side by side. The base columns are the atom's own
+Jacobian, unchanged; the spread columns are the spread atom's.
 
 ```python
 offset_s, jac_s = funding.log_df_affine(xq)
 jac_s.shape
 # (3, 8)
-np.allclose(jac_s[:, funding.component_slice("base")], sofr.log_df_affine(xq)[1])
+np.allclose(jac_s[:, :5], sofr.log_df_affine(xq)[1])
 # True
-jac_s[:, funding.component_slice("spread")]
+jac_s[:, 5:]
 # [[ -0.082192   0.         0.      ]
 #  [ -0.907534  -0.462329   0.      ]
 #  [  0.         3.69863  -17.39726 ]]
 ```
 
 So a book priced on `funding` reports a ladder over SOFR pillars (index or funding risk, depending
-on the role) and a separate ladder over the spread pillars (basis risk). A spread composite
-registered as its own index (`USD.FEDFUND.1D` over the SOFR atom) does this through the engine with
-no extra code; [05](05_risk_jacobian_hessian.md) shows the output.
+on the role) and a separate ladder over the spread pillars (basis risk). The engine does not slice
+the composite's parameters itself: it walks `leaves()` to the atoms and reports each atom under
+the market key that owns it, so a spread composite registered as its own index (`USD.FEDFUND.1D`
+over the SOFR atom) splits with no extra code; [05](05_risk_jacobian_hessian.md) shows the output.
 
 ## A basis curve
 
@@ -184,8 +182,8 @@ no extra code; [05](05_risk_jacobian_hessian.md) shows the output.
 basis = CompositeCurve((fedfund, sofr), weights=(1.0, -1.0))
 basis.zero_rate(xq)
 # [-0.0005 -0.0005 -0.0005]
-basis.n_params, basis.param_offsets
-# (11, array([ 0,  6, 11]))
+basis.n_params                                          # fedfund's 6 (5 SOFR + 1 spread) then sofr's 5
+# 11
 ```
 
 `fedfund` is itself built on `sofr`, so SOFR appears twice in this composite's parameter vector:
@@ -246,18 +244,19 @@ nested.params
 
 ## Scenarios
 
-`with_params` moves every block from one flat vector; `with_component(key, curve)` swaps one
-component, by label or index, for a curve of any geometry and keeps the weights and labels. The
+`with_params` moves every block from one flat vector; `replace(old, new)` swaps one component
+object, wherever it appears, for a curve of any geometry and keeps the weights and labels. The
 untouched components are shared by reference, not copied.
 
 ```python
-wider = funding.with_component("spread", funding["spread"].with_params(funding["spread"].params + 0.0005))
+spread = funding["spread"]
+wider = funding.replace(spread, spread.with_params(spread.params + 0.0005))
 wider["spread"].zero_rate(xq) - funding["spread"].zero_rate(xq)
 # [0.0005 0.0005 0.0005]
 wider["base"] is sofr
 # True
 
-scenario = with_turn.with_component("turn", turn.with_params(turn.params * 2.0))
+scenario = with_turn.replace(turn, turn.with_params(turn.params * 2.0))
 scenario.instantaneous_forward(np.array([205.0])) - sofr.instantaneous_forward(np.array([205.0]))
 # [0.006]
 with_turn.scheme == scenario.scheme                 # parameters moved, geometry did not
@@ -305,12 +304,11 @@ spread is fixed by contract, the curve when it is a market quote.
 |---|---|
 | `x` | `np.union1d` over components |
 | `dfs` | `discount_factor(x)` |
-| `params` / `n_params` | concatenation; `param_offsets`, `component_slice(key)` |
+| `params` / `n_params` | concatenation in component order |
 | `labels`, `curve[key]`, `len(curve)` | component access by label or index |
 | `scheme` | `("composite", weights, ((component.x, component.scheme), ...))`; labels excluded |
-| `with_params` | split by offsets, each component's `with_params`, rebuilt without re-validation |
-| `with_component(key, curve)` | one component replaced, weights and labels kept |
+| `with_params` | split into the components' blocks, each component's `with_params`, rebuilt without re-validation |
+| `replace(old, new)` | one object substituted wherever it appears, weights and labels kept |
 | `log_df_affine` | `Σ wᵢ offsetᵢ`, `hstack(wᵢ jacobianᵢ)`; exact by construction, no probing |
-| `is_log_linear` | `False` |
 
 Next: [04 · `YieldCurve`](04_yield_curve.md), where a discount curve meets the calendar.

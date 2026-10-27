@@ -84,8 +84,7 @@ class TestNumbaProgram(UnitTest):
         np.testing.assert_array_equal(delta[program.inputs.rate_kind == 0], 0.0)
 
     def test_fd_of_adjoint_gamma_matches_jax_hessian(self):
-        jax = pytest.importorskip("jax")
-        jax.config.update("jax_enable_x64", True)
+        pytest.importorskip("jax")
         from finance.pricing.risk.autodiff import AutodiffRisk
 
         program = SwapPricer().compile(_book(self.as_of, 1))

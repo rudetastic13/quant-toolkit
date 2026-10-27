@@ -160,17 +160,6 @@ class YieldCurve:
             historical_fixings=historical_fixings,
         )
 
-    def with_key(self, key: CurveKey | str, *, registry: ConventionRegistry = default_registry) -> YieldCurve:
-        """The same origin, curve state and fixings registered under another key."""
-        parsed, conventions = _resolve_key(key, registry)
-        return YieldCurve(
-            origin=self.origin,
-            zero_curve=self.zero_curve,
-            key=parsed,
-            conventions=conventions,
-            historical_fixings=self.historical_fixings,
-        )
-
     # -- identity -----------------------------------------------------------------------
 
     @property

@@ -68,16 +68,6 @@ class TestYieldCurveConstruction(UnitTest):
         with self.assertRaises(ValueError):
             YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.SOFR.1D")
 
-    def test_with_key_rebinds_the_same_state(self):
-        sofr = _yield_curve()
-        csa = sofr.with_key("USD.STDCSA")
-        self.assertIs(csa.zero_curve, sofr.zero_curve)
-        self.assertEqual(csa.name, "USD.STDCSA")
-        self.assertIsNone(csa.conventions)
-        term = sofr.with_key("USD.CME-TERM-SOFR.6M")
-        self.assertEqual(term.name, "USD.CME-TERM-SOFR.6M")
-        self.assertEqual(term.family.name, "CME-TERM-SOFR")
-
     def test_build_forwards_scheme(self):
         yc = _yield_curve(space=CurveSpace.ZeroRate, interpolator=Cubic())
         self.assertIs(yc.zero_curve.space, CurveSpace.ZeroRate)

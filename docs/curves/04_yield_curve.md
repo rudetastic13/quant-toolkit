@@ -50,17 +50,15 @@ sofr_yc.node_dates
 # ['2026-06-01' '2026-08-30' '2027-06-01' '2028-05-31' '2031-05-31' '2036-05-29']
 sofr_yc.key
 # CurveKey('USD.SOFR.1D')
-sofr_yc.index
-# RateIndex('USD.SOFR.1D')
-sofr_yc.index.family
+sofr_yc.family
 # IndexFamily('USD.SOFR', tenors=('1D',), day_count=Actual360, fixing_calendar='no_holidays', fixing_type=Arrears)
 
 built = YieldCurve.build(sofr_yc.node_dates, dfs, key="USD.SOFR.1D", interpolator=Cubic())
 built
 # YieldCurve(name='USD.SOFR.1D', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Cubic(bc_type='natural'), extrapolation=FlatForward))
 
-csa = sofr_yc.with_key("USD.STDCSA")               # the same state as a discount curve
-csa.name, csa.index
+csa = YieldCurve.from_registry(as_of, sofr_yc.zero_curve, key="USD.STDCSA")   # the same state as a discount curve
+csa.name, csa.family
 # ('USD.STDCSA', None)
 ```
 

@@ -8,13 +8,13 @@ turn-of-year atom added to a smooth curve, or a scenario overlay.  Components ar
 :class:`DiscountCurve`, so composites nest.
 
 Components may be labelled by passing a mapping (``{"base": sofr, "spread": s3m}``); labels
-address components in ``curve["spread"]``, ``component_slice("spread")`` and
-``with_component("spread", ...)`` and name the parameter blocks in risk reports.  Labels never
-affect the arithmetic, so they are not part of :attr:`scheme`.
+address components in ``curve["spread"]`` and in the repr.  Labels never affect the arithmetic,
+so they are not part of :attr:`scheme`.
 
-Parameters are the components' parameters concatenated in component order; ``param_offsets``
-recovers each block, which is how risk on a composite is reported per component (index risk vs
-spread risk vs turn risk) rather than as one undifferentiated ladder.
+Parameters are the components' parameters concatenated in component order.  The engines do not
+address them by component: they walk :meth:`leaves` to the atoms, and the market reports risk
+per atom under the key that owns it, so a spread composite's base risk lands on the base index
+and its spread risk on the composite's own key with no block arithmetic here.
 
 Extrapolation is each component's own: a query beyond one component's last pillar uses that
 component's rule, so a two-node flat-forward spread atom (``ZeroCurve.constant``) continues its
@@ -54,8 +54,7 @@ class CompositeCurve(CurveArithmetic):
     Notes
     -----
     The parameter vector is the concatenation of the components' parameters in component
-    order; :attr:`param_offsets` and :meth:`component_slice` recover the blocks.  ``ln DF`` is
-    exactly affine in it because each component's is and the sum is linear.
+    order.  ``ln DF`` is exactly affine in it because each component's is and the sum is linear.
 
     Examples
     --------
@@ -203,43 +202,12 @@ class CompositeCurve(CurveArithmetic):
             tuple((tuple(c.x.tolist()), c.scheme) for c in self._components),
         )
 
-    @property
-    def is_log_linear(self) -> bool:
-        """Always ``False``; a composite is not a single log-linear line."""
-        return False
-
     # -- parameters -----------------------------------------------------------------------
 
     @property
     def n_params(self) -> int:
         """Sum of the components' parameter counts."""
         return int(self._offsets[-1])
-
-    @property
-    def param_offsets(self) -> np.ndarray:
-        """Block boundaries of :attr:`params`.
-
-        Returns
-        -------
-        ndarray of intp, shape (n_components + 1,)
-            Block ``i`` is ``params[off[i]:off[i + 1]]``.
-        """
-        return self._offsets
-
-    def component_slice(self, key: int | str) -> slice:
-        """Slice of :attr:`params` (and of any Jacobian's columns) owned by one component.
-
-        Parameters
-        ----------
-        key : int or str
-            Component index or label.
-
-        Returns
-        -------
-        slice
-        """
-        i = self._index(key)
-        return slice(int(self._offsets[i]), int(self._offsets[i + 1]))
 
     @property
     def params(self) -> FloatArray:
@@ -257,7 +225,7 @@ class CompositeCurve(CurveArithmetic):
         Parameters
         ----------
         params : array_like of float64, shape (n_params,)
-            Split by :attr:`param_offsets` and handed to each component's ``with_params``.
+            Split into the components' blocks and handed to each component's ``with_params``.
 
         Returns
         -------
@@ -272,29 +240,9 @@ class CompositeCurve(CurveArithmetic):
         params = np.asarray(params, dtype=np.float64)
         if params.shape != (self.n_params,):
             raise ValueError(f"expected {self.n_params} parameters; got shape {params.shape}.")
-        components = tuple(c.with_params(params[self.component_slice(i)]) for i, c in enumerate(self._components))
+        off = self._offsets
+        components = tuple(c.with_params(params[off[i] : off[i + 1]]) for i, c in enumerate(self._components))
         return self._from_parts(components, self._weights, self._labels)
-
-    def with_component(self, key: int | str, component: DiscountCurve) -> CompositeCurve:
-        """Replace one component with a curve of any geometry; weights and labels are kept.
-
-        Parameters
-        ----------
-        key : int or str
-            Component index or label.
-        component : DiscountCurve
-            The replacement.
-
-        Returns
-        -------
-        CompositeCurve
-        """
-        i = self._index(key)
-        components = list(self._components)
-        components[i] = component
-        if self._labels is None:
-            return CompositeCurve(components, self._weights)
-        return CompositeCurve(dict(zip(self._labels, components)), self._weights)
 
     # -- structure ------------------------------------------------------------------------
 

@@ -20,7 +20,6 @@ class RateExtrapolator(IntEnum):
 
     FlatForward = 1  # continue the terminal instantaneous forward
     NotAllowed = 2
-    Flat = 1  # alias for FlatForward (historical name)
 
 
 class CurveInterpolator(IntEnum):
