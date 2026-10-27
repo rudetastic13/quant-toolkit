@@ -276,6 +276,12 @@ single-fixing floats.
     until the next reset, so it is rate-dependent and belongs in the kernel, not the column.
   - *Unscheduled* prepayment driven by a behavioural model (speed as a function of rates) is
     likewise rate-dependent and is the same seam as level-pay on a floater.
+  - The generator takes three window parameters: `amort_start` (default effective; flat,
+    interest-only balance before it), `amort_end` (default maturity; the balloon date, where
+    whatever is outstanding is repaid, and it may precede maturity), and `amortization_term`
+    (default `amort_end - amort_start`; the horizon the level payment is solved on, longer than
+    the window for a balloon). A seasoned loan is today's outstanding as the face with
+    `amort_start` today and the remaining term; known curtailments go in a custom schedule.
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
