@@ -25,7 +25,6 @@ from finance.pricing.engines.numpy.dcf import dcf
 from finance.pricing.kernels.inputs import (
     KernelInputs,
     KernelResult,
-    NotionalProvider,
     NO_CAP,
     NO_FLOOR,
     NO_CURVE,
@@ -52,14 +51,19 @@ class LegSpec:
         +1 receive / -1 pay.
     discount_curve, projection_curve : str
         Curve names resolved against the MarketContext at reprice time.
-    notional : NotionalProvider
-        Static/scheduled (materialized at compile); rate-dependent is a designed seam.
+    notional : ndarray of float64, shape (n_periods,)
+        Notional outstanding over each accrual period.  A bullet repeats one amount; scheduled
+        amortisation (straight-line, custom, a constant prepayment speed) is any vector known
+        at compile time.  A notional that depends on the realised rate (level-pay on a
+        floater, rate-driven prepayment) is not a column and is not supported here.
     instrument : int
         Instrument index, so leg PVs roll up to net instrument PV.
     principal_exchange : PrincipalExchange
-        Bullet principal flows: ``-notional`` on the first accrual start and/or ``+notional``
-        on the last payment date.  Lowered as fixed flows with ``rate = period_frac = 1``, so
-        ``cash = notional`` and no kernel knows about them.
+        Principal flows on top of the coupons: ``Initial`` pays ``-notional[0]`` on the first
+        accrual start; ``Final`` pays each paydown ``notional[i] - notional[i + 1]`` on payment
+        date ``i`` and the last notional on the last payment date, so a bullet produces one
+        final flow and an amortiser one per step.  Lowered as fixed flows with
+        ``rate = period_frac = 1``, so ``cash = amount`` and no kernel knows about them.
     """
 
     schedule: PaymentSchedule
@@ -67,7 +71,7 @@ class LegSpec:
     sign: float
     discount_curve: str
     projection_curve: str | None
-    notional: NotionalProvider
+    notional: np.ndarray
     instrument: int = 0
     principal_exchange: PrincipalExchange = PrincipalExchange.Unused
 
@@ -135,7 +139,9 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         disc_id = curve_id(leg.discount_curve)
         proj_id = curve_id(leg.projection_curve)
 
-        amounts = leg.notional.materialize(n)
+        amounts = np.asarray(leg.notional, dtype=np.float64)
+        if amounts.shape != (n,):
+            raise ValueError(f"leg notional must have one value per period: expected shape ({n},), got {amounts.shape}")
         pay.append(ps.payment_dates.astype("datetime64[D]"))
         frac.append(np.asarray(ps.period_fracs, dtype=np.float64))
         sign.append(np.full(n, float(leg.sign)))
@@ -155,12 +161,16 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         rstart.append((ps.reset_starts if has_reset else ps.accrual_starts).astype("datetime64[D]"))
         rend.append((ps.reset_ends if has_reset else ps.accrual_ends).astype("datetime64[D]"))
 
-        # Bullet principal flows after the coupons: fixed flows with rate = period_frac = 1.
+        # Principal flows after the coupons: fixed flows with rate = period_frac = 1.  A paydown
+        # is the drop in outstanding notional at each payment date (to zero after the last), so
+        # a bullet lowers to one final flow and an amortiser to one flow per step.
         principal = []
         if leg.principal_exchange.initial:
             principal.append((ps.accrual_starts[0], -amounts[0]))
         if leg.principal_exchange.final:
-            principal.append((ps.payment_dates[-1], amounts[-1]))
+            paydown = amounts - np.append(amounts[1:], 0.0)
+            for i in np.flatnonzero(paydown):
+                principal.append((ps.payment_dates[i], paydown[i]))
         for date, amount in principal:
             pay.append(np.array([date], dtype="datetime64[D]"))
             frac.append(np.array([1.0]))

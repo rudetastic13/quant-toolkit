@@ -17,13 +17,18 @@ from finance.instruments.schedules.coupon_schedule import (
     FixedCouponEvent,
     CompoundedCouponEvent,
 )
-from finance.pricing.kernels import LegSpec, compile_portfolio, reprice, StaticNotional
+from finance.instruments.enums import PrincipalExchange
+from finance.pricing.kernels import LegSpec, compile_portfolio, reprice
 from finance.pricing.kernels.inputs import NO_CAP, NO_FLOOR
 from finance.pricing.types import RateKind
 
 ACT360 = DayCountMethod.Actual360
 CAL = "no_holidays"
 CURVE = "USD.SOFR.1D"
+
+
+def _notional(ps, amount: float = 100.0) -> np.ndarray:
+    return np.full(ps.n_periods, amount)
 
 
 def _market(origin="2026-06-01"):
@@ -52,7 +57,7 @@ class TestFixedStepUpBond(UnitTest):
             FixedCouponEvent(start_date=Date(2029, 6, 1), coupon_rate=0.05),
         ])
         leg = LegSpec(ps, coupon, sign=1.0, discount_curve=CURVE, projection_curve=None,
-                      notional=StaticNotional(100.0), instrument=0)
+                      notional=_notional(ps), instrument=0)
         ki = compile_portfolio([leg])
         # all fixed, but the fixed_rate column steps up
         self.assertTrue(np.all(ki.rate_kind == RateKind.Fixed))
@@ -67,7 +72,7 @@ class TestFixedStepUpBond(UnitTest):
             FixedCouponEvent(start_date=Date(2028, 6, 1), coupon_rate=0.04),
             FixedCouponEvent(start_date=Date(2029, 6, 1), coupon_rate=0.05),
         ])
-        leg = LegSpec(ps, coupon, 1.0, CURVE, None, StaticNotional(100.0), 0)
+        leg = LegSpec(ps, coupon, 1.0, CURVE, None, _notional(ps), 0)
         res = reprice(compile_portfolio([leg]), mkt)
 
         df = curve.discount_factor(ps.payment_dates)
@@ -92,13 +97,13 @@ class TestParCompoundedSwap(UnitTest):
             fixed_ps,
             CouponSchedule(events=[FixedCouponEvent(start_date=Date(2026, 6, 1), coupon_rate=par)]),
             sign=1.0, discount_curve=CURVE, projection_curve=None,
-            notional=StaticNotional(100.0), instrument=0,
+            notional=_notional(fixed_ps), instrument=0,
         )
         float_leg = LegSpec(
             float_ps,
             CouponSchedule(events=[CompoundedCouponEvent(start_date=Date(2026, 6, 1))]),
             sign=-1.0, discount_curve=CURVE, projection_curve=CURVE,
-            notional=StaticNotional(100.0), instrument=0,
+            notional=_notional(float_ps), instrument=0,
         )
         res = reprice(compile_portfolio([fixed_leg, float_leg]), mkt)
         # two legs, one instrument -> net PV ~ 0
@@ -117,9 +122,9 @@ class TestParCompoundedSwap(UnitTest):
         legs = []
         for inst in (0, 1):
             legs.append(LegSpec(fixed_ps, CouponSchedule(events=[FixedCouponEvent(start_date=Date(2026, 6, 1), coupon_rate=par)]),
-                                1.0, CURVE, None, StaticNotional(100.0), inst))
+                                1.0, CURVE, None, _notional(fixed_ps), inst))
             legs.append(LegSpec(float_ps, CouponSchedule(events=[CompoundedCouponEvent(start_date=Date(2026, 6, 1))]),
-                                -1.0, CURVE, CURVE, StaticNotional(100.0), inst))
+                                -1.0, CURVE, CURVE, _notional(float_ps), inst))
         res = reprice(compile_portfolio(legs), mkt)
         self.assertEqual(res.instrument_pv.shape[0], 2)
         np.testing.assert_allclose(res.instrument_pv, 0.0, atol=1e-8)
@@ -137,7 +142,7 @@ class TestPiecewiseSwitches(UnitTest):
             CompoundedCouponEvent(start_date=Date(2027, 6, 1)),
             FixedCouponEvent(start_date=Date(2029, 6, 1), coupon_rate=0.05),
         ])
-        leg = LegSpec(ps, coupon, 1.0, CURVE, CURVE, StaticNotional(100.0), 0)
+        leg = LegSpec(ps, coupon, 1.0, CURVE, CURVE, _notional(ps), 0)
         ki = compile_portfolio([leg])
         np.testing.assert_array_equal(
             ki.rate_kind,
@@ -164,7 +169,7 @@ class TestOptionalBounds(UnitTest):
         ev = CompoundedCouponEvent(
             start_date=Date(2026, 6, 1), index_floor=index_floor, cap=cap, floor=floor,
         )
-        leg = LegSpec(ps, CouponSchedule(events=[ev]), 1.0, CURVE, CURVE, StaticNotional(100.0), 0)
+        leg = LegSpec(ps, CouponSchedule(events=[ev]), 1.0, CURVE, CURVE, _notional(ps), 0)
         return compile_portfolio([leg])
 
     def test_none_lowers_to_sentinels(self):
@@ -179,3 +184,55 @@ class TestOptionalBounds(UnitTest):
         self.assertTrue(np.all(ki.index_floor == 0.0))
         self.assertTrue(np.all(ki.cap == 0.0))
         self.assertTrue(np.all(ki.floor == 0.0))
+
+
+class TestPrincipalLowering(UnitTest):
+    """Principal flows come from the per-period notional: a bullet repays once, an amortiser as it goes."""
+
+    COVERAGE = ["finance.pricing.kernels.compiler"]
+
+    def _leg(self, notional, exchange):
+        ps = _annual_schedule(4)
+        coupon = CouponSchedule(events=[FixedCouponEvent(start_date=Date(2026, 6, 1), coupon_rate=0.03)])
+        return ps, LegSpec(ps, coupon, 1.0, CURVE, None, notional, 0, principal_exchange=exchange)
+
+    def test_bullet_repays_at_maturity_only(self):
+        ps, leg = self._leg(_notional(ps=_annual_schedule(4)), PrincipalExchange.Both)
+        ki = compile_portfolio([leg])
+        self.assertEqual(ki.n_flows, 4 + 2)
+        np.testing.assert_array_equal(ki.notional[4:], [-100.0, 100.0])
+        self.assertEqual(ki.pay_dates[4], ps.accrual_starts[0])
+        self.assertEqual(ki.pay_dates[5], ps.payment_dates[-1])
+        np.testing.assert_array_equal(ki.period_frac[4:], [1.0, 1.0])
+        np.testing.assert_array_equal(ki.fixed_rate[4:], [1.0, 1.0])
+
+    def test_amortiser_pays_each_step_down_on_its_payment_date(self):
+        ps, leg = self._leg(np.array([100.0, 75.0, 50.0, 25.0]), PrincipalExchange.Both)
+        ki = compile_portfolio([leg])
+        np.testing.assert_array_equal(ki.notional[:4], [100.0, 75.0, 50.0, 25.0])  # coupons accrue on the outstanding
+        self.assertEqual(ki.n_flows, 4 + 1 + 4)
+        np.testing.assert_array_equal(ki.notional[4:], [-100.0, 25.0, 25.0, 25.0, 25.0])
+        np.testing.assert_array_equal(ki.pay_dates[5:], ps.payment_dates)
+        self.assertEqual(ki.notional[4:].sum(), 0.0)  # what went out comes back
+
+    def test_principal_only_on_the_slower_grid_skips_flat_periods(self):
+        # principal every second coupon period: the notional is flat in between, so no flow there
+        ps, leg = self._leg(np.array([100.0, 100.0, 50.0, 50.0]), PrincipalExchange.Final)
+        ki = compile_portfolio([leg])
+        self.assertEqual(ki.n_flows, 4 + 2)
+        np.testing.assert_array_equal(ki.notional[4:], [50.0, 50.0])
+        np.testing.assert_array_equal(ki.pay_dates[4:], ps.payment_dates[[1, 3]])
+
+    def test_amortising_pv_is_the_sum_of_its_flows(self):
+        mkt, _ = _market()
+        ps, leg = self._leg(np.array([100.0, 75.0, 50.0, 25.0]), PrincipalExchange.Both)
+        res = reprice(compile_portfolio([leg]), mkt)
+        self.assertAlmostEqual(res.instrument_pv[0], res.flow_pv.sum(), places=9)
+        bullet = reprice(compile_portfolio([self._leg(_notional(ps), PrincipalExchange.Both)[1]]), mkt)
+        self.assertLess(abs(res.instrument_pv[0]), abs(bullet.instrument_pv[0]))  # less duration, closer to par
+
+    def test_notional_must_be_one_value_per_period(self):
+        ps = _annual_schedule(4)
+        coupon = CouponSchedule(events=[FixedCouponEvent(start_date=Date(2026, 6, 1), coupon_rate=0.03)])
+        with self.assertRaises(ValueError):
+            compile_portfolio([LegSpec(ps, coupon, 1.0, CURVE, None, np.array([100.0, 50.0]), 0)])

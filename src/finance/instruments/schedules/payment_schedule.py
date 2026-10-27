@@ -52,8 +52,8 @@ def adjust_schedule_boundaries(
 class PaymentSchedule:
     """Numpy array container for a single leg's accrual/payment grid.
 
-    Built once from ``build_payment_schedule``.  The ``notional_schedule``
-    slot is left ``None`` until an ``AmortSchedule`` fills it.
+    Built once from ``build_payment_schedule``.  Notional is contract data on the leg, not
+    part of the date grid.
     """
 
     accrual_starts: np.ndarray       # datetime64[D], N periods
@@ -62,7 +62,6 @@ class PaymentSchedule:
     period_fracs: np.ndarray         # float64, N periods
     reset_starts: np.ndarray | None  # datetime64[D], N — single-fixing projection window start
     reset_ends: np.ndarray | None    # datetime64[D], N — single-fixing projection window end
-    notional_schedule: np.ndarray | None = field(default=None)  # float64, N periods
 
     # Tier-2 observation grid (compounded/averaged legs). M total fixings across all periods.
     obs_read_starts: np.ndarray | None = field(default=None)   # datetime64[D], M (rate-read window start)
@@ -283,7 +282,6 @@ def build_payment_schedule(
         period_fracs=pf,
         reset_starts=reset_starts,
         reset_ends=reset_ends,
-        notional_schedule=None,
         obs_read_starts=obs_read_starts,
         obs_read_ends=obs_read_ends,
         obs_weights=obs_weights,

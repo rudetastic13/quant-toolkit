@@ -150,6 +150,3 @@ class CommonInstrument(CommonObject):
         if self.cap is not None and self.floor is not None and self.cap < self.floor:
             result.add_failure(f"cap ({self.cap}) is below floor ({self.floor})")
         return result
-
-
-__all__ = ["CommonInstrument"]

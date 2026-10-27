@@ -261,9 +261,21 @@ single-fixing floats.
   `RiskEngine` front door that dispatches between them per
   [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
   rebuild-per-pillar KRD.
-- **Dynamic notionals.** `NotionalProvider` is the seam for amortising notionals (only the
-  bullet `StaticNotional` exists; a scheduled or rate-dependent provider materialises the same
-  per-period array).
+- **Amortisation.** `LegSpec.notional` is a per-period array and the compiler lowers the
+  principal flows from it: under `PrincipalExchange.Final` each drop in outstanding notional is
+  paid on its payment date, so a bullet repays once and an amortiser as it goes. The kernel
+  needs nothing else. What remains is the *generator* on the leg, following the coupon pattern
+  (a flat `notional` lowers to one event; a `NotionalSchedule` of `(start_date, notional)`
+  events is the custom path), with these rules agreed Oct 2026 and not yet built:
+  - *Scheduled* paydowns are contract data: straight-line, level-pay on a fixed rate, a custom
+    schedule, or a constant prepayment speed (CPR/SMM) are all vectors known at compile time.
+  - A principal frequency may be the coupon frequency or **slower** (quarterly interest with
+    annual principal), never faster; validated like the reset-vs-pay check. The notional is flat
+    between principal dates, so the lowering emits no flow there.
+  - *Level-pay on a floater* (an ARM): the payment is solved from the rate at each reset and held
+    until the next reset, so it is rate-dependent and belongs in the kernel, not the column.
+  - *Unscheduled* prepayment driven by a behavioural model (speed as a function of rates) is
+    likewise rate-dependent and is the same seam as level-pay on a floater.
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).

@@ -58,10 +58,6 @@ class TestBuildPaymentSchedule(UnitTest):
         np.testing.assert_array_equal(ps.reset_starts, ps.accrual_starts)
         np.testing.assert_array_equal(ps.reset_ends, ps.accrual_ends)
 
-    def test_notional_schedule_initially_none(self):
-        ps = self._build_5y_semi()
-        self.assertIsNone(ps.notional_schedule)
-
 
 class TestBuildPaymentScheduleQuarterly(UnitTest):
     COVERAGE = ["finance.instruments.schedules.payment_schedule"]

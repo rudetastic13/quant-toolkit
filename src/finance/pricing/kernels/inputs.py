@@ -29,26 +29,6 @@ NO_CURVE = -1
 
 
 # ---------------------------------------------------------------------------
-# Notional providers — the seam for amortising notionals; only the bullet exists today.
-# ---------------------------------------------------------------------------
-class NotionalProvider:
-    """Produces the per-period notional array for a leg: ``materialize(n_periods) -> (n_periods,)``."""
-
-    def materialize(self, n_periods: int) -> FloatArray:  # pragma: no cover
-        raise NotImplementedError
-
-
-@dataclass
-class StaticNotional(NotionalProvider):
-    """Constant notional across all periods (bullet)."""
-
-    amount: float
-
-    def materialize(self, n_periods: int) -> FloatArray:
-        return np.full(int(n_periods), float(self.amount), dtype=np.float64)
-
-
-# ---------------------------------------------------------------------------
 # Columnar compiled inputs.
 # ---------------------------------------------------------------------------
 @dataclass
@@ -59,7 +39,7 @@ class KernelInputs:
     pay_dates: DateArray         # datetime64[D]
     period_frac: FloatArray
     sign: FloatArray             # +/- per flow (receive/pay)
-    notional: FloatArray         # materialized (static/scheduled fast path)
+    notional: FloatArray         # per flow: a bullet repeats one amount, an amortiser steps down
     rate_kind: IntArray          # RateKind codes (int8)
     fixed_rate: FloatArray
     spread: FloatArray
@@ -111,13 +91,3 @@ class KernelResult:
     rate: FloatArray | None = None       # (F,) realized per-period rate (handy for reports)
     df: FloatArray | None = None         # (F,) payment discount factors; expired flows are zero
 
-
-__all__ = [
-    "NotionalProvider",
-    "StaticNotional",
-    "KernelInputs",
-    "KernelResult",
-    "NO_CAP",
-    "NO_FLOOR",
-    "NO_CURVE",
-]

@@ -10,13 +10,15 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
+import numpy as np
+
 from finance.conventions import CurveKey
 from finance.dates.term import TermType
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.priceable import pricer_registry
 from finance.instruments.resolution.resolver import curve_name, funding_curve_name
 from finance.instruments.schedules.payment_schedule import build_payment_schedule
-from finance.pricing.kernels import LegSpec, StaticNotional, compile_portfolio
+from finance.pricing.kernels import LegSpec, compile_portfolio
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.results import PricingResult
 from finance.pricing.types import Backend
@@ -82,7 +84,7 @@ def leg_spec(
     return LegSpec(
         schedule=schedule, coupon=leg.coupon_schedule, sign=sign, discount_curve=discount_curve,
         projection_curve=projection_curve if leg.is_floating else None,
-        notional=StaticNotional(leg.notional), instrument=instrument,
+        notional=np.full(schedule.n_periods, float(leg.notional)), instrument=instrument,
         principal_exchange=leg.principal_exchange,
     )
 

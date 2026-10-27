@@ -4,9 +4,10 @@ from common.containers.enums import SupportedIntEnum
 class PrincipalExchange(SupportedIntEnum):
     """Which principal flows a leg exchanges, on top of its coupons (bullet notional).
 
-    ``Initial`` pays the notional out on the effective date, ``Final`` receives it back on the
-    last payment date, ``Both`` does both — a deposit or a bond leg.  An amortising paydown is
-    the notional provider's job, not this flag's.
+    ``Initial`` pays the notional out on the effective date, ``Final`` receives it back,
+    ``Both`` does both — a deposit or a bond leg.  Under ``Final`` the compiler pays each step
+    down in the leg's per-period notional on its payment date, so an amortiser repays as it
+    goes and a bullet repays at maturity.
     """
 
     Unused = 0
