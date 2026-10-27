@@ -94,7 +94,7 @@ class TestNumbaProgram(UnitTest):
 
     def test_reprice_rejects_changed_pillar_geometry(self):
         program = NumbaProgram(SwapPricer().compile(_book(self.as_of, 1)).inputs, self.market)
-        yc = self.market.yield_curve(CURVE)
+        yc = self.market[CURVE]
         dates = np.insert(yc.node_dates, 2, yc.node_dates[1] + np.timedelta64(30, "D"))
         dfs = np.interp(dates.astype(np.int64), yc.node_dates.astype(np.int64), yc.zero_curve.dfs)
         changed_curve = yc.with_zero_curve(ZeroCurve(yc.to_x(dates), dfs))

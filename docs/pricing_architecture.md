@@ -93,7 +93,7 @@ flowchart TB
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
-        CN["key -> DiscountCurve<br/>(yield_curve(key): origin + conventions + fixings)"]
+        CN["key -> YieldCurve<br/>(origin + index family + fixings over a DiscountCurve)"]
         RG["RateGenerator"]
         VN["VolNamespace -> VolSurface (seam)"]
     end
@@ -445,14 +445,14 @@ from finance.markets import RateGenerator
 
 market = result.market                       # USD.SOFR.1D and USD.STDCSA: one curve, two keys
 CN = "USD.SOFR.1D"
-sofr_curve = market.yield_curve(CN)
+sofr_curve = market[CN]
 
 # zero rates (continuously-compounded) at each pillar
 sofr_curve.zero_rate(result.pillar_dates) * 100
 # [4.300, 4.320, 4.350, 4.390, 4.197, 4.097, 4.017, 4.103]  (%, 1M … 10Y)
 
 # discount factors at the same pillars
-market.yield_curve(CN).discount_factor(result.pillar_dates)
+market[CN].discount_factor(result.pillar_dates)
 # [0.99643, 0.98919, 0.97832, 0.95654, 0.91894, 0.88424, 0.81672, 0.66487]
 
 # rate generation is separate from curve storage and market lookup

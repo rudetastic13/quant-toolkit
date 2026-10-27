@@ -76,7 +76,7 @@ class RateGenerator:
     ) -> FloatArray:
         """Simple index rate over each window, overlaying realized fixings first."""
         starts, ends = _check_windows(starts, ends)
-        yield_curve = self.market.yield_curve(curve_name)
+        yield_curve = self.market[curve_name]
         if day_count is None:
             if yield_curve.family is None:
                 raise ValueError(
@@ -131,7 +131,7 @@ class RateGenerator:
         if a.currency != b.currency:
             raise ValueError(f"spread of '{a}' over '{b}': the curves are in different currencies")
         if day_count is None:
-            family = self.market.yield_curve(curve_name).family
+            family = self.market[curve_name].family
             if family is None:
                 raise ValueError(f"curve '{curve_name}' is a discount curve with no index; pass day_count for a spread")
             day_count = family.day_count_method
@@ -149,7 +149,7 @@ class RateGenerator:
         rates = np.zeros(days.size, dtype=np.float64)
         nonzero = days > 0.0
         if nonzero.any():
-            curve = self.market.yield_curve(curve_name)
+            curve = self.market[curve_name]
             log_start = curve.log_discount_factor(starts[nonzero])
             log_end = curve.log_discount_factor(ends[nonzero])
             rates[nonzero] = -(log_end - log_start) / (days[nonzero] / 365.0)

@@ -315,7 +315,7 @@ class RiskTemplate:
         for h in self.instruments:
             if h.curve not in market:
                 raise TemplateError("MISSING_CURVE", f"'{h.curve}' is not registered in the market")
-            if market[h.curve].x.size < 2:
+            if market[h.curve].zero_curve.x.size < 2:
                 raise TemplateError("MISSING_CURVE", f"'{h.curve}' has no pillars")
         resolver = ParamLayout.build(market, self.curves)
         block_of = {c: resolver.block_of(c) for c in self.curves}

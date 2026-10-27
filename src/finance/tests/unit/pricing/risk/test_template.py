@@ -55,7 +55,7 @@ def _market() -> MarketContext:
     market = MarketContext(AS_OF)
     market[SOFR] = sofr
     market[STDCSA] = sofr
-    market[FEDFUND] = market[SOFR] - 5 * bp
+    market[FEDFUND] = market[SOFR].zero_curve - 5 * bp
     return market.freeze()
 
 

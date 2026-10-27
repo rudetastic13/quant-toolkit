@@ -31,7 +31,7 @@ def _market(as_of: Date) -> MarketContext:
     market = MarketContext(as_of, vols=vols)
     market[SOFR] = sofr
     market[STDCSA] = sofr
-    market[FEDFUND] = market[SOFR] - 5 * bp
+    market[FEDFUND] = market[SOFR].zero_curve - 5 * bp
     return market.freeze()
 
 
@@ -68,7 +68,7 @@ class TestPillarRiskAdapters(UnitTest):
         np.testing.assert_array_equal(risk.block(SOFR), door.unit_zero_jacobian(SOFR))
         np.testing.assert_array_equal(risk.block(FEDFUND), door.unit_zero_jacobian(FEDFUND))
         np.testing.assert_allclose(risk.pv, program.reprice(self.market).instrument_pv, rtol=1e-10)
-        np.testing.assert_array_equal(risk.pillar_dates[SOFR], self.market.yield_curve(SOFR).node_dates[1:])
+        np.testing.assert_array_equal(risk.pillar_dates[SOFR], self.market[SOFR].node_dates[1:])
         np.testing.assert_allclose(risk.dv01, risk.values * 1e-4)
         self.assertEqual(risk.block(FEDFUND).shape, (2, 1))
         self.assertAlmostEqual(risk.block(FEDFUND)[0, 0], 0.0)  # the SOFR swap carries no basis risk
@@ -117,7 +117,7 @@ class TestPillarRiskAdapters(UnitTest):
     def test_aligned_reorders_zero_fills_and_checks_pillars(self):
         risk = pillar_risk(SwapPricer().compile(self.book[:1]), self.market)
         dates = {
-            FEDFUND: self.market.yield_curve(FEDFUND).node_dates[-1:],
+            FEDFUND: self.market[FEDFUND].node_dates[-1:],
             SOFR: risk.pillar_dates[SOFR],
             "USD.UST": np.array(["2027-06-01"], dtype="datetime64[D]"),
         }
@@ -175,7 +175,7 @@ class TestTemplateJacobian(UnitTest):
     def test_requested_curve_order_and_zero_columns(self):
         jac = template_jacobian(self.ff_helpers, self.market, curves=(FEDFUND, SOFR))
         self.assertEqual(jac.curves, (FEDFUND, SOFR))
-        self.assertEqual(jac.n_params, self.market[SOFR].n_params + 1)
+        self.assertEqual(jac.n_params, self.market[SOFR].zero_curve.n_params + 1)
         with self.assertRaisesRegex(ValueError, "not in the template"):
             template_jacobian(self.ff_helpers, self.market, curves=(FEDFUND,))
         with self.assertRaises(ValueError):

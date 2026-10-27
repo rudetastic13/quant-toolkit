@@ -6,10 +6,10 @@ carries `HistoricalFixings`. It is the only layer that sees dates, and it is the
 `MarketContext` registers and `RateGenerator` reads.
 
 ```text
-DiscountCurve (02–04)  +  origin  +  key (+ index conventions for a projection key)  +  fixings
+DiscountCurve (02–04)  +  origin  +  key (+ index family for a projection key)  +  fixings
         │
         ▼
-    DiscountCurve  ──market[key] = curve──▶  MarketContext  ──yield_curve(key)──▶  RateGenerator, pricers
+    DiscountCurve  ──market[key] = curve──▶  MarketContext  ──market[key]──▶  RateGenerator, pricers
 ```
 
 Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says what the curve is:
@@ -19,8 +19,8 @@ Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says wh
 | `CCY.INDEX.TENOR` | projection: what a floating leg resets off; `1D` for overnight | `USD.SOFR.1D`, `USD.FEDFUND.1D`, `USD.CME-TERM-SOFR.3M` |
 | `CCY.NAME` | discounting: a funding or collateral regime, or an issuer; no tenor | `USD.STDCSA`, `GBP.USDSTDCSA`, `USD.UST` |
 
-A projection key carries its index family's conventions (day count, fixing rules, published
-tenors); a discount key carries none, because nothing resets off it. A market registers every key
+A projection key carries its `IndexFamily` (day count, fixing rules, published tenors); a
+discount key carries none, because nothing resets off it. A market registers every key
 its trades name: a swap with `funding_id="STDCSA"` discounts off `USD.STDCSA`, and "discount at
 SOFR" is the SOFR curve object bound under that key as well. There is no implicit default.
 
@@ -127,10 +127,11 @@ fedfund_yc.node_dates                              # the composite's union of pi
 
 ## In the market
 
-`MarketContext` is a `Mapping[str, DiscountCurve]` keyed by curve key and the container pricers
+`MarketContext` is a `Mapping[str, YieldCurve]` keyed by curve key and the container pricers
 read. Assigning the SOFR curve a second time under `USD.STDCSA` is how the market says "discount
-at SOFR": one object, two keys. A `YieldCurve` can be assigned too (its fixings come with it);
-what is stored is always the mathematical curve, and `yield_curve(key)` is the derived view.
+at SOFR": one mathematical object, two keys, one `YieldCurve` view per key. A bare `DiscountCurve`
+is wrapped under the key it is assigned to; a `YieldCurve` under its own key keeps its fixings.
+`market[key]` is the view and `market[key].zero_curve` the mathematical curve.
 
 ```python
 from finance.markets import RateGenerator

@@ -33,9 +33,9 @@ def _market(as_of: Date) -> MarketContext:
     sofr = _sofr(as_of)
     market[SOFR] = sofr
     market[STDCSA] = sofr
-    market[FEDFUND] = market[SOFR] - 5 * bp
-    market[TERM3M] = market[SOFR] + 10 * bp
-    market[TERM6M] = market[TERM3M] + 5 * bp
+    market[FEDFUND] = market[SOFR].zero_curve - 5 * bp
+    market[TERM3M] = market[SOFR].zero_curve + 10 * bp
+    market[TERM6M] = market[TERM3M].zero_curve + 5 * bp
     return market.freeze()
 
 
@@ -45,7 +45,7 @@ class TestParamLayout(UnitTest):
     def setUp(self):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
-        self.n = self.market[SOFR].n_params
+        self.n = self.market[SOFR].zero_curve.n_params
 
     def test_shared_atom_is_one_block_named_after_its_owner(self):
         layout = ParamLayout.build(self.market, [FEDFUND, STDCSA])
@@ -64,13 +64,13 @@ class TestParamLayout(UnitTest):
         # 6M's own parameters are [sofr | 3M spread | 6M spread]; the first two live in other blocks
         np.testing.assert_array_equal(layout.column_maps[TERM6M], np.r_[np.arange(self.n), self.n, self.n + 1])
         np.testing.assert_allclose(
-            layout.params(self.market), np.r_[self.market[SOFR].params, 0.0010, 0.0005], rtol=1e-12
+            layout.params(self.market), np.r_[self.market[SOFR].zero_curve.params, 0.0010, 0.0005], rtol=1e-12
         )
 
     def test_a_key_spanning_blocks_it_does_not_own_cannot_report(self):
         ust = ZeroCurve.constant(0.03, 3650.0)
         market = MarketContext(self.as_of, {SOFR: self.market[SOFR], "USD.UST": ust})
-        market["USD.BLEND"] = CompositeCurve((market[SOFR], market["USD.UST"]), weights=(0.5, 0.5))
+        market["USD.BLEND"] = CompositeCurve((market[SOFR].zero_curve, market["USD.UST"].zero_curve), weights=(0.5, 0.5))
         layout = ParamLayout.build(market, ["USD.BLEND"])
         self.assertEqual(layout.blocks, (SOFR, "USD.UST"))
         with self.assertRaisesRegex(KeyError, "spans several blocks"):
@@ -80,14 +80,14 @@ class TestParamLayout(UnitTest):
 
     def test_pillars_follow_the_block(self):
         layout = ParamLayout.build(self.market, [FEDFUND, STDCSA])
-        np.testing.assert_array_equal(layout.pillar_dates(STDCSA), self.market.yield_curve(SOFR).node_dates[1:])
+        np.testing.assert_array_equal(layout.pillar_dates(STDCSA), self.market[SOFR].node_dates[1:])
         np.testing.assert_allclose(layout.pillar_years(FEDFUND), [3650.0 / 365.0])
 
     def test_compatible_tracks_atoms_weights_and_ownership(self):
         layout = ParamLayout.build(self.market, [FEDFUND, STDCSA])
         self.assertTrue(layout.compatible(self.market.bump(SOFR, 1e-4), [FEDFUND, STDCSA]))
         self.assertTrue(layout.compatible(self.market.bump(FEDFUND, 1e-4), [FEDFUND, STDCSA]))
-        regeared = self.market.with_curve(FEDFUND, self.market[SOFR] - ZeroCurve.constant(0.0005, 365.0))
+        regeared = self.market.with_curve(FEDFUND, self.market[SOFR].zero_curve - ZeroCurve.constant(0.0005, 365.0))
         self.assertFalse(layout.compatible(regeared, [FEDFUND, STDCSA]))  # spread pillar moved
         realiased = self.market.with_curve(STDCSA, ZeroCurve.constant(0.03, 3650.0))
         self.assertFalse(layout.compatible(realiased, [FEDFUND, STDCSA]))  # STDCSA no longer SOFR's atom
@@ -105,7 +105,7 @@ class TestLayoutThroughTheEngines(UnitTest):
         pytest.importorskip("numba")
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
-        self.n = self.market[SOFR].n_params
+        self.n = self.market[SOFR].zero_curve.n_params
         self.ff_swap = Swap.fixed_float_swap(
             notional=100e6, rate_index="USD.FEDFUND.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
         )
@@ -168,7 +168,7 @@ class TestLayoutThroughTheEngines(UnitTest):
         np.testing.assert_allclose(
             prepared.reprice(moved).instrument_pv, program.reprice(moved).instrument_pv, rtol=1e-11
         )
-        regeared = self.market.with_curve(FEDFUND, self.market[SOFR] - ZeroCurve.constant(0.0005, 365.0))
+        regeared = self.market.with_curve(FEDFUND, self.market[SOFR].zero_curve - ZeroCurve.constant(0.0005, 365.0))
         with self.assertRaises(ValueError):
             prepared.params_from_market(regeared)
 

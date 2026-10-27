@@ -95,7 +95,7 @@ def build_book(as_of: Date, n: int) -> list:
 def bench(n_swaps: int, as_of: Date, market, cn: str) -> None:
     program = SwapPricer().compile(build_book(as_of, n_swaps))
     P = program.inputs.n_flows
-    n_pillars = int(np.count_nonzero(market[cn].x > 0))
+    n_pillars = int(np.count_nonzero(market[cn].zero_curve.x > 0))
     print(f"\n{'='*78}\nBOOK: {n_swaps} swaps  ({P} flows, {n_pillars} curve pillars)\n{'='*78}")
 
     sens = Sensitivities(program, market)

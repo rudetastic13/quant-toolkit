@@ -329,7 +329,7 @@ def seven_year_swap_report(
         }
     )
 
-    curve = market.yield_curve(CURVE)
+    curve = market[CURVE]
     pillar_dates = curve.node_dates[1:]
     pillar_years = (
         pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -490,7 +490,7 @@ def aggregate_portfolio_report(
     partial_dv01 = _partial_dv01(risk.unit_zero_jacobian(CURVE), jacobian).sum(axis=0)
     gamma = risk.gamma(CURVE)
 
-    curve = market.yield_curve(CURVE)
+    curve = market[CURVE]
     pillar_dates = curve.node_dates[1:]
     pillar_years = (
         pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -589,7 +589,7 @@ def key_rate_duration_table(
         krd = ladder.krd
     elif backend == "numba":
         program = SwapPricer().compile(swaps, backend=Backend.Numba)
-        curve = market.yield_curve(CURVE)
+        curve = market[CURVE]
         pillar_dates = curve.node_dates[1:]
         pillar_years = (
             pillar_dates.astype(np.int64) - curve.origin.astype(np.int64)
@@ -852,7 +852,7 @@ if __name__ == "__main__":
     market = register_sofr_curve(res_global)
     print("\n=== Explicit curve composition ===")
     print(f"  calibration output : {type(res_global.zero_curve).__name__}")
-    print(f"  registered object  : {type(market.yield_curve(CURVE)).__name__} ({CURVE})")
+    print(f"  registered object  : {type(market[CURVE]).__name__} ({CURVE})")
     seven_year_swap_report(market, res_global.jacobian)
     aggregate_portfolio_report(market, res_global.jacobian, n_swaps=100, seed=7)
 

@@ -127,7 +127,7 @@ class TestSeasonedSofrRisk(UnitTest):
         analytic = self.risk.cashflow_zero_delta(CURVE)[target]
         self.assertGreater(np.abs(index_delta).sum(), 0.0)
 
-        n_params = self.market[CURVE].n_params
+        n_params = self.market[CURVE].zero_curve.n_params
         finite_difference = np.zeros_like(analytic)
         for column in range(n_params):
             shift = np.zeros(n_params)

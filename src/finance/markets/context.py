@@ -1,11 +1,12 @@
 """MarketContext — the curves a market knows, by key, plus vols, fixings and conventions.
 
-A market is a ``Mapping[str, DiscountCurve]``: ``market["USD.SOFR.1D"]`` is the mathematical
-curve registered under that key and ``market.yield_curve("USD.SOFR.1D")`` the date-aware view
-the engines read (origin = ``as_of``, the key's conventions, the key's fixings).  Keys follow
-the grammar of :class:`finance.conventions.CurveKey`: ``CCY.INDEX.TENOR`` projects, ``CCY.NAME``
-discounts.  The curves live in one :class:`~finance.markets.yield_curve_group.YieldCurveGroup`
-per currency; a key is resolved by its currency, so every engine keeps reading ``market[key]``.
+A market is a ``Mapping[str, YieldCurve]``: ``market["USD.SOFR.1D"]`` is the curve registered
+under that key (origin = ``as_of``, the key's index family, the key's fixings) and
+``market[key].zero_curve`` the mathematical object underneath, which is what composites,
+ownership and the engines' parameter layout work on.  Keys follow the grammar of
+:class:`finance.conventions.CurveKey`: ``CCY.INDEX.TENOR`` projects, ``CCY.NAME`` discounts.
+The curves live in one :class:`~finance.markets.yield_curve_group.YieldCurveGroup` per currency;
+a key is resolved by its currency.
 
 Assembly is by ``add`` and reads like finance::
 
@@ -14,8 +15,9 @@ Assembly is by ``add`` and reads like finance::
     market.add(fedfund)                               # key USD.FEDFUND.1D, built as sofr - 5 * bp
 
 ``market["USD.STDCSA"] = sofr`` is the same registration one key at a time (``add`` under that
-name alone).  Sharing is by object identity, declared by construction: writing ``sofr - 5 * bp``
-already says the Fed Funds curve is built on ``sofr``.  Scenarios propagate through that
+name alone; a bare ``DiscountCurve`` is wrapped, a ``YieldCurve`` under another key is re-keyed).
+Sharing is by object identity, declared by construction: writing ``sofr.zero_curve - 5 * bp``
+already says the Fed Funds curve is built on SOFR.  Scenarios propagate through that
 structure: ``with_curve`` and ``bump`` return new markets in which the moved object is replaced
 wherever it appears, so "bump SOFR" moves Fed Funds and leaves the basis alone.  A registered
 key owns the parameters nobody else owns (:meth:`MarketContext.leaf_owner`); ``bump(key, ...)``
@@ -65,7 +67,7 @@ def _contains(curve: DiscountCurve, target: DiscountCurve) -> bool:
     return any(_contains(part, target) for part in _components(curve))
 
 
-class MarketContext(Mapping[str, DiscountCurve]):
+class MarketContext(Mapping[str, YieldCurve]):
     """Registered curves by key, with the as-of date, conventions, fixings and vols pricers read.
 
     Parameters
@@ -82,14 +84,14 @@ class MarketContext(Mapping[str, DiscountCurve]):
     -----
     A market is mutable while it is being assembled and :meth:`freeze` makes it read-only.
     :meth:`with_curve`, :meth:`bump` and :meth:`with_fixings` return frozen copies; the market
-    they were called on is never changed.  ``market[key]`` is the registered ``DiscountCurve``;
-    :meth:`yield_curve` is the stored date-aware view, one per key.
+    they were called on is never changed.  ``market[key]`` is the registered ``YieldCurve``,
+    one per key; ``market[key].zero_curve`` is the mathematical curve it holds.
 
     Examples
     --------
     >>> market = MarketContext(Date(2026, 6, 1))                              # doctest: +SKIP
     >>> market.add(sofr, funding_names=["USD.STDCSA"])                        # doctest: +SKIP
-    >>> market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"] - 5 * bp             # doctest: +SKIP
+    >>> market["USD.FEDFUND.1D"] = market["USD.SOFR.1D"].zero_curve - 5 * bp  # doctest: +SKIP
     >>> market.leaf_owner()                                                   # doctest: +SKIP
     {<id of sofr>: 'USD.SOFR.1D', <id of the spread>: 'USD.FEDFUND.1D'}
     >>> up = market.bump("USD.SOFR.1D", 1e-4)      # Fed Funds follows, the spread does not  # doctest: +SKIP
@@ -188,8 +190,8 @@ class MarketContext(Mapping[str, DiscountCurve]):
 
     # -- Mapping ----------------------------------------------------------------------------
 
-    def __getitem__(self, key: str) -> DiscountCurve:
-        return self._view(key).zero_curve
+    def __getitem__(self, key: str) -> YieldCurve:
+        return self._view(key)
 
     def __iter__(self) -> Iterator[str]:
         return iter(self._views())
@@ -280,12 +282,6 @@ class MarketContext(Mapping[str, DiscountCurve]):
             raise TypeError("this MarketContext is frozen; use with_curve() / bump() for scenario copies")
         self.add(self._as_view(self._key(key), curve))
 
-    # -- derived views ------------------------------------------------------------------
-
-    def yield_curve(self, key: str) -> YieldCurve:
-        """The date-aware view registered under ``market[key]``: origin, the key's conventions and fixings."""
-        return self._view(key)
-
     # -- ownership ----------------------------------------------------------------------
 
     def leaf_owner(self) -> dict[int, str]:
@@ -322,7 +318,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
         return owner
 
     def owned(self, key: str) -> tuple[DiscountCurve, ...]:
-        """The atoms ``key`` owns, in the parameter order of ``market[key]``.
+        """The atoms ``key`` owns, in the parameter order of ``market[key].zero_curve``.
 
         ``bump(key, vector)`` lays ``vector`` out over their parameters in this order.
         """
@@ -330,7 +326,7 @@ class MarketContext(Mapping[str, DiscountCurve]):
         owner = self.leaf_owner()
         out: list[DiscountCurve] = []
         seen: set[int] = set()
-        for atom, _depth in _atoms(self[name]):
+        for atom, _depth in _atoms(self._view(name).zero_curve):
             if owner[id(atom)] == name and id(atom) not in seen:
                 seen.add(id(atom))
                 out.append(atom)

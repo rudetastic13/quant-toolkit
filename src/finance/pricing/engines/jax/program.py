@@ -63,14 +63,14 @@ class JaxProgram:
         owner = market.leaf_owner()
         self._block_of: dict[str, str] = {}
         for name in self.curve_names:
-            curve = market[name]
+            curve = market[name].zero_curve
             if not isinstance(curve, ZeroCurve) or curve.scheme != LOG_LINEAR:
                 raise NotImplementedError(
                     f"the JAX oracle models log-linear ZeroCurve atoms only; '{name}' is {curve!r}"
                 )
             self._block_of[name] = owner[id(curve)]
         self.block_names: list[str] = list(dict.fromkeys(self._block_of.values()))
-        self.geoms: dict[str, CurveGeometry] = {name: curve_geometry(market[name]) for name in self.block_names}
+        self.geoms: dict[str, CurveGeometry] = {name: curve_geometry(market[name].zero_curve) for name in self.block_names}
         self._df = {name: make_df(g) for name, g in self.geoms.items()}
 
         # -- per-flow static columns ----------------------------------------------------
@@ -108,7 +108,7 @@ class JaxProgram:
         reset_is_fixed = np.zeros(self.F, dtype=np.bool_)
         reset_fixing = np.zeros(self.F, dtype=np.float64)
         for ci, name in enumerate(self.curve_names):
-            yield_curve = market.yield_curve(name)
+            yield_curve = market[name]
             origin = yield_curve.origin
             mask = (
                 (ki.proj_curve == ci)
@@ -173,7 +173,7 @@ class JaxProgram:
             obs_is_fixed = np.zeros(M, dtype=np.bool_)
             obs_fixing = np.zeros(M, dtype=np.float64)
             for ci, name in enumerate(self.curve_names):
-                yield_curve = market.yield_curve(name)
+                yield_curve = market[name]
                 origin = yield_curve.origin
                 mask = (
                     (self.obs_proj_of_obs == ci)
@@ -203,7 +203,7 @@ class JaxProgram:
         Both dicts start from the same calibrated curves, but they are *separate* leaves:
         differentiating in ``disc_params`` gives funding risk, in ``proj_params`` index risk.
         """
-        z = {name: jnp.asarray(curve_geometry(market[name]).z0) for name in self.block_names}
+        z = {name: jnp.asarray(curve_geometry(market[name].zero_curve).z0) for name in self.block_names}
         return {k: v for k, v in z.items()}, {k: jnp.asarray(np.asarray(v)) for k, v in z.items()}
 
     # -- the differentiable valuation ---------------------------------------------------

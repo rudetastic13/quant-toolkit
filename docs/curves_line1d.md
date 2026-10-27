@@ -374,8 +374,8 @@ market = MarketContext(Date(2026, 6, 1))
 market["USD.SOFR.1D"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
 market["USD.STDCSA"] = yc                  # the same curve is the discount curve
 
-market.yield_curve("USD.SOFR.1D")             # the YieldCurve view
-market["USD.SOFR.1D"]                         # its ZeroCurve
+market["USD.SOFR.1D"]                         # the registered YieldCurve
+market["USD.SOFR.1D"].zero_curve              # its ZeroCurve
 market.with_curve("USD.SOFR.1D", bumped)      # frozen copy, original untouched; USD.STDCSA follows
 market.bump("USD.SOFR.1D", 1e-4)              # +1bp on every pillar the key owns
 

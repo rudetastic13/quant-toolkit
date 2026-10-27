@@ -410,7 +410,7 @@ class NumbaProgram:
         consts, ptrs, params, coefs = [], [], [], []
         q_off = 0
         for ci, name in enumerate(self.curve_names):
-            zero_curve = market[name]
+            zero_curve = market[name].zero_curve
             if zero_curve.x.size < 2:
                 raise ValueError(f"curve '{name}' needs at least an origin and one pillar")
             column_map = self.layout.column_maps[name]
@@ -493,7 +493,7 @@ class NumbaProgram:
         obs_mask = np.zeros(ki.obs_w.size, dtype=np.bool_)
         obs_value = np.zeros(ki.obs_w.size, dtype=np.float64)
         for ci, name in enumerate(self.curve_names):
-            yield_curve = market.yield_curve(name)
+            yield_curve = market[name]
             origin = yield_curve.origin
             path = yield_curve.historical_fixings
             rm = (

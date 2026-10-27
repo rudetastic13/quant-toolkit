@@ -89,7 +89,7 @@ class ParamLayout:
         owner = market.leaf_owner()
         blocks: list[str] = []
         for name in names:
-            for leaf in market[name].leaves():
+            for leaf in market[name].zero_curve.leaves():
                 key = owner[id(leaf.curve)]
                 if key not in blocks:
                     blocks.append(key)
@@ -111,7 +111,7 @@ class ParamLayout:
         column_maps: dict[str, np.ndarray] = {}
         curve_blocks: dict[str, str | None] = {}
         for name in names:
-            curve = market[name]
+            curve = market[name].zero_curve
             columns = np.empty(curve.n_params, dtype=np.intp)
             reached: list[str] = []
             for leaf in curve.leaves():
@@ -145,7 +145,7 @@ class ParamLayout:
         parts = []
         for name in names:
             leaves = []
-            for leaf in market[name].leaves():
+            for leaf in market[name].zero_curve.leaves():
                 leaves.append(
                     (
                         owner[id(leaf.curve)],

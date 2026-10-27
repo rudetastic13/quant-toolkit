@@ -51,8 +51,8 @@ class TestFtpChain(UnitTest):
         self.sofr = ZeroCurve(x, dfs)
         truth = MarketContext(self.as_of)
         truth.add(YieldCurve.from_registry(self.origin, self.sofr, key=SOFR), funding_names=[STDCSA, "USD.USDSOFR"])
-        truth[UST] = truth[SOFR] + ASW
-        truth[FTP] = truth[UST] + CREDIT
+        truth[UST] = truth[SOFR].zero_curve + ASW
+        truth[FTP] = truth[UST].zero_curve + CREDIT
         self.truth = truth.freeze()
         for h in (*self.ust_quotes, *self.ftp_quotes):
             h.quote = Quote(h.implied(self.truth), QuoteKind.ParSpread)
@@ -82,22 +82,22 @@ class TestFtpChain(UnitTest):
         market = MarketContext(self.as_of)
         market.add(YieldCurve.from_registry(self.origin, self.sofr, key=SOFR), funding_names=[STDCSA])
         ust_def = CurveDefinition(UST)
-        market[UST] = market[SOFR] + ust_def.flat_on_pillars(market, self.ust_quotes)
+        market[UST] = market[SOFR].zero_curve + ust_def.flat_on_pillars(market, self.ust_quotes)
         ust = CurveCalibrator(self.ust_quotes, GlobalSolver(), ust_def).calibrate(market)
         np.testing.assert_allclose(ust.zero_curve.params, ASW, atol=1e-9)
         self.assertLess(np.abs(ust.residuals).max(), 1e-10)
 
         market = MarketContext(self.as_of, ust.market)
         ftp_def = CurveDefinition(FTP)
-        market[FTP] = market[UST] + ftp_def.flat_on_pillars(market, self.ftp_quotes)
+        market[FTP] = market[UST].zero_curve + ftp_def.flat_on_pillars(market, self.ftp_quotes)
         ftp = CurveCalibrator(self.ftp_quotes, GlobalSolver(), ftp_def).calibrate(market)
         np.testing.assert_allclose(ftp.zero_curve.params, CREDIT, atol=1e-9)
         self.assertLess(np.abs(ftp.residuals).max(), 1e-10)
 
         final = ftp.market
-        self.assertIs(final[FTP]["base"], final[UST])  # FTP is still built on the UST object
-        self.assertIs(final[UST]["base"], final[SOFR])  # ... which is still built on SOFR
-        self.assertIs(final[STDCSA], final[SOFR])
+        self.assertIs(final[FTP].zero_curve["base"], final[UST].zero_curve)  # FTP is still built on the UST object
+        self.assertIs(final[UST].zero_curve["base"], final[SOFR].zero_curve)  # ... which is still built on SOFR
+        self.assertIs(final[STDCSA].zero_curve, final[SOFR].zero_curve)
         for h in self.ust_quotes:
             self.assertAlmostEqual(h.implied(final), h.quote.value, places=10)
 
@@ -105,20 +105,20 @@ class TestFtpChain(UnitTest):
         at = np.array([1825.0])
 
         def moved(market, key):
-            return market[key].zero_rate(at)[0] - self.truth[key].zero_rate(at)[0]
+            return market[key].zero_curve.zero_rate(at)[0] - self.truth[key].zero_curve.zero_rate(at)[0]
 
         up = self.truth.bump(SOFR, 1e-4)
         for key in (SOFR, STDCSA, UST, FTP):
             self.assertAlmostEqual(moved(up, key), 1e-4, places=12)
-        self.assertIs(up[STDCSA], up[SOFR])
+        self.assertIs(up[STDCSA].zero_curve, up[SOFR].zero_curve)
 
         up = self.truth.bump(UST, 1e-4)  # the ASW spread atom: UST and FTP move, SOFR does not
-        self.assertIs(up[SOFR], self.sofr)
+        self.assertIs(up[SOFR].zero_curve, self.sofr)
         self.assertAlmostEqual(moved(up, UST), 1e-4, places=12)
         self.assertAlmostEqual(moved(up, FTP), 1e-4, places=12)
 
         up = self.truth.bump(FTP, 1e-4)  # the credit spread atom: FTP alone
-        self.assertIs(up[UST], self.truth[UST])
+        self.assertIs(up[UST], self.truth[UST])  # untouched view reused
         self.assertAlmostEqual(moved(up, FTP), 1e-4, places=12)
         self.assertEqual(self.truth.owned(STDCSA), ())
 

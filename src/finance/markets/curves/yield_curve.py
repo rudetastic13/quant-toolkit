@@ -5,7 +5,7 @@ work on float day offsets; every date-based query here converts through :func:`d
 against ``origin``.
 
 A ``YieldCurve`` is registered under its :class:`~finance.conventions.CurveKey`.  A
-projection key (``USD.SOFR.1D``) carries the index family's conventions so
+projection key (``USD.SOFR.1D``) carries its :class:`~finance.conventions.IndexFamily` so
 ``RateGenerator`` knows the projection day count and fixing rules; a discount key
 (``USD.STDCSA``, ``USD.UST``) carries none — nothing resets off it.
 """
@@ -18,7 +18,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from common.math.interpolation import Interpolator, Linear
-from finance.conventions import ConventionRegistry, CurveKey, IndexFamily, MarketConventions, default_registry
+from finance.conventions import ConventionRegistry, CurveKey, IndexFamily, default_registry
 from finance.dates import Term
 from finance.markets.curves._curve_impl.discount_curve import DiscountCurve
 from finance.markets.curves._curve_impl.zero_curve import ZeroCurve
@@ -35,23 +35,23 @@ def dates_to_x(origin: np.datetime64, dates: DateArray) -> FloatArray:
     return (days.view(np.int64) - origin.astype("datetime64[D]").astype(np.int64)).astype(np.float64)
 
 
-def _resolve_key(key: CurveKey | str, registry: ConventionRegistry) -> tuple[CurveKey, MarketConventions | None]:
-    """Parse ``key`` and look its conventions up: a projection key's family must publish its tenor."""
+def _resolve_key(key: CurveKey | str, registry: ConventionRegistry) -> tuple[CurveKey, IndexFamily | None]:
+    """Parse ``key`` and look its family up: a projection key's family must publish its tenor."""
     parsed = CurveKey.parse(key)
     if parsed.is_discount:
         return parsed, None
-    conventions = registry.get(parsed)
-    conventions.index(parsed.tenor)  # raises KeyError when the family does not publish the tenor
-    return parsed, conventions
+    family = registry.family(parsed)
+    family.index(parsed.tenor)  # raises KeyError when the family does not publish the tenor
+    return parsed, family
 
 
 @dataclass(frozen=True)
 class YieldCurve:
     """Bind an origin date and mathematical discount state to a curve key.
 
-    A ``DiscountCurve`` is unaware of dates, currency, calendars, fixing rules or coupon
-    conventions.  ``YieldCurve`` is the market object registered in ``MarketContext`` and
-    supplies those definitions to ``RateGenerator``.  The field is still called ``zero_curve``
+    A ``DiscountCurve`` is unaware of dates, currency, calendars or fixing rules.
+    ``YieldCurve`` is the market object registered in ``MarketContext`` and supplies those
+    definitions to ``RateGenerator``.  The field is still called ``zero_curve``
     although any ``DiscountCurve`` (a spread composite over another index's atom, say) can sit there.
 
     Parameters
@@ -60,16 +60,16 @@ class YieldCurve:
     zero_curve : DiscountCurve
     key : CurveKey or str
         ``'USD.SOFR.1D'`` (projection) or ``'USD.STDCSA'`` (discount).
-    conventions : MarketConventions or None
-        Required for a projection key (its family must publish the key's tenor); must be
-        ``None`` for a discount key.
+    family : IndexFamily or None
+        Required for a projection key (it must publish the key's tenor); must be ``None`` for
+        a discount key.
     historical_fixings : HistoricalFixings or None
     """
 
     origin: np.datetime64
     zero_curve: DiscountCurve
     key: CurveKey
-    conventions: MarketConventions | None = None
+    family: IndexFamily | None = None
     historical_fixings: HistoricalFixings | None = None
 
     def __post_init__(self) -> None:
@@ -77,11 +77,11 @@ class YieldCurve:
         object.__setattr__(self, "key", key)
         object.__setattr__(self, "origin", np.datetime64(self.origin, "D"))
         if key.is_projection:
-            if self.conventions is None:
-                raise ValueError(f"projection curve {key} needs the conventions of its index family")
-            self.conventions.index(key.tenor)
-        elif self.conventions is not None:
-            raise ValueError(f"discount curve {key} carries no index conventions")
+            if self.family is None:
+                raise ValueError(f"projection curve {key} needs its index family")
+            self.family.index(key.tenor)
+        elif self.family is not None:
+            raise ValueError(f"discount curve {key} carries no index family")
 
     # -- construction -------------------------------------------------------------------
 
@@ -95,17 +95,17 @@ class YieldCurve:
         registry: ConventionRegistry = default_registry,
         historical_fixings: HistoricalFixings | None = None,
     ) -> YieldCurve:
-        """Compose an origin and discount curve with a key, looking conventions up in ``registry``.
+        """Compose an origin and discount curve with a key, looking the family up in ``registry``.
 
         ``key`` is ``'USD.SOFR.1D'``, ``'USD.CME-TERM-SOFR.3M'`` (projection) or ``'USD.STDCSA'``
         (discount).
         """
-        parsed, conventions = _resolve_key(key, registry)
+        parsed, family = _resolve_key(key, registry)
         return cls(
             origin=np.datetime64(origin, "D"),
             zero_curve=zero_curve,
             key=parsed,
-            conventions=conventions,
+            family=family,
             historical_fixings=historical_fixings,
         )
 
@@ -141,12 +141,12 @@ class YieldCurve:
         )
 
     def with_zero_curve(self, zero_curve: DiscountCurve) -> YieldCurve:
-        """Same origin, key, conventions and fixings with replacement mathematical curve state."""
+        """Same origin, key, family and fixings with replacement mathematical curve state."""
         return YieldCurve(
             origin=self.origin,
             zero_curve=zero_curve,
             key=self.key,
-            conventions=self.conventions,
+            family=self.family,
             historical_fixings=self.historical_fixings,
         )
 
@@ -156,7 +156,7 @@ class YieldCurve:
             origin=self.origin,
             zero_curve=self.zero_curve,
             key=self.key,
-            conventions=self.conventions,
+            family=self.family,
             historical_fixings=historical_fixings,
         )
 
@@ -166,11 +166,6 @@ class YieldCurve:
     def name(self) -> str:
         """The key as text: ``'USD.SOFR.1D'``, ``'USD.STDCSA'``."""
         return str(self.key)
-
-    @property
-    def family(self) -> IndexFamily | None:
-        """The projected index family for a projection key; ``None`` for a discount key."""
-        return None if self.conventions is None else self.conventions.family
 
     # -- dates <-> x ----------------------------------------------------------------------
 

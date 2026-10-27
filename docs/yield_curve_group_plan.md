@@ -45,7 +45,7 @@ class YieldCurveGroup:
     default_funding: str | None   # funding name used when a trade names none
 
     def add(self, yield_curve, *, funding_names=(), collateral: ForYc | None = None) -> None: ...
-    def yield_curve(self, name) -> YieldCurve      # by full key, either kind
+    def __getitem__(self, name) -> YieldCurve      # by full key, either kind (as built: a Mapping)
     def projection(self, index, tenor=...) -> YieldCurve
     def discount(self, funding=None) -> YieldCurve  # None -> default_funding
     def role(self, zero_curve) -> projects / discounts / both   # derived from the maps

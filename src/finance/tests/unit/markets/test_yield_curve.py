@@ -59,12 +59,11 @@ class TestYieldCurveConstruction(UnitTest):
     def test_discount_key_carries_no_conventions(self):
         yc = YieldCurve.build(NODE_DATES, _dfs(), key="USD.STDCSA")
         self.assertEqual(yc.name, "USD.STDCSA")
-        self.assertIsNone(yc.conventions)
         self.assertIsNone(yc.family)
         self.assertTrue(yc.key.is_discount)
         np.testing.assert_allclose(yc.zero_rate(NODE_DATES[1:]), 0.04)
         with self.assertRaises(ValueError):
-            YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.STDCSA", conventions=_yield_curve().conventions)
+            YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.STDCSA", family=_yield_curve().family)
         with self.assertRaises(ValueError):
             YieldCurve(origin=ORIGIN, zero_curve=yc.zero_curve, key="USD.SOFR.1D")
 
@@ -85,7 +84,7 @@ class TestYieldCurveConstruction(UnitTest):
         history = HistoricalFixings(np.array(["2026-05-29"], dtype="datetime64[D]"), np.array([0.03]))
         replaced = yc.with_zero_curve(_yield_curve(0.05).zero_curve).with_historical_fixings(history)
         self.assertEqual(replaced.origin, ORIGIN)
-        self.assertIs(replaced.conventions, yc.conventions)
+        self.assertIs(replaced.family, yc.family)
         self.assertIs(replaced.historical_fixings, history)
         self.assertAlmostEqual(replaced.zero_rate(NODE_DATES[-1:])[0], 0.05, places=10)
 
