@@ -134,9 +134,11 @@ This repo uses an explicit composition: `ZeroCurve` owns mathematical state and
 the port remain:
 
 1. You cannot register an index without supplying full product conventions.
-2. The bundle imports `CouponType` from `finance.instruments.enums` (via
+2. ~~The bundle imports `CouponType` from `finance.instruments.enums` (via
    `FloatLegConventions.coupon_type`), so the conventions package silently depends on the
-   instrument layer — exactly the coupling the port is trying to avoid.
+   instrument layer.~~ Fixed Oct 2026: `finance.conventions` holds keys, families and a
+   family registry (depends on dates only); the bundle moved to
+   `finance.instruments.conventions` and is registered beside its family.
 
 The right split is **two tiers**:
 

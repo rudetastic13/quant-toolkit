@@ -87,7 +87,7 @@ Reading it:
 ```mermaid
 flowchart TB
     subgraph CONTRACT["Contract layer — no market data"]
-        CONV["ConventionRegistry<br/>(ccy, index) -> MarketConventions"]
+        CONV["ConventionRegistry<br/>(ccy, index) -> IndexFamily (curve layer)<br/>+ MarketConventions beside it (instrument layer)"]
         CI["CommonInstrument"]
         RS2["Swap"]
     end
@@ -211,7 +211,7 @@ single-fixing floats.
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
 | **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler and the JAX program (the Numba kernel mirrors it scalar-wise and is held to parity in CI) — they can't drift. |
-| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (index / per-leg / per-product tiers) does the rest. |
+| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (`finance.instruments.conventions`: per-leg / per-product tiers) does the rest. The bundle is registered beside the `IndexFamily` the curve layer reads (`finance.conventions`), so curves never import instruments. |
 | **Market as a Mapping** | `MarketContext` | `market[key] = curve` assembles; `with_curve` / `bump` return frozen copies that propagate through composites by object identity; `VolNamespace` keeps the versioned-store pattern for surfaces. |
 
 ---

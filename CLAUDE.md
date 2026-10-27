@@ -62,7 +62,7 @@ mypy src/             # type check
 
 ### Package Layout
 - `src/common/` — shared utilities (registry, singleton, array buffers, curve container, test base classes)
-- `src/finance/` — core financial domain (dates, calendars, terms, markets/curves)
+- `src/finance/` — core financial domain (dates, calendars, terms, conventions, markets/curves, instruments, pricing). Layering is strict upward: `conventions` (keys, index families, family registry) depends on `dates` only; `markets` on `conventions`; `instruments` on `markets`; leg/product conventions live in `instruments/conventions` and register beside the families, so the curve layer never imports instruments
 - `src/finance/_core/` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/build_core.sh`, all day counts are 1970-01-01 epoch ordinals)
 - `src/quant_toolkit/` — public API re-exporting from `finance`
 - `src/quant_toolkit_xl/` — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)

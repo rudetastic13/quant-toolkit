@@ -10,8 +10,10 @@ Three tiers, composed bottom-up:
 - Product conventions — :class:`SwapConventions`, :class:`DepositConventions`,
   :class:`FraConventions`: leg conventions plus product-level dating (spot lag).
 
-One :class:`MarketConventions` bundle per index family is what the ``ConventionRegistry``
-stores: builders look up the bundle once and read their product's section.  ``None`` on a
+One :class:`MarketConventions` bundle per index family is registered in the
+``ConventionRegistry`` beside the family it describes (``finance.conventions``): builders look
+the bundle up once and read their product's section.  This module is the instrument layer's;
+the curve layer never imports it.  ``None`` on a
 leg/product day count means "use the index's"; :data:`MATCH_TENOR` on a float-leg frequency
 means "one period per index tenor" (a 3M term index pays and resets quarterly).  The
 resolved accessors on the bundle apply that defaulting for one :class:`RateIndex` (its tenor).

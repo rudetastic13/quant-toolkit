@@ -1,4 +1,4 @@
-"""Tests for the MarketConventions model and ConventionRegistry."""
+"""Tests for the ConventionRegistry (families, then product conventions beside them) and the MarketConventions model."""
 from dataclasses import FrozenInstanceError, replace
 
 from common.testing import UnitTest
@@ -6,15 +6,13 @@ from finance.dates import Term
 from finance.dates.term.term_type import TermType
 from finance.dates.enums import BDC, DayCountMethod, Frequency, Roll
 from finance.instruments.enums import CouponType
-from finance.conventions import (
+from finance.conventions import ConventionRegistry, CurveKey, IndexFamily
+from finance.instruments.conventions import (
     MATCH_TENOR,
-    ConventionRegistry,
-    CurveKey,
     DepositConventions,
     FixedLegConventions,
     FloatLegConventions,
     FraConventions,
-    IndexFamily,
     MarketConventions,
     SwapConventions,
     frequency_for_tenor,
@@ -61,7 +59,7 @@ def _make_market(**index_overrides) -> MarketConventions:
 
 
 class TestMarketConventions(UnitTest):
-    COVERAGE = ["finance.conventions.market_conventions"]
+    COVERAGE = ["finance.instruments.conventions.market_conventions"]
 
     def test_per_leg_conventions_differ(self):
         m = _make_market()
@@ -126,11 +124,27 @@ class TestConventionRegistry(UnitTest):
 
     def _fresh_registry(self) -> ConventionRegistry:
         from common.registry import Registry
-        return ConventionRegistry(registry=Registry("TestConventionRegistry"))
+        return ConventionRegistry(families=Registry("TestFamilies"), conventions=Registry("TestConventions"))
 
-    def test_register_and_get(self):
+    def test_a_family_is_enough_for_the_curve_layer(self):
+        reg = self._fresh_registry()
+        family = _make_market().family
+        reg.register_family(family)
+        self.assertIs(reg.family("USD.TEST.1D"), family)
+        self.assertIs(reg.family("usd.test"), family)  # a discount-shaped key names the family too
+        self.assertEqual(reg.index("USD.TEST.1D").family, family)
+        self.assertEqual(reg.validate("USD.TEST.1D"), CurveKey.parse("USD.TEST.1D"))
+        self.assertTrue(reg.has("USD", "TEST"))
+        self.assertFalse(reg.has("EUR", "EURIBOR"))
+        with self.assertRaises(KeyError):
+            reg.get("USD.TEST.1D")  # no product conventions registered yet
+
+    def test_conventions_register_beside_their_family(self):
         reg = self._fresh_registry()
         conv = _make_market()
+        with self.assertRaises(KeyError):
+            reg.register("USD", "TEST", conv)  # the family must come first
+        reg.register_family(conv.family)
         reg.register("USD", "TEST", conv)
         self.assertEqual(reg.get("USD.TEST.1D"), conv)
         self.assertEqual(reg.get(CurveKey.parse("USD.TEST.3M")), conv)  # the tenor is not checked by get
@@ -138,6 +152,7 @@ class TestConventionRegistry(UnitTest):
     def test_key_is_case_insensitive(self):
         reg = self._fresh_registry()
         conv = _make_market()
+        reg.register_family(conv.family)
         reg.register("usd", "test", conv)
         self.assertEqual(reg.get("USD.TEST.1D"), conv)
         self.assertEqual(reg.get("Usd.Test.1D"), conv)
@@ -145,11 +160,16 @@ class TestConventionRegistry(UnitTest):
     def test_missing_key_raises(self):
         reg = self._fresh_registry()
         with self.assertRaises(KeyError):
+            reg.family("EUR.EURIBOR.3M")
+        with self.assertRaises(KeyError):
             reg.get("EUR.EURIBOR.3M")
 
     def test_duplicate_raises_without_overwrite(self):
         reg = self._fresh_registry()
         conv = _make_market()
+        reg.register_family(conv.family)
+        with self.assertRaises(ValueError):
+            reg.register_family(conv.family)
         reg.register("USD", "TEST", conv)
         with self.assertRaises(ValueError):
             reg.register("USD", "TEST", conv)
@@ -158,15 +178,10 @@ class TestConventionRegistry(UnitTest):
         reg = self._fresh_registry()
         c1 = _make_market()
         c2 = replace(c1, deposit=replace(c1.deposit, calendar="LON"))
+        reg.register_family(c1.family)
         reg.register("USD", "TEST", c1)
         reg.register("USD", "TEST", c2, overwrite=True)
         self.assertEqual(reg.get("USD.TEST.1D").deposit.calendar, "LON")
-
-    def test_has(self):
-        reg = self._fresh_registry()
-        reg.register("USD", "TEST", _make_market())
-        self.assertTrue(reg.has("USD", "TEST"))
-        self.assertFalse(reg.has("EUR", "EURIBOR"))
 
     def test_bundled_usd_sofr_definition(self):
         from finance.conventions import default_registry
