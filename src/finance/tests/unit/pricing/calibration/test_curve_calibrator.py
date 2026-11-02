@@ -89,7 +89,7 @@ class TestCurveCalibrator(UnitTest):
         res = CurveCalibrator(self.helpers, GlobalSolver(), self.defn).calibrate(self.base)
         yield_curve = YieldCurve.from_registry(res.origin, res.zero_curve, key="USD.SOFR.1D")
         out = self.base.with_curve(yield_curve)
-        self.assertIs(out[CURVE], res.zero_curve)
+        self.assertIs(out[CURVE].zero_curve, res.zero_curve)
         # Calibration returns mathematical state and never mutates the input market.
         self.assertNotIn(CURVE, self.base)
 
@@ -173,17 +173,17 @@ class TestWithCurve(UnitTest):
         self.mkt = MarketContext(as_of=self.as_of, curves={sofr.name: sofr, "USD.STDCSA": sofr}, vols=object())
 
     def test_with_curve_rebinds_and_leaves_original_intact(self):
-        replacement = self.mkt.yield_curve(CURVE).with_zero_curve(self.c2)
+        replacement = self.mkt[CURVE].with_zero_curve(self.c2)
         out = self.mkt.with_curve(replacement)
-        self.assertIs(out[CURVE], self.c2)
-        self.assertIs(self.mkt[CURVE], self.c1)  # original unchanged
+        self.assertIs(out[CURVE].zero_curve, self.c2)
+        self.assertIs(self.mkt[CURVE].zero_curve, self.c1)  # original unchanged
         # vols remain shared by reference; curve composition preserves curve-owned fixings.
         self.assertIs(out.vols, self.mkt.vols)
 
     def test_with_curve_binds_new_name(self):
         fedfund = YieldCurve.from_registry(self.origin, self.c2, key="USD.FEDFUND.1D")
         out = self.mkt.with_curve(fedfund)
-        self.assertIs(out["USD.FEDFUND.1D"], self.c2)
+        self.assertIs(out["USD.FEDFUND.1D"].zero_curve, self.c2)
         self.assertNotIn("USD.FEDFUND.1D", self.mkt)
 
 
@@ -221,8 +221,8 @@ class TestCalibrateTheOwnedLeaf(UnitTest):
         truth = MarketContext(self.as_of)
         truth[CURVE] = self.sofr
         truth["USD.STDCSA"] = self.sofr
-        truth[self.TERM1M] = truth[CURVE] + 10 * bp
-        truth[self.TERM6M] = truth[self.TERM1M] + 5 * bp
+        truth[self.TERM1M] = truth[CURVE].zero_curve + 10 * bp
+        truth[self.TERM6M] = truth[self.TERM1M].zero_curve + 5 * bp
         self.truth = truth.freeze()
         for h in (*self.ois, *self.basis_1m, *self.basis_6m):
             h.quote = Quote(h.implied(self.truth), h.quote.kind)
@@ -235,11 +235,11 @@ class TestCalibrateTheOwnedLeaf(UnitTest):
         ).calibrate(MarketContext(self.as_of))
         market = MarketContext(self.as_of, ois.market)  # a mutable copy to assemble on
         defn_1m = CurveDefinition(self.TERM1M)
-        market[self.TERM1M] = market[CURVE] + defn_1m.flat_on_pillars(market, self.basis_1m)
+        market[self.TERM1M] = market[CURVE].zero_curve + defn_1m.flat_on_pillars(market, self.basis_1m)
         one_m = CurveCalibrator(self.basis_1m, GlobalSolver(), defn_1m).calibrate(market)
         market = MarketContext(self.as_of, one_m.market)
         defn_6m = CurveDefinition(self.TERM6M)
-        market[self.TERM6M] = market[self.TERM1M] + defn_6m.flat_on_pillars(market, self.basis_6m)
+        market[self.TERM6M] = market[self.TERM1M].zero_curve + defn_6m.flat_on_pillars(market, self.basis_6m)
         six_m = CurveCalibrator(self.basis_6m, GlobalSolver(), defn_6m).calibrate(market)
         return ois, one_m, six_m
 
@@ -253,16 +253,16 @@ class TestCalibrateTheOwnedLeaf(UnitTest):
         self.assertLess(np.abs(one_m.residuals).max(), 1e-10)
         self.assertLess(np.abs(six_m.residuals).max(), 1e-10)
         final = six_m.market
-        self.assertIs(final[self.TERM6M]["base"], final[self.TERM1M])  # 6M is still built on the 1M object
-        self.assertIs(final[self.TERM1M]["base"], final[CURVE])  # ... which is still built on SOFR
-        self.assertIs(final["USD.STDCSA"], final[CURVE])
+        self.assertIs(final[self.TERM6M].zero_curve["base"], final[self.TERM1M].zero_curve)  # 6M is still built on the 1M object
+        self.assertIs(final[self.TERM1M].zero_curve["base"], final[CURVE].zero_curve)  # ... which is still built on SOFR
+        self.assertIs(final["USD.STDCSA"].zero_curve, final[CURVE].zero_curve)
         self.assertTrue(final.frozen)
 
     def test_basis_jacobian_is_over_the_owned_spread_only(self):
         ois, one_m, _ = self._sequential()
         market = MarketContext(self.as_of, ois.market)
         defn = CurveDefinition(self.TERM1M)
-        market[self.TERM1M] = market[CURVE] + defn.flat_on_pillars(market, self.basis_1m)
+        market[self.TERM1M] = market[CURVE].zero_curve + defn.flat_on_pillars(market, self.basis_1m)
         res = CurveCalibrator(self.basis_1m, GlobalSolver(), defn).calibrate(market, jacobian=True)
         self.assertEqual(res.jacobian.shape, (4, 4))
         helpers = sorted(self.basis_1m, key=lambda h: h.pillar_date)
@@ -283,20 +283,20 @@ class TestCalibrateTheOwnedLeaf(UnitTest):
         market["USD.STDCSA"] = market[CURVE]  # alias the (wrong) starting curve
         res = CurveCalibrator(self.ois, GlobalSolver(), CurveDefinition(CURVE)).calibrate(market)
         np.testing.assert_allclose(res.zero_curve.dfs, self.sofr.dfs, atol=1e-10)
-        self.assertIs(res.market["USD.STDCSA"], res.market[CURVE])
-        self.assertIs(res.market[CURVE], res.zero_curve)
-        self.assertIs(market[CURVE], market["USD.STDCSA"])  # the input market is untouched
+        self.assertIs(res.market["USD.STDCSA"].zero_curve, res.market[CURVE].zero_curve)
+        self.assertIs(res.market[CURVE].zero_curve, res.zero_curve)
+        self.assertIs(market[CURVE].zero_curve, market["USD.STDCSA"].zero_curve)  # the input market is untouched
 
     def test_registered_key_must_own_one_atom_on_the_instrument_pillars(self):
         from finance.markets.curves import CompositeCurve, bp
 
         market = MarketContext(self.as_of, {CURVE: self.sofr, "USD.STDCSA": self.sofr})
-        market[self.TERM1M] = market[CURVE] + 10 * bp  # one spread node, not one per instrument
+        market[self.TERM1M] = market[CURVE].zero_curve + 10 * bp  # one spread node, not one per instrument
         with self.assertRaisesRegex(ValueError, "pillars"):
             CurveCalibrator(self.basis_1m, GlobalSolver(), CurveDefinition(self.TERM1M)).calibrate(market)
         market = MarketContext(self.as_of, {CURVE: self.sofr, "USD.STDCSA": self.sofr})
         market[self.TERM1M] = CompositeCurve(
-            {"base": market[CURVE], "a": ZeroCurve.constant(0.001, 365.0), "b": ZeroCurve.constant(0.001, 730.0)}
+            {"base": market[CURVE].zero_curve, "a": ZeroCurve.constant(0.001, 365.0), "b": ZeroCurve.constant(0.001, 730.0)}
         )
         with self.assertRaisesRegex(ValueError, "owns 2 atoms"):
             CurveCalibrator(self.basis_1m, GlobalSolver(), CurveDefinition(self.TERM1M)).calibrate(market)

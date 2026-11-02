@@ -199,11 +199,6 @@ class ZeroCurve(CurveArithmetic):
         """The :class:`DiscountCurve` parameters: :attr:`node_zero_rates`."""
         return self.node_zero_rates
 
-    @property
-    def is_log_linear(self) -> bool:
-        """Log-linear DF: the one scheme the JAX oracle models (the Numba engine takes any, via ``log_df_affine``)."""
-        return self._space is CurveSpace.LogDF and self._interpolator == Linear()
-
     def with_params(self, params: FloatArray) -> ZeroCurve:
         """Same pillars, space, interpolator and extrapolation with new pillar zero rates.
 

@@ -87,13 +87,13 @@ Reading it:
 ```mermaid
 flowchart TB
     subgraph CONTRACT["Contract layer — no market data"]
-        CONV["ConventionRegistry<br/>(ccy, index) -> MarketConventions"]
+        CONV["ConventionRegistry<br/>(ccy, index) -> IndexFamily (curve layer)<br/>+ MarketConventions beside it (instrument layer)"]
         CI["CommonInstrument"]
         RS2["Swap"]
     end
     subgraph MARKET["Market layer"]
         MC["MarketContext"]
-        CN["key -> DiscountCurve<br/>(yield_curve(key): origin + conventions + fixings)"]
+        CN["key -> YieldCurve<br/>(origin + index family + fixings over a DiscountCurve)"]
         RG["RateGenerator"]
         VN["VolNamespace -> VolSurface (seam)"]
     end
@@ -203,7 +203,7 @@ single-fixing floats.
 |---|---|---|
 | **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
 | **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` / `SofrFuture` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. Every product is signed legs (`instrument.legs`) and prices through one `LegPricer`; a deposit is one fixed leg with principal out and back, a FRA a one-period fixed vs float pair, a future's reference period a unit-notional leg. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
-| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortization is meant to follow the same shape: a named `amortization_type` generator, or `Custom` with a notional schedule. |
+| **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortisation follows the same shape: `amortization` names a generator (`Bullet`, `StraightLine`, `LevelPay`) driven by the window fields, or a supplied `notional_schedule` tags the leg `Custom`; `notional_profile(leg, schedule)` is the one per-period array the compiler reads. |
 | **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)`, `deposit(market)`, `fra(market)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Leg-bearing types dispatch to `LegPricer` through `pricer_registry`. |
 | **Lowering (source → IR → kernel)** | `compile_portfolio` lowers `CouponSchedule` → columns | One authored source of truth (the schedule); the columnar form is *derived*, never hand-authored — so no `RateSpec`-vs-event duplication. Bullet principal (`PrincipalExchange`) lowers to fixed flows with `rate = period_frac = 1`, so no kernel knows about it. |
 | **Struct-of-arrays (columnar)** | `KernelInputs` | Cache-friendly, vectorizable, and exactly what a numba/rust kernel consumes. Makes piecewise coupons free (a switch is just a varying column). |
@@ -211,7 +211,7 @@ single-fixing floats.
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
 | **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler and the JAX program (the Numba kernel mirrors it scalar-wise and is held to parity in CI) — they can't drift. |
-| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (index / per-leg / per-product tiers) does the rest. |
+| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (`finance.instruments.conventions`: per-leg / per-product tiers) does the rest. The bundle is registered beside the `IndexFamily` the curve layer reads (`finance.conventions`), so curves never import instruments. |
 | **Market as a Mapping** | `MarketContext` | `market[key] = curve` assembles; `with_curve` / `bump` return frozen copies that propagate through composites by object identity; `VolNamespace` keeps the versioned-store pattern for surfaces. |
 
 ---
@@ -261,9 +261,32 @@ single-fixing floats.
   `RiskEngine` front door that dispatches between them per
   [engine_selection.md](engine_selection.md) §7 — the clean replacement for the legacy
   rebuild-per-pillar KRD.
-- **Dynamic notionals.** `NotionalProvider` is the seam for amortising notionals (only the
-  bullet `StaticNotional` exists; a scheduled or rate-dependent provider materialises the same
-  per-period array).
+- **Amortisation.** Built Oct 2026. `LegSpec.notional` is a per-period array and the compiler
+  lowers the principal flows from it: under `PrincipalExchange.Final` each drop in outstanding
+  notional is paid on its payment date, so a bullet repays once, an amortiser as it goes, and a
+  balance left on the balloon date is repaid there. The leg says what is outstanding through
+  `finance.instruments.schedules.amortization`:
+  - `amortization = Bullet | StraightLine | LevelPay`, or `Custom` with a `NotionalSchedule` of
+    `(start_date, notional)` events ("from this period the outstanding is X": known
+    curtailments, a seasoned loan's history).
+  - Window: `amort_start` (interest-only before it, default effective), `amort_end` (the
+    balloon date, default maturity, may precede it), `amortization_term` (the solve horizon from
+    `amort_start`; longer than the window leaves a balloon), `principal_frequency` (the coupon
+    frequency or a slower multiple; principal dates must fall on coupon payment dates).
+  - `LevelPay` solves the annuity payment on the principal grid for the schedule's own accrual
+    fractions and re-solves it only when the coupon rate changes (a fixed step-up), holding it
+    between changes. On a floating leg (an ARM) the payment depends on each reset's rate, so the
+    balance path is a function of the projected rates: not a compile-time column but a
+    reprice-time kernel stage (a per-leg recursion between the rate and cash stages, with the
+    paydown flow slots fixed at compile and their amounts filled per reprice). Rejected until
+    that stage exists rather than approximated with today's forwards, which would give right PVs
+    and wrong delta.
+  - A seasoned loan is today's outstanding as the face with `amort_start` today and the
+    remaining term; the payment is recomputed from what is actually owed.
+  - Not built: the rate-dependent notional stage (level pay on a floater, behavioural
+    prepayment as a function of rates): a `notional_rule` per leg evaluated at reprice from the
+    per-flow rates, numpy loop / Numba scan / `lax.scan`, pinned to the compile-time `LevelPay`
+    profile on a fixed leg by test.
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
@@ -445,14 +468,14 @@ from finance.markets import RateGenerator
 
 market = result.market                       # USD.SOFR.1D and USD.STDCSA: one curve, two keys
 CN = "USD.SOFR.1D"
-sofr_curve = market.yield_curve(CN)
+sofr_curve = market[CN]
 
 # zero rates (continuously-compounded) at each pillar
 sofr_curve.zero_rate(result.pillar_dates) * 100
 # [4.300, 4.320, 4.350, 4.390, 4.197, 4.097, 4.017, 4.103]  (%, 1M … 10Y)
 
 # discount factors at the same pillars
-market.yield_curve(CN).discount_factor(result.pillar_dates)
+market[CN].discount_factor(result.pillar_dates)
 # [0.99643, 0.98919, 0.97832, 0.95654, 0.91894, 0.88424, 0.81672, 0.66487]
 
 # rate generation is separate from curve storage and market lookup

@@ -29,6 +29,3 @@ def join_legs(*legs: CommonInstrument, sign: float = 1.0) -> tuple[tuple[CommonI
         if first.currency != second.currency:
             raise ValueError(f"leg {i} is {first.currency} but leg {i + 1} is {second.currency}")
     return tuple((leg, float(sign)) for leg in legs)
-
-
-__all__ = ["join_legs"]

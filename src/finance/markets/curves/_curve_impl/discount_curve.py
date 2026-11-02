@@ -103,11 +103,6 @@ class DiscountCurve(Protocol):
         """
         ...
 
-    @property
-    def is_log_linear(self) -> bool:
-        """Whether the curve is log-linear in DF, the one scheme the JAX oracle models."""
-        ...
-
     # -- parameters ---------------------------------------------------------------------
 
     @property

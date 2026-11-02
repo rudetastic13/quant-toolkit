@@ -82,8 +82,8 @@ sofr.scheme
 equal `x` and equal `scheme` have identical affine maps (below), so a prepared pricing program can
 reuse its compiled query table across them. This is the compatibility key of the reprice and
 risk hot path: a scenario that only moves parameters hits the cache, a scenario that changes
-geometry or interpolation rebuilds. `is_log_linear` is the one special case the JAX test oracle
-models.
+geometry or interpolation rebuilds. The JAX test oracle models one scheme only and checks for it
+by comparing `scheme` to `(LogDF, Linear())`.
 
 ### Queries
 

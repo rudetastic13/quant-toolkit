@@ -1,0 +1,12 @@
+{
+  "__type__": "Deposit",
+  "__version__": 1,
+  "effective": "2026-06-03",
+  "maturity": "2026-09-03",
+  "rate": 0.05,
+  "day_count_method": "Actual360",
+  "currency": "USD",
+  "index_name": "USD.SOFR.1D",
+  "funding_id": "STDCSA",
+  "notional": 1000000.0
+}

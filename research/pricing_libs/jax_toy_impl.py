@@ -250,7 +250,7 @@ def main() -> None:
 
     # ----- JAX PATH --------------------------------------------------------
     x_nodes, t_nodes, z0 = zero_rates_from_curve(curve)
-    flows = CompiledFlows(program, market.yield_curve(cn).origin)
+    flows = CompiledFlows(program, market[cn].origin)
     df = make_df(x_nodes, t_nodes)
     flow_pv = make_pricer(flows, df)
 
@@ -282,7 +282,7 @@ def main() -> None:
     gamma_1bp = 0.5 * np.diag(hess) * BP**2
     # parallel convexity: ½·(1bp)²·Σ Hₚ_q ; validate against a full parallel 2nd difference.
     parallel_gamma_jax = 0.5 * hess.sum() * BP**2
-    yield_curve = market.yield_curve(cn)
+    yield_curve = market[cn]
     up = program.reprice(market.with_curve(yield_curve.with_zero_curve(_bump(curve, +BP)))).instrument_pv[0]
     dn = program.reprice(market.with_curve(yield_curve.with_zero_curve(_bump(curve, -BP)))).instrument_pv[0]
     parallel_gamma_engine = 0.5 * (up + dn - 2.0 * priced.pv)
@@ -314,7 +314,7 @@ def main() -> None:
         ),
     ]
     book_prog = SwapPricer().compile(book)
-    book_flows = CompiledFlows(book_prog, market.yield_curve(cn).origin)
+    book_flows = CompiledFlows(book_prog, market[cn].origin)
     book_inst_pv = make_instrument_pv(book_flows, make_pricer(book_flows, df))
     jac = np.asarray(jax.jit(jax.jacobian(book_inst_pv))(z)) * BP  # (n_inst, P) KRD matrix
 

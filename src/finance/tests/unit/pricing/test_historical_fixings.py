@@ -127,7 +127,7 @@ class TestSeasonedSofrRisk(UnitTest):
         analytic = self.risk.cashflow_zero_delta(CURVE)[target]
         self.assertGreater(np.abs(index_delta).sum(), 0.0)
 
-        n_params = self.market[CURVE].n_params
+        n_params = self.market[CURVE].zero_curve.n_params
         finite_difference = np.zeros_like(analytic)
         for column in range(n_params):
             shift = np.zeros(n_params)
@@ -147,8 +147,7 @@ class TestSeasonedSofrRisk(UnitTest):
         np.testing.assert_allclose(numba.df, numpy.df, rtol=1e-13, atol=1e-13)
 
     def test_jax_and_numba_agree_on_seasoned_index_risk(self):
-        jax = pytest.importorskip("jax")
-        jax.config.update("jax_enable_x64", True)
+        pytest.importorskip("jax")
         from finance.pricing.risk.autodiff import AutodiffRisk
 
         pure_history, straddling = self._observation_classification()

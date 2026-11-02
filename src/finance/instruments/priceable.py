@@ -20,6 +20,7 @@ from __future__ import annotations
 
 from typing import Literal, Sequence, get_args
 
+from common.object.serializer import Serializable
 from common.registry import Registry
 
 PricingRequest = Literal["pv", "leg_pvs", "cashflows"]
@@ -29,8 +30,11 @@ _VALID_REQUESTS = frozenset(get_args(PricingRequest))
 pricer_registry: Registry = Registry(name="Pricers")
 
 
-class Priceable:
-    """Mixin: ``instrument(market, requests=None) -> PricingResult``.
+class Priceable(Serializable):
+    """Mixin: ``instrument(market, requests=None) -> PricingResult``; JSON round-trip via ``Serializable``.
+
+    The compiled program is cached on the instance outside its dataclass fields, so it never
+    reaches a document.
 
     ``requests`` is an optional list of :data:`PricingRequest` literals.  ``None`` means
     the default set (``pv`` + ``leg_pvs`` + ``cashflows``).  ``pv``/``leg_pvs`` are always
@@ -61,6 +65,3 @@ class Priceable:
                 "finance.instruments.priceable.pricer_registry"
             )
         return pricer_cls().compile([self])
-
-
-__all__ = ["Priceable", "PricingRequest", "pricer_registry"]

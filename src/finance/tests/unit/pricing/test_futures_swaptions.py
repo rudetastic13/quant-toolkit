@@ -60,8 +60,8 @@ class TestSofrFutures(UnitTest):
         program = FuturesPricer().compile([future])
         analytic = program.risk(self.market, CURVE).rate_gradient[0]
         h = 1e-6
-        for pillar in range(self.market[CURVE].n_params):
-            shift = np.zeros(self.market[CURVE].n_params)
+        for pillar in range(self.market[CURVE].zero_curve.n_params):
+            shift = np.zeros(self.market[CURVE].zero_curve.n_params)
             shift[pillar] = h
             up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
             finite_difference = (program.reprice(up).model_rate[0] - program.reprice(down).model_rate[0]) / (2 * h)
@@ -114,8 +114,8 @@ class TestSwaptions(UnitTest):
         program = SwaptionPricer().compile([self._option(True)])
         analytic = program.risk(self.market, CURVE).curve_gradient[0]
         h = 1e-6
-        for pillar in range(self.market[CURVE].n_params):
-            shift = np.zeros(self.market[CURVE].n_params)
+        for pillar in range(self.market[CURVE].zero_curve.n_params):
+            shift = np.zeros(self.market[CURVE].zero_curve.n_params)
             shift[pillar] = h
             up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
             finite_difference = (program.reprice(up).pv[0] - program.reprice(down).pv[0]) / (2 * h)

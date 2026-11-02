@@ -266,7 +266,7 @@ class CurveCalibrator:
                 from finance.pricing.engines.jax.calibration import calibration_jacobian
             else:
                 raise NotImplementedError(f"calibration Jacobian backend {jacobian_backend.name} is not implemented")
-            jac = calibration_jacobian(helpers, key, out, out.yield_curve(key))  # the JAX oracle still reads the curve
+            jac = calibration_jacobian(helpers, key, out, out[key])  # the JAX oracle still reads the curve
 
         return CalibrationResult(
             zero_curve=curve,

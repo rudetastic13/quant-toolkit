@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from common.object.serializer import Serializable, serializable
 from finance.dates import BDC, Date, DayCountMethod, Frequency
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType
@@ -60,8 +61,9 @@ def _first_business_day(year: int, month: int) -> Date:
     return Date.from_numpy(np.busday_offset(first, 0, roll="forward"))
 
 
+@serializable("SofrFuture")
 @dataclass(frozen=True, kw_only=True)
-class SofrFuture:
+class SofrFuture(Serializable):
     """Resolved SR1/SR3 future, independent of curves and market state."""
 
     contract: str

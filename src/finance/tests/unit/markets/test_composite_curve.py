@@ -1,5 +1,5 @@
 """DiscountCurve protocol and CompositeCurve: weighted sums in log-DF space that are exactly affine
-in their parameters, carry labelled component blocks, and price through the Numba engine like an atom."""
+in their parameters, carry labelled components, and price through the Numba engine like an atom."""
 
 import numpy as np
 import pytest
@@ -138,11 +138,7 @@ class TestCompositeCurve(UnitTest):
         np.testing.assert_allclose(self.composite.dfs, self.composite.discount_factor(self.composite.x))
         self.assertEqual(self.composite.dfs[0], 1.0)
         self.assertEqual(self.composite.n_params, (BASE_X.size - 1) + (SPREAD_X.size - 1))
-        np.testing.assert_array_equal(self.composite.param_offsets, [0, 5, 8])
-        self.assertEqual(self.composite.component_slice(1), slice(5, 8))
-        self.assertEqual(self.composite.component_slice(-1), slice(5, 8))
         np.testing.assert_allclose(self.composite.params, np.concatenate([BASE_Z[1:], SPREAD_Z[1:]]), rtol=1e-13)
-        self.assertFalse(self.composite.is_log_linear)
         self.assertIs(self.composite.components[0], self.base)
         self.assertIs(self.composite[0], self.base)
         self.assertIs(self.composite[-1], self.spread)
@@ -192,18 +188,11 @@ class TestCompositeCurve(UnitTest):
         with self.assertRaises(ValueError):
             self.composite.with_params(z[:-1])
 
-    def test_with_component_replaces_and_revalidates(self):
-        new_spread = _spread(interpolator=Cubic())
-        swapped = self.composite.with_component(1, new_spread)
-        self.assertIs(swapped.components[1], new_spread)
-        self.assertEqual(swapped.weights, self.weights)
-        self.assertNotEqual(swapped.scheme, self.composite.scheme)
-        with self.assertRaises(TypeError):
-            self.composite.with_component(1, "not a curve")
+    def test_component_lookup_by_index_and_label(self):
         with self.assertRaises(IndexError):
-            self.composite.with_component(2, new_spread)
+            self.composite[2]
         with self.assertRaises(KeyError):
-            self.composite.with_component("spread", new_spread)  # unlabelled composite
+            self.composite["spread"]  # unlabelled composite
 
     def test_nesting_equals_flat_with_product_weights(self):
         turn = _zero(np.array([0.0, 400.0]), np.array([0.0, 0.002]))
@@ -282,11 +271,8 @@ class TestCompositeLabels(UnitTest):
         self.assertIs(self.curve["base"], self.base)
         self.assertIs(self.curve["spread"], self.spread)
         self.assertEqual(self.curve.n_params, 8)
-        self.assertEqual(self.curve.component_slice("base"), slice(0, 5))
-        self.assertEqual(self.curve.component_slice("spread"), slice(5, 8))
-        self.assertEqual(self.curve.component_slice(1), slice(5, 8))
-        np.testing.assert_array_equal(self.curve.params[self.curve.component_slice("base")], self.base.params)
-        np.testing.assert_array_equal(self.curve.params[self.curve.component_slice("spread")], self.spread.params)
+        np.testing.assert_array_equal(self.curve.params[:5], self.base.params)  # blocks in component order
+        np.testing.assert_array_equal(self.curve.params[5:], self.spread.params)
         with self.assertRaises(KeyError):
             self.curve["basis"]
         self.assertIn("spread=+1*ZeroCurve", repr(self.curve))
@@ -295,23 +281,18 @@ class TestCompositeLabels(UnitTest):
         with self.assertRaises(ValueError):  # keys 1 and "1" both stringify to "1"
             CompositeCurve({1: self.base, "1": self.spread})
 
-    def test_with_params_and_with_component_keep_labels(self):
+    def test_with_params_keeps_labels(self):
         z = self.curve.params + 0.001
         moved = self.curve.with_params(z)
         self.assertEqual(moved.labels, ("base", "spread"))
         np.testing.assert_allclose(moved.params, z, rtol=1e-13)
-        other_base = _base(space=CurveSpace.ZeroRate)
-        rebased = self.curve.with_component("base", other_base)
-        self.assertIs(rebased["base"], other_base)
-        self.assertIs(rebased["spread"], self.spread)
-        self.assertEqual(rebased.labels, ("base", "spread"))
-        self.assertIs(self.curve.with_component(1, other_base)["spread"], other_base)
+        self.assertIs(moved["spread"].x, self.spread.x)
 
-    def test_affine_map_blocks_follow_labels(self):
+    def test_affine_map_blocks_follow_component_order(self):
         offset, jac = self.curve.log_df_affine(XQ)
         self.assertEqual(jac.shape, (XQ.size, 8))
         np.testing.assert_allclose(offset + jac @ self.curve.params, self.curve.log_discount_factor(XQ), atol=1e-13)
-        np.testing.assert_allclose(jac[:, self.curve.component_slice("base")], self.base.log_df_affine(XQ)[1])
+        np.testing.assert_allclose(jac[:, :5], self.base.log_df_affine(XQ)[1])
 
     def test_flat_spread_is_constant_everywhere(self):
         s = 0.00085
@@ -383,10 +364,8 @@ class TestCompositeThroughNumbaEngine(UnitTest):
         self.assertEqual(g_spread.shape, (2, self.base.n_params + 1))
         self.assertEqual(result.curve_slice("USD.SOFR.1D"), slice(0, self.base.n_params + 1))
         # Base block equals the atom's pillar risk; the spread parameter carries the parallel risk.
-        np.testing.assert_allclose(g_spread[:, self.spread_curve.component_slice("base")], g_atom, rtol=1e-11)
-        np.testing.assert_allclose(
-            g_spread[:, self.spread_curve.component_slice("spread")][:, 0], g_atom.sum(axis=1), rtol=1e-10
-        )
+        np.testing.assert_allclose(g_spread[:, :-1], g_atom, rtol=1e-11)
+        np.testing.assert_allclose(g_spread[:, -1], g_atom.sum(axis=1), rtol=1e-10)
 
     def test_spread_gradient_matches_finite_difference(self):
         _, g = self._grad(self.market_spread)

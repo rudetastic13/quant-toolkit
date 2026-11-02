@@ -68,11 +68,12 @@ grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.1D`, `USD.CME-TERM-S
 carries its index family's conventions) and `CCY.NAME` is a discount curve (`USD.STDCSA`,
 `USD.UST`; no conventions, nothing resets off it). `YieldCurve.build(node_dates, dfs, ...)` is
 the dates-in constructor; `with_zero_curve(...)` creates a scenario curve while preserving
-origin, key and fixing history; `with_key(...)` re-registers the same state under another key.
+origin, key and fixing history.
 
-`MarketContext` owns registered market data. It is a `Mapping[str, DiscountCurve]`:
-`market["USD.SOFR.1D"] = sofr` registers a curve, `market[key]` is the mathematical curve and
-`yield_curve(key)` the derived date-aware view. A market registers every key its trades name;
+`MarketContext` owns registered market data. It is a `Mapping[str, YieldCurve]`:
+`market["USD.SOFR.1D"] = sofr` registers a curve (a bare `DiscountCurve` is wrapped in a
+`YieldCurve` under that key), `market[key]` is the registered `YieldCurve` and
+`market[key].zero_curve` the mathematical curve under it. A market registers every key its trades name;
 discounting at SOFR is `market["USD.STDCSA"] = sofr`, the same object under the discount key.
 Scenarios are frozen copies: `with_curve(key, curve)` moves a curve wherever it appears (every
 key holding it and every composite built on it), `bump(key, amount)` shifts the parameters a key
@@ -202,7 +203,7 @@ pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba pric
 engine takes any of them: at prepare time each curve hands over `ZeroCurve.log_df_affine` on
 the program's static queries — the exact `(offset, jacobian)` of `ln DF` in the pillar zero
 rates — and the kernel never sees the scheme. Only the JAX oracle still models log-linear DF
-(`ZeroCurve.is_log_linear`). Every bound interpolator also exports PPoly `coefficients` for a
+(it checks `ZeroCurve.scheme` against `(LogDF, Linear())`). Every bound interpolator also exports PPoly `coefficients` for a
 kernel that wants to evaluate the curve itself.
 
 Same pillar discount factors under the five named schemes. Zero rates agree at the pillars;

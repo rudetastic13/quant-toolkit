@@ -6,7 +6,7 @@ from typing import Union
 
 import numpy as np
 
-from common.object import CommonObject, Serializable, register_type
+from common.object import CommonObject, serializable, upgrade, Serializable, register_type
 from common.object.serializer import deserialize_value, serialize_value
 from common.testing import UnitTest
 
@@ -22,6 +22,7 @@ class Status(StrEnum):
     Inactive = "inactive"
 
 
+@serializable("test.SimpleObj")
 @dataclass(kw_only=True)
 class SimpleObj(CommonObject):
     name: str
@@ -30,12 +31,14 @@ class SimpleObj(CommonObject):
     flag: bool = True
 
 
+@serializable("test.ObjWithEnum")
 @dataclass(kw_only=True)
 class ObjWithEnum(CommonObject):
     color: Color
     status: Status = Status.Active
 
 
+@serializable("test.ObjWithOptional")
 @dataclass(kw_only=True)
 class ObjWithOptional(CommonObject):
     name: str
@@ -43,17 +46,20 @@ class ObjWithOptional(CommonObject):
     score: float | None = None
 
 
+@serializable("test.Inner")
 @dataclass(kw_only=True)
 class Inner(CommonObject):
     x: int
 
 
+@serializable("test.Outer")
 @dataclass(kw_only=True)
 class Outer(CommonObject):
     inner: Inner
     items: list[Inner] = field(default_factory=list)
 
 
+@serializable("test.ObjWithCollections")
 @dataclass(kw_only=True)
 class ObjWithCollections(CommonObject):
     tags: list[str] = field(default_factory=list)
@@ -81,10 +87,11 @@ class TestSerializePrimitives(UnitTest):
         self.assertEqual(restored.count, 0)
         self.assertTrue(restored.flag)
 
-    def test_serialize_contains_type_key(self):
+    def test_serialize_stamps_the_stable_name_and_version(self):
         obj = SimpleObj(name="a", value=0.0)
         data = obj.serialize()
-        self.assertIn("__type__", data)
+        self.assertEqual(data["__type__"], "test.SimpleObj")
+        self.assertEqual(data["__version__"], 1)
 
 
 class TestSerializeEnums(UnitTest):
@@ -238,6 +245,7 @@ register_type(
 )
 
 
+@serializable("test.ObjWithCustom")
 @dataclass(kw_only=True)
 class ObjWithCustom(CommonObject):
     custom: MyCustom
@@ -268,7 +276,7 @@ class TestPolymorphicDeserialization(UnitTest):
 
     def test_missing_fields_use_defaults(self):
         data = {
-            "__type__": f"{SimpleObj.__module__}.{SimpleObj.__qualname__}",
+            "__type__": "test.SimpleObj",
             "name": "minimal",
             "value": 0.0,
         }
@@ -280,11 +288,13 @@ class TestPolymorphicDeserialization(UnitTest):
 # ── Marker-driven deserialization (untyped containers) ─────────────────────────
 
 
+@serializable("test.ObjWithUntypedDict")
 @dataclass(kw_only=True)
 class ObjWithUntypedDict(CommonObject):
     payload: dict = field(default_factory=dict)
 
 
+@serializable("test.ObjWithArray")
 @dataclass(kw_only=True)
 class ObjWithArray(CommonObject):
     values: np.ndarray = field(default_factory=lambda: np.array([]))
@@ -346,21 +356,25 @@ class TestMarkerDrivenDeserialization(UnitTest):
 # ── Additional edge-case coverage ─────────────────────────────────────────────
 
 
+@serializable("test.ObjWithSet")
 @dataclass(kw_only=True)
 class ObjWithSet(CommonObject):
     tags: set[str] = field(default_factory=set)
 
 
+@serializable("test.ObjWithTuple")
 @dataclass(kw_only=True)
 class ObjWithTuple(CommonObject):
     pair: tuple[int, str] = field(default_factory=lambda: (0, ""))
 
 
+@serializable("test.ObjWithBareList")
 @dataclass(kw_only=True)
 class ObjWithBareList(CommonObject):
     items: list = field(default_factory=list)
 
 
+@serializable("test.ObjWithNonInitField")
 @dataclass(kw_only=True)
 class ObjWithNonInitField(CommonObject):
     name: str = ""
@@ -418,12 +432,11 @@ class TestEdgeCases(UnitTest):
         result = deserialize_value("not_a_number", Union[int, float])
         self.assertEqual(result, "not_a_number")
 
-    def test_deserialize_unknown_type_key_falls_back_to_cls(self):
-        """If __type__ is missing from registry, deserialize falls back to the called class."""
+    def test_deserialize_unknown_type_key_is_an_error(self):
+        """An unregistered __type__ is refused rather than guessed: a typo must not load as another class."""
         data = {"__type__": "nonexistent.module.Foo", "name": "x", "value": 1.0}
-        # SimpleObj.deserialize should ignore the bad __type__ and use SimpleObj
-        restored = SimpleObj.deserialize(data)
-        self.assertEqual(restored.name, "x")
+        with self.assertRaises(KeyError):
+            SimpleObj.deserialize(data)
 
     def test_final_fallthrough_returns_value_unchanged(self):
         """Values whose type hint is not handled are returned unchanged."""
@@ -450,3 +463,108 @@ class TestEdgeCases(UnitTest):
         result = deserialize_value([1, 2, 3], Tuple)
         self.assertIsInstance(result, tuple)
         self.assertEqual(result, (1, 2, 3))
+
+
+# ── Stable names and versions ──────────────────────────────────────────────────
+
+
+@serializable("test.Versioned", version=3)
+@dataclass(kw_only=True)
+class Versioned(CommonObject):
+    """Version history: v1 had ``amount``; v2 renamed it ``notional``; v3 added ``currency`` with a default."""
+
+    notional: float
+    currency: str = "USD"
+
+
+@upgrade("test.Versioned", from_version=1)
+def _versioned_1_to_2(doc: dict) -> dict:
+    doc["notional"] = doc.pop("amount")
+    return doc
+
+
+@upgrade("test.Versioned", from_version=2)
+def _versioned_2_to_3(doc: dict) -> dict:
+    doc.setdefault("currency", "GBP")  # documents from before the field existed were all GBP
+    return doc
+
+
+@serializable("test.Holder", version=1)
+@dataclass(kw_only=True)
+class Holder(CommonObject):
+    inner: Versioned
+
+
+class Unregistered(CommonObject):
+    pass
+
+
+class TestStableNamesAndVersions(UnitTest):
+    COVERAGE = ["common.object.serializer"]
+
+    def test_the_name_is_the_type_key_not_the_module_path(self):
+        doc = Versioned(notional=1.0).serialize()
+        self.assertEqual(doc["__type__"], "test.Versioned")
+        self.assertEqual(doc["__version__"], 3)
+        self.assertNotIn(Versioned.__module__, doc["__type__"])
+        self.assertIsInstance(Serializable.deserialize(doc), Versioned)  # resolved through the registry
+
+    def test_upgrades_chain_from_the_oldest_version(self):
+        v1 = {"__type__": "test.Versioned", "__version__": 1, "amount": 5.0}
+        obj = Versioned.deserialize(v1)
+        self.assertEqual((obj.notional, obj.currency), (5.0, "GBP"))     # 1 -> 2 renamed, 2 -> 3 defaulted
+        v2 = {"__type__": "test.Versioned", "__version__": 2, "notional": 7.0}
+        self.assertEqual(Versioned.deserialize(v2).currency, "GBP")
+        self.assertEqual(Versioned.deserialize({"__type__": "test.Versioned", "__version__": 3, "notional": 1.0}).currency, "USD")
+        self.assertEqual(Versioned.deserialize(v1).serialize()["__version__"], 3)  # re-saving writes the current version
+
+    def test_a_document_without_a_version_is_version_one(self):
+        obj = Versioned.deserialize({"__type__": "test.Versioned", "amount": 2.0})
+        self.assertEqual(obj.notional, 2.0)
+
+    def test_a_newer_document_is_refused(self):
+        with self.assertRaises(ValueError):
+            Versioned.deserialize({"__type__": "test.Versioned", "__version__": 4, "notional": 1.0})
+
+    def test_a_missing_upgrade_step_is_an_error(self):
+        @serializable("test.Gapped", version=2)
+        @dataclass(kw_only=True)
+        class Gapped(CommonObject):
+            x: int = 0
+
+        with self.assertRaises(KeyError):
+            Gapped.deserialize({"__type__": "test.Gapped", "__version__": 1, "x": 1})
+
+    def test_nested_objects_carry_their_own_version(self):
+        doc = Holder(inner=Versioned(notional=1.0)).serialize()
+        self.assertEqual((doc["__version__"], doc["inner"]["__version__"]), (1, 3))
+        old = {"__type__": "test.Holder", "__version__": 1, "inner": {"__type__": "test.Versioned", "__version__": 1, "amount": 9.0}}
+        self.assertEqual(Holder.deserialize(old).inner.notional, 9.0)  # the leg upgrades, the holder did not change
+
+    def test_an_unregistered_subclass_cannot_be_serialised(self):
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Unregistered().serialize()
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Unregistered.deserialize({})
+
+    def test_a_subclass_does_not_inherit_its_parents_name(self):
+        @dataclass(kw_only=True)
+        class Child(Versioned):
+            extra: int = 0
+
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Child(notional=1.0).serialize()
+
+    def test_a_name_cannot_be_taken_twice(self):
+        with self.assertRaises(ValueError):
+
+            @serializable("test.Versioned")
+            @dataclass(kw_only=True)
+            class Impostor(CommonObject):
+                pass
+
+        with self.assertRaises(ValueError):
+
+            @upgrade("test.Versioned", from_version=1)
+            def _again(doc):
+                return doc

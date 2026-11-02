@@ -6,10 +6,10 @@ carries `HistoricalFixings`. It is the only layer that sees dates, and it is the
 `MarketContext` registers and `RateGenerator` reads.
 
 ```text
-DiscountCurve (02–04)  +  origin  +  key (+ index conventions for a projection key)  +  fixings
+DiscountCurve (02–04)  +  origin  +  key (+ index family for a projection key)  +  fixings
         │
         ▼
-    DiscountCurve  ──market[key] = curve──▶  MarketContext  ──yield_curve(key)──▶  RateGenerator, pricers
+    DiscountCurve  ──market[key] = curve──▶  MarketContext  ──market[key]──▶  RateGenerator, pricers
 ```
 
 Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says what the curve is:
@@ -19,8 +19,8 @@ Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says wh
 | `CCY.INDEX.TENOR` | projection: what a floating leg resets off; `1D` for overnight | `USD.SOFR.1D`, `USD.FEDFUND.1D`, `USD.CME-TERM-SOFR.3M` |
 | `CCY.NAME` | discounting: a funding or collateral regime, or an issuer; no tenor | `USD.STDCSA`, `GBP.USDSTDCSA`, `USD.UST` |
 
-A projection key carries its index family's conventions (day count, fixing rules, published
-tenors); a discount key carries none, because nothing resets off it. A market registers every key
+A projection key carries its `IndexFamily` (day count, fixing rules, published tenors); a
+discount key carries none, because nothing resets off it. A market registers every key
 its trades name: a swap with `funding_id="STDCSA"` discounts off `USD.STDCSA`, and "discount at
 SOFR" is the SOFR curve object bound under that key as well. There is no implicit default.
 
@@ -50,17 +50,15 @@ sofr_yc.node_dates
 # ['2026-06-01' '2026-08-30' '2027-06-01' '2028-05-31' '2031-05-31' '2036-05-29']
 sofr_yc.key
 # CurveKey('USD.SOFR.1D')
-sofr_yc.index
-# RateIndex('USD.SOFR.1D')
-sofr_yc.index.family
+sofr_yc.family
 # IndexFamily('USD.SOFR', tenors=('1D',), day_count=Actual360, fixing_calendar='no_holidays', fixing_type=Arrears)
 
 built = YieldCurve.build(sofr_yc.node_dates, dfs, key="USD.SOFR.1D", interpolator=Cubic())
 built
 # YieldCurve(name='USD.SOFR.1D', origin=2026-06-01, zero_curve=ZeroCurve(nodes=6, max_x=3650, space=LogDF, interpolator=Cubic(bc_type='natural'), extrapolation=FlatForward))
 
-csa = sofr_yc.with_key("USD.STDCSA")               # the same state as a discount curve
-csa.name, csa.index
+csa = YieldCurve.from_registry(as_of, sofr_yc.zero_curve, key="USD.STDCSA")   # the same state as a discount curve
+csa.name, csa.family
 # ('USD.STDCSA', None)
 ```
 
@@ -129,10 +127,11 @@ fedfund_yc.node_dates                              # the composite's union of pi
 
 ## In the market
 
-`MarketContext` is a `Mapping[str, DiscountCurve]` keyed by curve key and the container pricers
+`MarketContext` is a `Mapping[str, YieldCurve]` keyed by curve key and the container pricers
 read. Assigning the SOFR curve a second time under `USD.STDCSA` is how the market says "discount
-at SOFR": one object, two keys. A `YieldCurve` can be assigned too (its fixings come with it);
-what is stored is always the mathematical curve, and `yield_curve(key)` is the derived view.
+at SOFR": one mathematical object, two keys, one `YieldCurve` view per key. A bare `DiscountCurve`
+is wrapped under the key it is assigned to; a `YieldCurve` under its own key keeps its fixings.
+`market[key]` is the view and `market[key].zero_curve` the mathematical curve.
 
 ```python
 from finance.markets import RateGenerator

@@ -84,8 +84,10 @@ module `__all__`, numpydoc).
 - `finance.markets.curves.units`: `bp = 1e-4`, `pct = 1e-2`.
 - On every `DiscountCurve`: `a + b` → `CompositeCurve({"base": a, "spread": b})` (left operand
   is the base); `a - b` → `CompositeCurve((a, b), (1, -1))`; `a ± float` → base plus
-  `ZeroCurve.constant(±float, a.max_x)` labelled `spread`; `w * a` → weight; `-a`; `a * b` →
-  `TypeError`. Operators *define* curves; moving parameters is `with_params` / the market's `bump`.
+  `ZeroCurve.constant(±float, a.max_x)` labelled `spread`. Only `+` and `-` are defined (the
+  scalar-weight operators were removed in the Oct 2026 cleanup: nothing used them; any other
+  weight is `CompositeCurve(components, weights)`). Operators *define* curves; moving parameters
+  is `with_params` / the market's `bump`.
 - Labels and `ZeroCurve.constant` landed in PR A; the operators (`_curve_impl/algebra.py`, a stateless mixin), `Leaf`, `leaves()` and `replace()` in PR B.
 - `leaves()` → `tuple[Leaf]` (`curve`, accumulated `weight`, `columns`) on both classes and in the protocol;
   `replace(old, new)` → same structure with `old` substituted wherever it appears (identity).
@@ -160,7 +162,8 @@ reports the basis under the discount key only (needs PR E for the ladder).
 the right picture:
 
 - `finance/conventions/keys.py`: `CurveKey` (value equality and hash, because `Term` is
-  unhashable), `CurveKind`, `OVERNIGHT = Term(1, Days)`, `parse_tenor` / `tenor_label`.
+  unhashable), `OVERNIGHT = Term(1, Days)`, `parse_tenor` / `tenor_label` (`CurveKind` was
+  dropped in the Oct 2026 cleanup: `is_projection` / `is_discount` say the same thing).
   `IndexFamily` (upper-cased, validated tenors, `index(tenor)`), `RateIndex(family, tenor)` with
   `key` / `label` = `'USD.SOFR.1D'`. `MarketConventions.family` replaces `.index`;
   `MarketConventions.index(tenor)` is the method. `MATCH_TENOR` is a sentinel enum member usable

@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, replace
 
-from common.object import ValidationResult
+from common.object import ValidationResult, serializable
 from common.object.common_object import CommonObject
 from finance.dates import (
     Date,
@@ -12,9 +12,10 @@ from finance.dates import (
     Frequency,
 )
 from finance.dates.enums import FixingType
+from finance.instruments.schedules.amortization import NotionalSchedule
 from finance.instruments.schedules.coupon_schedule import CouponSchedule
 from finance.instruments.schedules.observation import LookbackStyle
-from .enums import CouponType, PrincipalExchange
+from .enums import AmortizationType, CouponType, PrincipalExchange
 
 # Flat coupon fields: the single-coupon convenience.  Changing one through ``replace`` on a
 # leg whose schedule was derived from them rebuilds the schedule; see ``replace``.
@@ -23,6 +24,7 @@ _COUPON_FIELDS = frozenset({
 })
 
 
+@serializable("CommonInstrument")
 @dataclass(kw_only=True)
 class CommonInstrument(CommonObject):
     """The one concrete leg type: schedule parameters + balance + coupon, flat.
@@ -41,8 +43,10 @@ class CommonInstrument(CommonObject):
     (``reset_frequency``, ``fixing_type``, ``rate_lookback``/``rate_lockout``,
     ``rate_calendar``) and ``rate_index`` apply to every floating segment.
 
-    The same "flat type, or ``Custom`` + a supplied schedule" pattern is the intended shape
-    for amortization when it lands (a generator name, or ``Custom`` with a notional schedule).
+    The outstanding notional follows the same pattern: ``amortization`` names a generator
+    (``Bullet``, ``StraightLine``, ``LevelPay``) driven by the window fields, or a supplied
+    ``notional_schedule`` tags the leg ``AmortizationType.Custom``.  Either way the compiler
+    reads one per-period array (``finance.instruments.schedules.notional_profile``).
 
     Designated refactor (when a second leg-bearing product lands — Bond/Loan): split the
     field groups below into ``kw_only`` dataclass mixins the products compose, defining
@@ -66,8 +70,14 @@ class CommonInstrument(CommonObject):
     first_regular_accrual_date: Date | None = field(default=None)
     last_regular_accrual_date: Date | None = field(default=None)
 
-    # balance info
+    # balance info: what is outstanding, and whether principal actually changes hands
     principal_exchange: PrincipalExchange = field(default=PrincipalExchange.Unused)
+    amortization: AmortizationType = field(default=AmortizationType.Bullet)
+    amort_start: Date | None = field(default=None)       # interest-only before it; default effective
+    amort_end: Date | None = field(default=None)         # the balloon date; default maturity, may precede it
+    amortization_term: Term | None = field(default=None)  # solve horizon from amort_start; default to amort_end
+    principal_frequency: Frequency | None = field(default=None)  # coupon frequency or a slower multiple
+    notional_schedule: NotionalSchedule | None = field(default=None)  # supplying one means Custom
 
     # coupon info — leg-level projection parameters ...
     reset_frequency: Frequency | None = field(default=None)
@@ -78,8 +88,9 @@ class CommonInstrument(CommonObject):
     rate_calendar: str | None = field(default=None)
     # ISDA Lookback reads the overnight rate at each (shifted) sub-period start — the daily RFR
     # case; ObservationShift reads the whole (shifted) sub-period, which a term-rate compounder
-    # (monthly fixings inside a quarterly coupon) needs.
-    lookback_style: LookbackStyle = field(default=LookbackStyle.Lookback)
+    # (monthly fixings inside a quarterly coupon) needs.  None derives it from the reset
+    # frequency: daily fixings -> Lookback, a term sub-period grid -> ObservationShift.
+    lookback_style: LookbackStyle | None = field(default=None)
     # ... and the single-coupon convenience, lowered into ``coupon_schedule`` when none is given
     coupon_type: CouponType = field(default=CouponType.Zero)
     coupon_rate: float = field(default=0.0)
@@ -98,6 +109,10 @@ class CommonInstrument(CommonObject):
             raise ValueError("coupon_type Custom means a supplied coupon_schedule; none was given")
         else:
             self.coupon_schedule = CouponSchedule.schedule_from_instrument(self)
+        if self.notional_schedule is not None:
+            self.amortization = AmortizationType.Custom
+        elif self.amortization is AmortizationType.Custom:
+            raise ValueError("amortization Custom means a supplied notional_schedule; none was given")
         # invalid contracts fail at construction, whichever path built them
         # (raises ValidationException on failures; warnings pass through)
         self.validate()
@@ -117,6 +132,8 @@ class CommonInstrument(CommonObject):
         data = super().serialize()
         if self.coupon_type is not CouponType.Custom:
             del data["coupon_schedule"]
+        if self.amortization is not AmortizationType.Custom:
+            del data["notional_schedule"]
         return data
 
     def replace(self, **changes) -> "CommonInstrument":
@@ -149,7 +166,21 @@ class CommonInstrument(CommonObject):
             result.add_failure(f"floating coupon ({floating}) requires a rate_index")
         if self.cap is not None and self.floor is not None and self.cap < self.floor:
             result.add_failure(f"cap ({self.cap}) is below floor ({self.floor})")
+        start = self.amort_start or self.effective
+        end = self.amort_end or self.maturity
+        if not self.effective <= start < end <= self.maturity:
+            result.add_failure(
+                f"amortisation window [{start}, {end}] must lie within [effective {self.effective}, maturity {self.maturity}]"
+            )
+        if self.amortization_term is not None and int(self.amortization_term.term_length) <= 0:
+            result.add_failure(f"amortization_term must be positive, got {self.amortization_term}")
+        if self.principal_frequency is not None and self.principal_frequency < self.payment_frequency:
+            result.add_failure(
+                f"principal_frequency {self.principal_frequency.name} is faster than payment_frequency "
+                f"{self.payment_frequency.name}; principal may be paid at the coupon frequency or slower"
+            )
+        if not self.amortization.is_generated and any(
+            v is not None for v in (self.amort_start, self.amort_end, self.amortization_term, self.principal_frequency)
+        ):
+            result.add_warning(f"amortisation window fields are ignored for {self.amortization.name}")
         return result
-
-
-__all__ = ["CommonInstrument"]

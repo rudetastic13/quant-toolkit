@@ -47,7 +47,7 @@ class TestYieldCurveGroup(UnitTest):
         self.assertIs(self.usd[SOFR], self.sofr)  # stored as given: conventions and fixings included
         alias = self.usd[STDCSA]
         self.assertIs(alias.zero_curve, self.sofr.zero_curve)  # one math object, one view per name
-        self.assertIsNone(alias.conventions)
+        self.assertIsNone(alias.family)
         self.assertIsNone(alias.historical_fixings)
         self.assertEqual(alias.name, STDCSA)
         self.assertIs(self.usd.projection("sofr"), self.sofr)

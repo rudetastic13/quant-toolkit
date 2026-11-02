@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from enum import Enum
 
 from finance.dates import Term
 from finance.dates.term.term_type import TermType
@@ -29,13 +28,6 @@ OVERNIGHT: Term = Term(1, TermType.Days)
 """The tenor of an overnight index: ``1D`` inside a curve key."""
 
 _SLOT = re.compile(r"^[A-Z0-9][A-Z0-9-]*$")
-
-
-class CurveKind(Enum):
-    """What a curve key names: a projection (forward) curve or a discount curve."""
-
-    Projection = "projection"
-    Discount = "discount"
 
 
 def _tenor_info(tenor: Term | None) -> tuple[int, TermType] | None:
@@ -164,10 +156,6 @@ class CurveKey:
         return cls(currency, name)
 
     # -- identity -----------------------------------------------------------------------
-
-    @property
-    def kind(self) -> CurveKind:
-        return CurveKind.Projection if self.tenor is not None else CurveKind.Discount
 
     @property
     def is_projection(self) -> bool:

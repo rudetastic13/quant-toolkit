@@ -1,3 +1,30 @@
+"""JSON serialisation for dataclasses, with stable type names and per-type versions.
+
+A class opts in by inheriting :class:`Serializable` (or ``CommonObject``) **and** registering a
+stable name::
+
+    @serializable("Swap", version=1)
+    @dataclass(kw_only=True)
+    class Swap(Priceable): ...
+
+The document carries ``{"__type__": "Swap", "__version__": 1, ...fields}``.  The name is the
+contract: the class and its module can move or be renamed and old documents still load, because
+:meth:`Serializable.deserialize` resolves the name through a registry, never a module path.
+
+Versions move only when an old document can no longer be read by the current fields (a field
+renamed, removed or re-interpreted; adding a field with a default is not a bump).  Each bump
+ships a migration that rewrites the previous version's document, and the loader applies them in
+sequence until the document matches the class::
+
+    @upgrade("Swap", from_version=1)
+    def _swap_1_to_2(doc: dict) -> dict:
+        doc["funding"] = doc.pop("funding_id")
+        return doc
+
+Nested objects carry their own name and version, so bumping a leg does not bump the swap that
+holds it.  See ``common/object/README.md`` for the rules and the fixture discipline.
+"""
+
 from __future__ import annotations
 
 import json
@@ -5,21 +32,86 @@ import types as builtin_types
 from collections.abc import Callable
 from dataclasses import fields as dc_fields
 from enum import Enum
-from typing import Any, ClassVar, Union, get_args, get_origin, get_type_hints
+from typing import Any, Union, get_args, get_origin, get_type_hints
 
+from common.registry import Registry
 
 _type_serializers: dict[type, Callable[[Any], Any]] = {}
 _type_deserializers: dict[type, Callable[[Any], Any]] = {}
 
+_types: Registry[type] = Registry("Serializable")
+_upgrades: dict[tuple[str, int], Callable[[dict[str, Any]], dict[str, Any]]] = {}
+
+TYPE_KEY = "__type__"
+VERSION_KEY = "__version__"
+
 
 def register_type(type_cls: type, serializer: Callable[[Any], Any], deserializer: Callable[[Any], Any]) -> None:
-    """Register custom serialization/deserialization handlers for a type.
+    """Register custom serialization/deserialization handlers for a value type.
 
-    This allows domain types (e.g. Date, Term) to plug into the serialization
-    framework without the common layer depending on them.
+    This allows domain value types (e.g. Date, Term) to plug into the serialization framework
+    without the common layer depending on them.  Value types carry no ``__type__``; they are
+    recovered from the field's type hint.
     """
     _type_serializers[type_cls] = serializer
     _type_deserializers[type_cls] = deserializer
+
+
+def serializable(name: str, *, version: int = 1):
+    """Class decorator: register a :class:`Serializable` subclass under a stable name.
+
+    Parameters
+    ----------
+    name : str
+        The name written as ``__type__``.  It is forever: never reuse it for another class, never
+        rename it.  The class and module are free to move.
+    version : int, optional
+        The document version this class writes and reads natively.  Bump it only with a matching
+        :func:`upgrade` from the previous version.
+
+    Raises
+    ------
+    TypeError
+        If the class is not a ``Serializable``.
+    ValueError
+        If ``name`` is already registered to a different class.
+    """
+
+    def decorator(cls: type) -> type:
+        if not (isinstance(cls, type) and issubclass(cls, Serializable)):
+            raise TypeError(f"@serializable({name!r}) needs a Serializable subclass, got {cls!r}")
+        existing = _types.get(name)
+        if existing is not None and existing is not cls:
+            raise ValueError(f"serialisable name {name!r} is already registered to {existing.__qualname__}")
+        cls.__serial_name__ = name
+        cls.__serial_version__ = int(version)
+        _types.register(name, cls, overwrite=True)
+        return cls
+
+    return decorator
+
+
+def upgrade(name: str, *, from_version: int):
+    """Function decorator: register the migration of ``name`` documents from ``from_version`` to the next.
+
+    The function takes the previous version's document (a dict, already a copy) and returns the
+    next version's.  The loader chains them, so a document at version 1 reaching a class at
+    version 4 passes through ``1 -> 2 -> 3 -> 4``.
+    """
+
+    def decorator(fn: Callable[[dict[str, Any]], dict[str, Any]]):
+        key = (name, int(from_version))
+        if key in _upgrades:
+            raise ValueError(f"an upgrade for {name!r} from version {from_version} is already registered")
+        _upgrades[key] = fn
+        return fn
+
+    return decorator
+
+
+def registered_type(name: str) -> type | None:
+    """The class registered under ``name``, or ``None``."""
+    return _types.get(name)
 
 
 def serialize_value(value: Any) -> Any:
@@ -78,10 +170,10 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
         # dtype-aware ndarray envelope
         if value.get("__ndarray__") is True:
             return _rebuild_ndarray(value)
-        # Polymorphic Serializable — reconstruct whichever concrete class was stored
-        type_key = value.get("__type__")
-        if type_key and type_key in Serializable._type_registry:
-            return Serializable._type_registry[type_key].deserialize(value)
+        # Polymorphic Serializable — reconstruct whichever registered class was stored
+        type_key = value.get(TYPE_KEY)
+        if type_key and _types.has(type_key):
+            return _types.get(type_key).deserialize(value)
 
     # When there's no type hint and the value is a container, recurse so that
     # nested markers (arrays / Serializables) are still found.
@@ -166,16 +258,28 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
 
 
 class Serializable:
-    """Mixin providing JSON serialization and deserialization for dataclasses."""
+    """Mixin providing JSON serialization and deserialization for dataclasses.
 
-    _type_registry: ClassVar[dict[str, type[Serializable]]] = {}
+    Subclasses must be registered with :func:`serializable`; serialising an unregistered class is
+    an error, so a stable name is never invented from a module path.
+    """
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-        Serializable._type_registry[f"{cls.__module__}.{cls.__qualname__}"] = cls
+    __serial_name__: str
+    __serial_version__: int
+
+    @classmethod
+    def _serial_info(cls) -> tuple[str, int]:
+        # Declared on this class, not inherited: a subclass must register its own name.
+        if "__serial_name__" not in cls.__dict__:
+            raise TypeError(
+                f"{cls.__qualname__} is Serializable but not registered; "
+                f'decorate it with @serializable("{cls.__name__}", version=1)'
+            )
+        return cls.__dict__["__serial_name__"], cls.__dict__["__serial_version__"]
 
     def serialize(self) -> dict[str, Any]:
-        result: dict[str, Any] = {"__type__": f"{type(self).__module__}.{type(self).__qualname__}"}
+        name, version = type(self)._serial_info()
+        result: dict[str, Any] = {TYPE_KEY: name, VERSION_KEY: version}
         for f in dc_fields(self):
             if not f.init:
                 continue
@@ -187,10 +291,36 @@ class Serializable:
 
     @classmethod
     def deserialize(cls, data: dict[str, Any]) -> Serializable:
-        type_key = data.get("__type__")
-        target_cls = cls
-        if type_key and type_key in Serializable._type_registry:
-            target_cls = Serializable._type_registry[type_key]
+        """Build the object a document describes.
+
+        The document's ``__type__`` selects the class (any registered class may be loaded through
+        ``Serializable.deserialize``); a document without one is read as ``cls``.  A document older
+        than the class is upgraded step by step through the registered :func:`upgrade` functions.
+
+        Raises
+        ------
+        KeyError
+            If ``__type__`` names an unregistered class, or an upgrade step is missing.
+        ValueError
+            If the document was written by a newer version than the class knows.
+        """
+        type_key = data.get(TYPE_KEY)
+        if type_key is None:
+            target_cls = cls
+        else:
+            target_cls = _types.get(type_key)
+            if target_cls is None:
+                raise KeyError(f"unknown serialisable type {type_key!r}; register it with @serializable")
+        name, current = target_cls._serial_info()
+        version = int(data.get(VERSION_KEY, 1))
+        if version > current:
+            raise ValueError(f"{name} document is version {version}; this code reads up to version {current}")
+        while version < current:
+            step = _upgrades.get((name, version))
+            if step is None:
+                raise KeyError(f"no upgrade registered for {name!r} from version {version} to {version + 1}")
+            data = step(dict(data))
+            version += 1
 
         try:
             hints = get_type_hints(target_cls)
@@ -199,14 +329,14 @@ class Serializable:
 
         init_fields = {f.name: f for f in dc_fields(target_cls) if f.init}
         kwargs: dict[str, Any] = {}
-        for name, fld in init_fields.items():
-            if name not in data:
+        for field_name, fld in init_fields.items():
+            if field_name not in data:
                 continue
-            hint = hints.get(name)
+            hint = hints.get(field_name)
             # Fallback: resolve raw field.type if get_type_hints missed it
             if hint is None and isinstance(fld.type, type):
                 hint = fld.type
-            kwargs[name] = deserialize_value(data[name], hint)
+            kwargs[field_name] = deserialize_value(data[field_name], hint)
 
         return target_cls(**kwargs)
 

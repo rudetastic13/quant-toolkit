@@ -1,0 +1,59 @@
+{
+  "__type__": "CommonInstrument",
+  "__version__": 1,
+  "effective": "2026-06-01",
+  "maturity": "2031-06-01",
+  "currency": "USD",
+  "notional": 1000000.0,
+  "payment_frequency": "Quarterly",
+  "day_count_method": "Actual360",
+  "business_day_convention": "ModifiedFollowing",
+  "roll_convention": "Empty",
+  "direction": "Forward",
+  "pay_calendar": "no_holidays",
+  "payment_delay": null,
+  "first_regular_accrual_date": null,
+  "last_regular_accrual_date": null,
+  "principal_exchange": "Final",
+  "amortization": "StraightLine",
+  "amort_start": "2027-06-01",
+  "amort_end": null,
+  "amortization_term": null,
+  "principal_frequency": "Annually",
+  "reset_frequency": "Daily",
+  "fixing_type": "Arrears",
+  "rate_index": "USD.SOFR.1D",
+  "rate_lookback": null,
+  "rate_lockout": null,
+  "rate_calendar": null,
+  "lookback_style": null,
+  "coupon_type": "Custom",
+  "coupon_rate": 0.0,
+  "spread": null,
+  "index_floor": null,
+  "floor": null,
+  "cap": null,
+  "coupon_schedule": {
+    "__type__": "CouponSchedule",
+    "__version__": 1,
+    "events": [
+      {
+        "__type__": "FixedCouponEvent",
+        "__version__": 1,
+        "start_date": "2026-06-01",
+        "coupon_rate": 0.03
+      },
+      {
+        "__type__": "CompoundedCouponEvent",
+        "__version__": 1,
+        "start_date": "2028-06-01",
+        "rate_index": "USD.SOFR.1D",
+        "spread": 0.001,
+        "index_floor": null,
+        "cap": null,
+        "floor": null,
+        "margin_treatment": "Inclusive"
+      }
+    ]
+  }
+}

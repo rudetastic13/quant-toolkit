@@ -38,9 +38,9 @@ class TestDv01(UnitTest):
         self.assertLess(dv01[0], 0.0)
 
     def test_dv01_does_not_mutate_base_market(self):
-        before = self.mkt["USD.SOFR.1D"].dfs.copy()
+        before = self.mkt["USD.SOFR.1D"].zero_curve.dfs.copy()
         _ = self.sens.dv01("USD.SOFR.1D")
-        after = self.mkt["USD.SOFR.1D"].dfs
+        after = self.mkt["USD.SOFR.1D"].zero_curve.dfs
         np.testing.assert_array_equal(before, after)  # bumping built a fresh market
 
     def test_dv01_scale_reasonable(self):

@@ -164,16 +164,25 @@ class TestLookbackStyleReachesTheGrid(UnitTest):
 
     COVERAGE = ["finance.pricing.pricers.legs", "finance.instruments.common_instrument"]
 
-    def _inputs(self, style):
+    def _inputs(self, style, reset=Frequency.Monthly):
         from finance.instruments.schedules.observation import LookbackStyle
         from finance.pricing.pricers.legs import leg_spec
 
         leg = _leg(
-            payment_frequency=Frequency.Quarterly, reset_frequency=Frequency.Monthly,
+            payment_frequency=Frequency.Quarterly, reset_frequency=reset,
             coupon_type=CouponType.GeometricAveraged, rate_index="USD.SOFR.1D",
-            lookback_style=LookbackStyle[style],
+            lookback_style=None if style is None else LookbackStyle[style],
         )
         return leg_spec(leg, 1.0, "USD.SOFR.1D", "USD.SOFR.1D", 0).schedule
+
+    def test_the_style_is_derived_from_the_reset_grid_when_not_given(self):
+        term = self._inputs(None)                                   # monthly fixings: whole sub-period
+        np.testing.assert_array_equal(term.obs_read_starts, self._inputs("ObservationShift").obs_read_starts)
+        np.testing.assert_array_equal(term.obs_read_ends, self._inputs("ObservationShift").obs_read_ends)
+        self.assertEqual(term.obs_read_ends[0], Date(2026, 2, 15).to_numpy())
+        daily = self._inputs(None, reset=Frequency.Daily)           # daily fixings: the overnight print
+        np.testing.assert_array_equal(daily.obs_read_ends, self._inputs("Lookback", reset=Frequency.Daily).obs_read_ends)
+        self.assertEqual((daily.obs_read_ends[0] - daily.obs_read_starts[0]).astype(int), 1)
 
     def test_observation_shift_reads_the_whole_sub_period(self):
         ps = self._inputs("ObservationShift")

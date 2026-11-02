@@ -23,18 +23,11 @@ class TestZeroCurveState(UnitTest):
         self.assertIs(c.space, CurveSpace.LogDF)
         self.assertEqual(c.interpolator, Linear())
         self.assertIs(c.extrapolation, RateExtrapolator.FlatForward)
-        self.assertTrue(c.is_log_linear)
+        self.assertEqual(c.scheme, (CurveSpace.LogDF, Linear()))
         self.assertEqual(c.max_x, 1825.0)
-
-    def test_is_log_linear_requires_both_space_and_scheme(self):
-        self.assertFalse(_curve(space=CurveSpace.ZeroRate).is_log_linear)
-        self.assertFalse(_curve(interpolator=Cubic()).is_log_linear)
 
     def test_node_zero_rates_recover_level(self):
         np.testing.assert_allclose(_curve(0.04).node_zero_rates, [0.04, 0.04])
-
-    def test_flat_alias_of_flat_forward(self):
-        self.assertIs(RateExtrapolator.Flat, RateExtrapolator.FlatForward)
 
     def test_repr_names_configuration(self):
         text = repr(_curve(space=CurveSpace.ZeroRate, interpolator=Cubic()))

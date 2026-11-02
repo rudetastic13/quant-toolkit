@@ -1,3 +1,4 @@
+from .amortization import NotionalEvent, NotionalSchedule, notional_profile
 from .base_schedule import BaseEvent, BaseSchedule
 from .coupon_schedule import (
     AveragedCouponEvent,
@@ -18,6 +19,9 @@ __all__ = [
     "AveragedCouponEvent",
     "CompoundedCouponEvent",
     "CouponSchedule",
+    "NotionalEvent",
+    "NotionalSchedule",
+    "notional_profile",
     "PaymentSchedule",
     "build_payment_schedule",
 ]

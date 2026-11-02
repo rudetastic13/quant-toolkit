@@ -237,7 +237,7 @@ zc.x                                       # pillar offsets, origin-inclusive
 zc.node_zero_rates                         # z at the non-origin pillars
 zc.log_df_affine(xq)                       # (offset, jacobian): ln DF(xq) == offset + jacobian @ z, exact
 zc.line.coefficients                       # (2, 8) for Linear; (4, 8) for Cubic
-zc.is_log_linear                           # True: LogDF space and Linear() (the JAX oracle's one scheme)
+zc.scheme                                  # (CurveSpace.LogDF, Linear()): the JAX oracle's one scheme
 ```
 
 `log_df_affine` is how the Numba engine consumes a curve: the program's discount-factor
@@ -374,8 +374,8 @@ market = MarketContext(Date(2026, 6, 1))
 market["USD.SOFR.1D"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
 market["USD.STDCSA"] = yc                  # the same curve is the discount curve
 
-market.yield_curve("USD.SOFR.1D")             # the YieldCurve view
-market["USD.SOFR.1D"]                         # its ZeroCurve
+market["USD.SOFR.1D"]                         # the registered YieldCurve
+market["USD.SOFR.1D"].zero_curve              # its ZeroCurve
 market.with_curve("USD.SOFR.1D", bumped)      # frozen copy, original untouched; USD.STDCSA follows
 market.bump("USD.SOFR.1D", 1e-4)              # +1bp on every pillar the key owns
 
@@ -444,7 +444,7 @@ schemes; construct it directly as above.
 | Smooth forwards for the long end | `LogDF` + `Cubic()` |
 | Both | `LogDF` + `Mixed(Linear(), Cubic(), switch_node=yc.node_index(Term.from_str("2Y")))` |
 | Analytic Numba risk | any scheme (`zc.log_df_affine`) |
-| JAX validation oracle | `LogDF` + `Linear()` only (`zc.is_log_linear`) |
+| JAX validation oracle | `LogDF` + `Linear()` only (`zc.scheme == (CurveSpace.LogDF, Linear())`) |
 | Sequential bootstrap | `Linear()` or `Flat()` in either space |
 | Compatibility with a rate-space system | `ZeroRate` + `Linear()` / `Cubic()` |
 

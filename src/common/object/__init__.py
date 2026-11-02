@@ -1,5 +1,5 @@
 from common.object.common_object import CommonObject
-from common.object.serializer import Serializable, register_type
+from common.object.serializer import Serializable, register_type, registered_type, serializable, upgrade
 from common.object.validation import (
     Validatable,
     ValidationException,
@@ -13,6 +13,9 @@ __all__ = [
     "Serializable",
     "Validatable",
     "register_type",
+    "registered_type",
+    "serializable",
+    "upgrade",
     "ValidationException",
     "ValidationMessage",
     "ValidationResult",

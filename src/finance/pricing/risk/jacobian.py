@@ -135,7 +135,7 @@ def template_jacobian(
 
     for k, h in money:
         inst = getattr(h, "deposit", None) or getattr(h, "fra", None)
-        curve = market.yield_curve(h.curve)
+        curve = market[h.curve]
         window = np.array([inst.effective.to_numpy(), inst.maturity.to_numpy()], dtype="datetime64[D]")
         tau = float(period_fractions(inst.day_count_method, window[:1], window[1:])[0])
         offset, jac = curve.zero_curve.log_df_affine(curve.to_x(window))

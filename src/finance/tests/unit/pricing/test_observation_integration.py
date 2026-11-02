@@ -34,7 +34,7 @@ class TestRealGridTelescopes(UnitTest):
     def setUp(self):
         sofr = _curve()
         self.mkt = MarketContext(as_of=Date(2026, 6, 1), curves={sofr.name: sofr, "USD.STDCSA": sofr})
-        self.curve = self.mkt.yield_curve(CURVE)
+        self.curve = self.mkt[CURVE]
         self.rates = RateGenerator(self.mkt)
         self.ps = build_payment_schedule(
             Date(2026, 6, 1), Date(2028, 6, 1), Frequency.SemiAnnually,

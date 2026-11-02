@@ -84,8 +84,7 @@ class TestNumbaProgram(UnitTest):
         np.testing.assert_array_equal(delta[program.inputs.rate_kind == 0], 0.0)
 
     def test_fd_of_adjoint_gamma_matches_jax_hessian(self):
-        jax = pytest.importorskip("jax")
-        jax.config.update("jax_enable_x64", True)
+        pytest.importorskip("jax")
         from finance.pricing.risk.autodiff import AutodiffRisk
 
         program = SwapPricer().compile(_book(self.as_of, 1))
@@ -95,7 +94,7 @@ class TestNumbaProgram(UnitTest):
 
     def test_reprice_rejects_changed_pillar_geometry(self):
         program = NumbaProgram(SwapPricer().compile(_book(self.as_of, 1)).inputs, self.market)
-        yc = self.market.yield_curve(CURVE)
+        yc = self.market[CURVE]
         dates = np.insert(yc.node_dates, 2, yc.node_dates[1] + np.timedelta64(30, "D"))
         dfs = np.interp(dates.astype(np.int64), yc.node_dates.astype(np.int64), yc.zero_curve.dfs)
         changed_curve = yc.with_zero_curve(ZeroCurve(yc.to_x(dates), dfs))

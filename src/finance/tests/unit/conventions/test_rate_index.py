@@ -1,7 +1,7 @@
 """Curve keys, index families and rate indices."""
 
 from common.testing import UnitTest
-from finance.conventions import OVERNIGHT, CurveKey, CurveKind, IndexFamily, RateIndex, parse_tenor, tenor_label
+from finance.conventions import OVERNIGHT, CurveKey, IndexFamily, RateIndex, parse_tenor, tenor_label
 from finance.dates import Term
 from finance.dates.enums import DayCountMethod, FixingType
 
@@ -28,7 +28,7 @@ class TestCurveKey(UnitTest):
         key = CurveKey.parse("usd.sofr.1d")
         self.assertEqual((key.currency, key.name), ("USD", "SOFR"))
         self.assertEqual(key.tenor, OVERNIGHT)
-        self.assertIs(key.kind, CurveKind.Projection)
+        self.assertTrue(key.is_projection)
         self.assertTrue(key.is_overnight)
         self.assertEqual(str(key), "USD.SOFR.1D")
         term = CurveKey.parse("USD.CME-TERM-SOFR.3M")
@@ -39,7 +39,7 @@ class TestCurveKey(UnitTest):
 
     def test_discount_key_has_no_tenor(self):
         key = CurveKey.parse("USD.STDCSA")
-        self.assertIs(key.kind, CurveKind.Discount)
+        self.assertFalse(key.is_projection)
         self.assertIsNone(key.tenor)
         self.assertIsNone(key.tenor_label)
         self.assertTrue(key.is_discount)
