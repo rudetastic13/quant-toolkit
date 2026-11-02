@@ -12,8 +12,9 @@ Two ways to say it, one truth the compiler reads (the per-period notional array)
 
 A level payment is re-solved only when the coupon rate changes (a fixed step-up here; an ARM
 reset in general), from the balance then outstanding over the remaining horizon, and held until
-the next change.  On a floating leg the rate is not known at compile time, so level pay there is
-rate-dependent and is not a compile-time profile.
+the next change.  On a floating leg the rate is only known at reprice time, so the balance path is
+a *kernel stage* (a per-leg recursion over the projected rates, between the rate and cash stages),
+not a compile-time column; that stage is not built yet, so ``LevelPay`` on a floating leg raises.
 """
 
 from __future__ import annotations
@@ -138,8 +139,9 @@ def _level_pay_balances(leg, face: float, horizon: PaymentSchedule) -> FloatArra
     events = leg.coupon_schedule.events
     if any(event.coupon_type.is_floating for event in events):
         raise NotImplementedError(
-            "LevelPay on a floating leg is rate-dependent (the payment is re-solved at each reset); "
-            "it is not a compile-time notional profile"
+            "LevelPay on a floating leg re-solves the payment from each reset's rate, so the balance path "
+            "depends on the projected rates and belongs to a reprice-time kernel stage, not a compile-time "
+            "profile; that stage is not built yet"
         )
     governing = leg.coupon_schedule.schedule_from_accrual_grid(horizon.accrual_starts)
     rates = np.array([float(events[i].coupon_rate) for i in governing])

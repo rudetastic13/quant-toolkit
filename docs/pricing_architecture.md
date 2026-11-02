@@ -275,12 +275,18 @@ single-fixing floats.
     frequency or a slower multiple; principal dates must fall on coupon payment dates).
   - `LevelPay` solves the annuity payment on the principal grid for the schedule's own accrual
     fractions and re-solves it only when the coupon rate changes (a fixed step-up), holding it
-    between changes; on a floating leg the payment depends on each reset, so it is
-    rate-dependent and rejected at compile time rather than approximated.
+    between changes. On a floating leg (an ARM) the payment depends on each reset's rate, so the
+    balance path is a function of the projected rates: not a compile-time column but a
+    reprice-time kernel stage (a per-leg recursion between the rate and cash stages, with the
+    paydown flow slots fixed at compile and their amounts filled per reprice). Rejected until
+    that stage exists rather than approximated with today's forwards, which would give right PVs
+    and wrong delta.
   - A seasoned loan is today's outstanding as the face with `amort_start` today and the
     remaining term; the payment is recomputed from what is actually owed.
-  - Not built: rate-dependent notionals (level pay on a floater, behavioural prepayment as a
-    function of rates). They are a kernel computation, not a compile-time column.
+  - Not built: the rate-dependent notional stage (level pay on a floater, behavioural
+    prepayment as a function of rates): a `notional_rule` per leg evaluated at reprice from the
+    per-flow rates, numpy loop / Numba scan / `lax.scan`, pinned to the compile-time `LevelPay`
+    profile on a fixed leg by test.
 - **Portfolio / book.** A real aggregation layer (positions, netting, book-level risk) sits
   on top of `PricingProgram` — designed in
   [portfolio_and_scenarios.md](portfolio_and_scenarios.md).
