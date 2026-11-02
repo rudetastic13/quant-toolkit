@@ -87,8 +87,9 @@ class CommonInstrument(CommonObject):
     rate_calendar: str | None = field(default=None)
     # ISDA Lookback reads the overnight rate at each (shifted) sub-period start — the daily RFR
     # case; ObservationShift reads the whole (shifted) sub-period, which a term-rate compounder
-    # (monthly fixings inside a quarterly coupon) needs.
-    lookback_style: LookbackStyle = field(default=LookbackStyle.Lookback)
+    # (monthly fixings inside a quarterly coupon) needs.  None derives it from the reset
+    # frequency: daily fixings -> Lookback, a term sub-period grid -> ObservationShift.
+    lookback_style: LookbackStyle | None = field(default=None)
     # ... and the single-coupon convenience, lowered into ``coupon_schedule`` when none is given
     coupon_type: CouponType = field(default=CouponType.Zero)
     coupon_rate: float = field(default=0.0)

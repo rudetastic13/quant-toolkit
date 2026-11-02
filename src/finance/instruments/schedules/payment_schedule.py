@@ -136,7 +136,7 @@ def build_payment_schedule(
     observation_calendar: str | None = None,
     rate_lookback: int = 0,
     rate_lockout: int = 0,
-    lookback_style: LookbackStyle | None = None,
+    lookback_style: LookbackStyle | None = None,  # None: Lookback on a daily grid, ObservationShift on a term grid
 ) -> PaymentSchedule:
     """Build a PaymentSchedule from schedule parameters.
 
@@ -267,7 +267,11 @@ def build_payment_schedule(
                 day_count=day_count_method,
                 lookback=rate_lookback,
                 lockout=rate_lockout,
-                lookback_style=lookback_style if lookback_style is not None else LookbackStyle.Lookback,
+                # Default by what a fixing is: an overnight print on the daily grid (ISDA Lookback), the
+                # rate over the whole sub-period on a term grid (ObservationShift).
+                lookback_style=lookback_style
+                if lookback_style is not None
+                else (LookbackStyle.ObservationShift if sub_boundaries is not None else LookbackStyle.Lookback),
                 sub_boundaries=sub_boundaries,
             )
             obs_read_starts = grid.read_starts
