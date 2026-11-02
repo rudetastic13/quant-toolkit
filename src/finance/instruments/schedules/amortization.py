@@ -23,6 +23,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from common.object.serializer import serializable
 from finance.dates import BDC, Date, Frequency
 from finance.dates.utils import add_term
 from finance.instruments.enums import AmortizationType
@@ -33,6 +34,7 @@ FloatArray = np.ndarray
 DateArray = np.ndarray
 
 
+@serializable("NotionalEvent")
 @dataclass
 class NotionalEvent(BaseEvent):
     """From the accrual period starting on ``start_date``, ``notional`` is outstanding."""
@@ -40,6 +42,7 @@ class NotionalEvent(BaseEvent):
     notional: float = 0.0
 
 
+@serializable("NotionalSchedule")
 @dataclass
 class NotionalSchedule(BaseSchedule):
     """Dated outstanding notionals; periods before the first event carry the leg's face."""

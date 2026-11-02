@@ -1,0 +1,16 @@
+{
+  "__type__": "SofrFuture",
+  "__version__": 1,
+  "contract": "SR3",
+  "ref_start": "2026-09-16",
+  "ref_end": "2026-12-16",
+  "coupon_type": "GeometricAveraged",
+  "day_count_method": "Actual360",
+  "currency": "USD",
+  "index_name": "USD.SOFR.1D",
+  "funding_id": "STDCSA",
+  "point_value": 25.0,
+  "contracts": 1.0,
+  "entry_price": null,
+  "convexity": 0.0
+}

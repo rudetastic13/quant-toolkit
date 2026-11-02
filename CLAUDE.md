@@ -74,6 +74,8 @@ mypy src/             # type check
 
 **Singleton** (`common/singleton.py`): Metaclass-based. Used for `Calendars()` — the global calendar registry.
 
+**Serializable / CommonObject** (`common/object/`): JSON documents with stable type names (`@serializable("Swap", version=N)`) and chained `@upgrade` migrations; contract data only, never derived state. Rules, when to bump a version, and the frozen-fixture discipline: [src/common/object/README.md](src/common/object/README.md).
+
 **Protocol** (`Calendar`): Runtime-checkable protocol defines the calendar interface without requiring inheritance.
 
 ### Key Modules

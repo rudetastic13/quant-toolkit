@@ -48,7 +48,8 @@ class TestInstrumentSerialization(UnitTest):
                 text = instrument.to_json()
                 back = type(instrument).from_json(text)
                 self.assertEqual(back, instrument)
-                self.assertEqual(json.loads(text)["__type__"], f"{type(instrument).__module__}.{type(instrument).__qualname__}")
+                self.assertEqual(json.loads(text)["__type__"], type(instrument).__name__)  # stable name, not a module path
+                self.assertEqual(json.loads(text)["__version__"], 1)
 
     def test_reloaded_instruments_price_the_same(self):
         from finance.pricing.pricers import FuturesPricer
@@ -69,7 +70,7 @@ class TestInstrumentSerialization(UnitTest):
         self.assertIn("_program", self.swap.__dict__)
         doc = self.swap.serialize()
         self.assertNotIn("_program", doc)
-        self.assertEqual(set(doc) - {"__type__"}, {"receive_leg", "pay_leg", "currency", "index_name", "funding_id"})
+        self.assertEqual(set(doc) - {"__type__", "__version__"}, {"receive_leg", "pay_leg", "currency", "index_name", "funding_id"})
 
     def test_a_derived_coupon_schedule_is_rebuilt_on_load_not_stored(self):
         doc = self.swap.serialize()

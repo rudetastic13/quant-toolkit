@@ -1,0 +1,13 @@
+{
+  "__type__": "Fra",
+  "__version__": 1,
+  "effective": "2026-09-03",
+  "maturity": "2026-12-03",
+  "coupon_rate": 0.045,
+  "day_count_method": "Actual360",
+  "rate_index": "USD.SOFR.1D",
+  "currency": "USD",
+  "index_name": "USD.SOFR.1D",
+  "funding_id": "STDCSA",
+  "notional": 1000000.0
+}

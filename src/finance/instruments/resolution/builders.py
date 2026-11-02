@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from common.object import serializable
 from finance.dates import BDC, Date, DayCountMethod, Frequency, Term, add_term
 from finance.instruments.common_instrument import CommonInstrument
 from finance.instruments.enums import CouponType, PrincipalExchange
@@ -29,6 +30,7 @@ def _use(override, convention):
     return override if override is not None else convention
 
 
+@serializable("Swap")
 @dataclass(kw_only=True)
 class Swap(Priceable):
     """Two fully-specified legs (``CommonInstrument`` each).
@@ -154,6 +156,7 @@ class Swap(Priceable):
 # ---------------------------------------------------------------------------
 
 
+@serializable("Deposit")
 @dataclass(kw_only=True)
 class Deposit(Priceable):
     """A cash deposit: lend ``notional`` over ``[effective, maturity]`` at simple ``rate``.
@@ -220,6 +223,7 @@ class Deposit(Priceable):
         )
 
 
+@serializable("Fra")
 @dataclass(kw_only=True)
 class Fra(Priceable):
     """A forward rate agreement over ``[effective, maturity]``.

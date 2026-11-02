@@ -13,6 +13,7 @@ from typing import Sequence, ClassVar, Self
 import numpy as np
 from finance.dates import Date
 from finance.instruments.enums import CouponType, MarginTreatment
+from common.object.serializer import serializable
 from .base_schedule import BaseEvent, BaseSchedule
 
 
@@ -45,6 +46,7 @@ class CouponEvent(BaseEvent):
         return event_cls(**kwargs)
 
 
+@serializable("FixedCouponEvent")
 @dataclass
 class FixedCouponEvent(CouponEvent):
     """Defines a fixed coupon payment event."""
@@ -52,6 +54,7 @@ class FixedCouponEvent(CouponEvent):
     coupon_rate: float = field(init=True, default=0)
 
 
+@serializable("FloatingCouponEvent")
 @dataclass
 class FloatingCouponEvent(CouponEvent):
     """Defines a floating coupon payment event.
@@ -69,6 +72,7 @@ class FloatingCouponEvent(CouponEvent):
     floor: float | None = field(init=True, default=None)
 
 
+@serializable("AveragedCouponEvent")
 @dataclass
 class AveragedCouponEvent(FloatingCouponEvent):
     """Defines an arithmetically-averaged floating coupon payment event."""
@@ -76,6 +80,7 @@ class AveragedCouponEvent(FloatingCouponEvent):
     margin_treatment: MarginTreatment = field(init=True, default=MarginTreatment.Inclusive)
 
 
+@serializable("CompoundedCouponEvent")
 @dataclass
 class CompoundedCouponEvent(FloatingCouponEvent):
     """Defines a compounded (geometrically-averaged) floating coupon payment event."""
@@ -95,6 +100,7 @@ _EVENT_TYPES: dict[CouponType, type[CouponEvent]] = {
 }
 
 
+@serializable("CouponSchedule")
 @dataclass
 class CouponSchedule(BaseSchedule):
     """Defines a schedule of coupon payment events, anchored to the accrual grid."""

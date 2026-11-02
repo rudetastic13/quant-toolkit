@@ -4,7 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import IntEnum
 
-from common.object.serializer import Serializable
+from common.object.serializer import Serializable, serializable
 from finance.dates import Date, Term
 from finance.instruments.resolution.builders import Swap
 
@@ -14,6 +14,7 @@ class SwaptionModel(IntEnum):
     Bachelier = 2
 
 
+@serializable("Swaption")
 @dataclass(frozen=True, kw_only=True)
 class Swaption(Serializable):
     """European option on a forward-starting fixed/float swap."""

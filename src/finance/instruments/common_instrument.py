@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field, replace
 
-from common.object import ValidationResult
+from common.object import ValidationResult, serializable
 from common.object.common_object import CommonObject
 from finance.dates import (
     Date,
@@ -24,6 +24,7 @@ _COUPON_FIELDS = frozenset({
 })
 
 
+@serializable("CommonInstrument")
 @dataclass(kw_only=True)
 class CommonInstrument(CommonObject):
     """The one concrete leg type: schedule parameters + balance + coupon, flat.
