@@ -16,9 +16,22 @@ class Deposit(CommonObject):
 
 doc = Deposit(notional=1e6, rate=0.05).serialize()
 # {"__type__": "Deposit", "__version__": 1, "notional": 1000000.0, "rate": 0.05}
-Deposit.deserialize(doc)            # or Serializable.deserialize(doc): the name picks the class
-Deposit.from_json(Deposit(...).to_json())
 ```
+
+Loading never needs the class. The document names it, and the module-level functions mirror
+`json`:
+
+```python
+from common.object import dump, dumps, load, loads
+
+text = dumps(deposit)               # JSON text
+dump(deposit, "deposit.json")       # to a path or an open file
+deposit = loads(text)               # whatever the document describes, by its __type__
+deposit = load("deposit.json")
+```
+
+`Deposit.deserialize(doc)` and `Deposit.from_json(text)` still exist for the case where you
+hold a bare dict with no `__type__` and know what it is.
 
 ## When to use it
 

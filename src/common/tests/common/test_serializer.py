@@ -6,7 +6,7 @@ from typing import Union
 
 import numpy as np
 
-from common.object import CommonObject, serializable, upgrade, Serializable, register_type
+from common.object import CommonObject, Serializable, dump, dumps, load, loads, register_type, serializable, upgrade
 from common.object.serializer import deserialize_value, serialize_value
 from common.testing import UnitTest
 
@@ -568,3 +568,35 @@ class TestStableNamesAndVersions(UnitTest):
             @upgrade("test.Versioned", from_version=1)
             def _again(doc):
                 return doc
+
+
+class TestModuleLevelLoadAndDump(UnitTest):
+    COVERAGE = ["common.object.serializer"]
+
+    def test_loads_builds_whatever_the_document_names(self):
+        holder = Holder(inner=Versioned(notional=2.0))
+        back = loads(dumps(holder))
+        self.assertIsInstance(back, Holder)
+        self.assertEqual(back, holder)
+        self.assertIsInstance(loads(dumps(Versioned(notional=1.0))), Versioned)
+
+    def test_dump_and_load_take_a_path_or_an_open_file(self):
+        import io
+        import tempfile
+        from pathlib import Path
+
+        obj = Versioned(notional=3.0, currency="EUR")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v.json"
+            dump(obj, path)
+            self.assertEqual(load(path), obj)
+            self.assertEqual(load(str(path)), obj)
+            with open(path) as fh:
+                self.assertEqual(load(fh), obj)
+        buffer = io.StringIO()
+        dump(obj, buffer)
+        buffer.seek(0)
+        self.assertEqual(load(buffer), obj)
+
+    def test_loads_upgrades_old_documents_too(self):
+        self.assertEqual(loads('{"__type__": "test.Versioned", "__version__": 1, "amount": 4.0}').notional, 4.0)
