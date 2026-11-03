@@ -23,6 +23,9 @@ sequence until the document matches the class::
 
 Nested objects carry their own name and version, so bumping a leg does not bump the swap that
 holds it.  See ``common/object/README.md`` for the rules and the fixture discipline.
+
+Loading never needs the class: :func:`loads` / :func:`load` read the name off the document and
+build whatever it describes, mirroring the ``json`` module (:func:`dumps` / :func:`dump` write).
 """
 
 from __future__ import annotations
@@ -32,7 +35,9 @@ import types as builtin_types
 from collections.abc import Callable
 from dataclasses import fields as dc_fields
 from enum import Enum
-from typing import Any, Union, get_args, get_origin, get_type_hints
+from os import PathLike
+from pathlib import Path
+from typing import IO, Any, Union, get_args, get_origin, get_type_hints
 
 from common.registry import Registry
 
@@ -343,3 +348,32 @@ class Serializable:
     @classmethod
     def from_json(cls, json_str: str) -> Serializable:
         return cls.deserialize(json.loads(json_str))
+
+
+# ---------------------------------------------------------------------------
+# Module-level front door, mirroring ``json``: the document names its own class.
+# ---------------------------------------------------------------------------
+def dumps(obj: Serializable, *, indent: int | None = 2) -> str:
+    """The JSON text of ``obj``'s document."""
+    return obj.to_json(indent=indent)
+
+
+def dump(obj: Serializable, fp: str | PathLike[str] | IO[str], *, indent: int | None = 2) -> None:
+    """Write ``obj``'s document to a path or an open text file."""
+    text = dumps(obj, indent=indent) + "\n"
+    if isinstance(fp, (str, PathLike)):
+        Path(fp).write_text(text)
+    else:
+        fp.write(text)
+
+
+def loads(text: str) -> Serializable:
+    """Build the object a JSON document describes; its ``__type__`` picks the class."""
+    return Serializable.deserialize(json.loads(text))
+
+
+def load(fp: str | PathLike[str] | IO[str]) -> Serializable:
+    """Build the object the JSON document at a path, or in an open text file, describes."""
+    if isinstance(fp, (str, PathLike)):
+        return loads(Path(fp).read_text())
+    return loads(fp.read())
