@@ -128,6 +128,9 @@ ISO strings; numbers are read as Excel 1900-system serials.
 - **Handles are content-addressed.** Identical inputs always produce the same handle, so
   recalculation is idempotent and doesn't leak objects. A `#QERR: handle … not found` means
   the upstream cell that builds it needs recalculating.
+- **Parameter names are a VBA contract.** xlwings copies each Python parameter name verbatim into the
+  generated VBA wrapper, so a name that is a VBA keyword (`currency`, `date`, `string`, `type`, ...) breaks every
+  `q*` function in the workbook. `qMarket` takes `ccy` for this reason; the unit tests reject reserved names.
 - **WSL development.** On Linux/WSL `xlwings` imports but can't drive Excel; a built-in shim
   (`_xw.py`) lets the package import and keeps the pure logic in `api.py` fully unit-testable
   without Excel. The `q*` UDFs only do anything real once loaded by Windows Excel.
@@ -140,3 +143,6 @@ ISO strings; numbers are read as Excel 1900-system serials.
 | Import Functions errors / nothing happens | Enable **Trust access to the VBA project object model** (step 3). |
 | `No module named quant_toolkit_xl` | You installed into a different Python than the configured Interpreter. Re-check both point at the same env. |
 | Ribbon tab missing | Re-run `xlwings addin install`; ensure the add-in version matches `xlwings.__version__`. |
+| Every cell shows `Object required` | The workbook's VBA project has no reference to the add-in, so `XLPy` resolves to nothing. In the VBA editor: **Tools → References → tick `xlwings`**, then recalc (Ctrl+Alt+F9). Save as `.xlsm` to keep it. |
+| Every cell shows `#NAME?` right after Import, and a line in the generated `xlwings_udfs` module is red | A UDF parameter name is a VBA reserved word (e.g. `currency`, `date`, `type`), which makes the whole module fail to compile. Rename the Python parameter; `test_functions.py` guards against this. |
+| Import Functions makes Excel freeze for ~15 s | Normal when the package is imported from a WSL share (`\\wsl.localhost\...`): the first import is slow, later ones are cached. |

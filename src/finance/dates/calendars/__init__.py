@@ -1,6 +1,7 @@
 """Module for calendar definitions and singleton calendar instances"""
 from common.singleton import Singleton
 from finance.dates.calendars.calendar import Calendar, StaticCalendar
+from finance.dates.calendars.rules.impl import US_CME_TREASURY_FUTURES, US_FED, US_NYSE, US_SIFMA
 
 # define the no holidays calendar instance
 NoHolidaysCalendar = StaticCalendar(
@@ -9,12 +10,17 @@ NoHolidaysCalendar = StaticCalendar(
     holidays=set()
 )
 
+# rule sets built into the registry, each registered under its own name
+_BUILTIN_RULE_SETS = (US_FED, US_NYSE, US_SIFMA, US_CME_TREASURY_FUTURES)
+
 class Calendars(Singleton):
     """The calendars singleton registry"""
     _calendars: dict[str, Calendar] = {}
 
     def __init__(self):
         Calendars._calendars["no_holidays"] = NoHolidaysCalendar
+        for rule_set in _BUILTIN_RULE_SETS:
+            Calendars.register(StaticCalendar.from_rule_set(rule_set))
 
     @classmethod
     def register(cls, cal: Calendar) -> None:
