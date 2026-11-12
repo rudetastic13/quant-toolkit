@@ -4,16 +4,19 @@ from common.testing import UnitTest
 from finance.dates.calendars import Calendars
 from finance.dates.calendars.calendar import StaticCalendar
 
+# calendars registered when the singleton is built: no holidays plus the US rule sets
+BUILTIN = ["no_holidays", "us_fed", "us_nyse", "us_sifma", "us_cme_treasury_futures"]
+
 @pytest.mark.datemath
 class TestCalendars(UnitTest):
     COVERAGE = ["finance.dates.calendars"]
 
     def test_calendars_ctor(self):
         """Test building of calendars and show the singleton pattern is respected"""
-        self.assertNotEqual(Calendars._calendars, {}) # no holidays is loaded
+        self.assertNotEqual(Calendars._calendars, {}) # built-in calendars are loaded
         calendars = Calendars()
-        self.assertListEqual(list(Calendars._calendars.keys()), ["no_holidays"])
-        self.assertListEqual(list(calendars._calendars.keys()), ["no_holidays"])
+        self.assertListEqual(list(Calendars._calendars.keys()), BUILTIN)
+        self.assertListEqual(list(calendars._calendars.keys()), BUILTIN)
         other_calendars = Calendars()
         self.assertEqual(id(calendars), id(other_calendars))
         Calendars.clear()
@@ -21,7 +24,7 @@ class TestCalendars(UnitTest):
     def test_list_calendars(self):
         """Test listing of calendars registered"""
         calendars = Calendars()
-        self.assertListEqual(calendars.list_calendars(), ["no_holidays"])
+        self.assertListEqual(calendars.list_calendars(), BUILTIN)
         Calendars.clear()
 
     def test_get(self):
@@ -35,7 +38,7 @@ class TestCalendars(UnitTest):
         calendars = Calendars()
         other_cal = StaticCalendar(name="carlos", week_mask="1111000")
         calendars.register(other_cal)
-        self.assertListEqual(calendars.list_calendars(), ["no_holidays", "carlos"])
+        self.assertListEqual(calendars.list_calendars(), BUILTIN + ["carlos"])
         Calendars.clear()
 
     def test_get_combination(self):

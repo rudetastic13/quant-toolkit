@@ -13,6 +13,7 @@ requires-python = ">=3.11"
 dependencies = [
     "numpy",
     "pandas",
+    "python-dateutil",
     "scipy",
     "matplotlib",
     "pytest",

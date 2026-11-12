@@ -4,6 +4,11 @@ from typing import Protocol, Sequence, runtime_checkable
 import numpy as np
 from finance.dates import Date
 from dataclasses import dataclass, field
+from finance.dates.calendars.rules.rule_set import HolidayRuleSet
+
+# default horizon for calendars generated from rule sets
+DEFAULT_START_YEAR = 1970
+DEFAULT_END_YEAR = 2100
 
 @runtime_checkable
 class Calendar(Protocol):
@@ -47,6 +52,46 @@ class StaticCalendar(Calendar):
         self._np_calendar = np.busdaycalendar(
             weekmask=self.week_mask,
             holidays=self._holidays_arr
+        )
+
+    @classmethod
+    def from_rule_set(
+        cls,
+        rule_set: HolidayRuleSet,
+        week_mask: Sequence[int | str | bool] = "1111100",
+        start_year: int = DEFAULT_START_YEAR,
+        end_year: int = DEFAULT_END_YEAR,
+        name: str | None = None,
+    ) -> StaticCalendar:
+        """Build a static calendar by generating a rule set's holidays over a year range.
+
+        Parameters
+        ----------
+        rule_set : HolidayRuleSet
+            Rules to generate holidays from.
+        week_mask : Sequence[int | str | bool], default "1111100"
+            Business-day mask, Monday first, length 7.
+        start_year : int, default DEFAULT_START_YEAR
+            First year generated, inclusive.
+        end_year : int, default DEFAULT_END_YEAR
+            Last year generated, inclusive.
+        name : str, optional
+            Calendar name. Defaults to ``rule_set.name``.
+
+        Returns
+        -------
+        StaticCalendar
+            Calendar holding the generated holidays; dates outside the year range have none.
+
+        Raises
+        ------
+        ValueError
+            If ``start_year`` is after ``end_year``.
+        """
+        return cls(
+            name=name if name is not None else rule_set.name,
+            week_mask=week_mask,
+            holidays=set(rule_set.generate(start_year, end_year)),
         )
 
     def is_holiday(self, date: Date) -> bool:

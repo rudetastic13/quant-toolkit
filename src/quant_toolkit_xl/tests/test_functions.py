@@ -44,3 +44,31 @@ class TestQFunctions(UnitTest):
         out = f.qDiscountFactor(sh, ["2026-06-01"])  # swap handle where curve expected
         self.assertIsInstance(out, str)
         self.assertTrue(out.startswith("#QERR:"))
+
+
+# VBA reserved words. xlwings copies Python parameter names verbatim into the generated VBA
+# wrapper module, and one reserved word there is a syntax error that breaks every q* function
+# in the workbook (``currency`` did exactly that: ``Currency`` is a VBA data type).
+_VBA_RESERVED = frozenset(
+    """
+    and as boolean byref byte byval call case class const currency date decimal declare dim do double each
+    else elseif empty end enum erase error event exit false for friend function get goto if implements in
+    integer is let like long loop me mod new next not nothing null object on option optional or paramarray
+    preserve private property public redim rem resume return select set single static step stop string sub
+    then to true type typeof until variant wend while with xor
+    """.split()
+)
+
+
+class TestUdfSignaturesAreVbaSafe(UnitTest):
+    COVERAGE = ["quant_toolkit_xl.functions"]
+
+    def test_no_parameter_is_a_vba_reserved_word(self):
+        import inspect
+
+        udfs = [getattr(f, n) for n in dir(f) if n.startswith("q") and callable(getattr(f, n))]
+        self.assertTrue(udfs)
+        for udf in udfs:
+            for name in inspect.signature(udf).parameters:
+                with self.subTest(udf=udf.__name__, parameter=name):
+                    self.assertNotIn(name.lower(), _VBA_RESERVED)
