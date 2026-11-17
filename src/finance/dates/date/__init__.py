@@ -94,7 +94,11 @@ class Date:
 
     @classmethod
     def from_str(cls, dt: str) -> Date:
-        parsed = parse(dt)
+        """Parse a date string: ISO ``YYYY-MM-DD`` directly, anything else through ``dateutil``."""
+        try:
+            parsed = datetime.date.fromisoformat(dt)
+        except ValueError:
+            parsed = parse(dt)
         return cls(parsed.year, parsed.month, parsed.day)
 
     @classmethod
