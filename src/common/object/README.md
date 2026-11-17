@@ -31,7 +31,9 @@ deposit = load("deposit.json")
 ```
 
 `Deposit.deserialize(doc)` and `Deposit.from_json(text)` still exist for the case where you
-hold a bare dict with no `__type__` and know what it is.
+hold a bare dict with no `__type__` and know what it is. When the document does carry a
+`__type__`, it must name `Deposit` or a subclass; anything else is a `TypeError`. The same holds
+for every nested field hinted with a class. Use `loads` for "whatever it is".
 
 ## When to use it
 
@@ -51,9 +53,13 @@ Three things must be true of a class you decorate:
 - Every field is a primitive, an `Enum`, a numpy array or scalar, a registered value type
   (`Date`, `Term` via `register_type`), another `Serializable`, or a `list` / `dict` / `set` /
   `tuple` of those. Anything else falls back to `str(value)` on write and will not round-trip.
+  Numpy arrays, `datetime64` and `timedelta64` travel in an envelope that keeps the dtype and time
+  unit (`custom_numpy.py`), so they also round-trip inside untyped containers.
 - Type hints are resolvable at runtime: `deserialize` rebuilds each field from its hint, so
   `float | None`, `list[CouponEvent]`, `dict[str, float]` all work; a bare `Any` comes back as
-  whatever JSON produced.
+  whatever JSON produced. A value that fits no member of a Union hint is a `TypeError`. An
+  annotation that cannot be resolved at runtime (a `TYPE_CHECKING`-only import) leaves that one
+  field untyped. Hints are resolved once per class.
 
 ## Names
 

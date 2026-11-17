@@ -30,15 +30,26 @@ build whatever it describes, mirroring the ``json`` module (:func:`dumps` / :fun
 
 from __future__ import annotations
 
+import functools
 import json
+import sys
 import types as builtin_types
 from collections.abc import Callable
 from dataclasses import fields as dc_fields
 from enum import Enum
 from os import PathLike
 from pathlib import Path
-from typing import IO, Any, Union, get_args, get_origin, get_type_hints
+from typing import IO, Any, ForwardRef, Union, get_args, get_origin, get_type_hints
 
+import numpy as np
+
+from common.object.custom_numpy import (
+    deserialize_numpy,
+    is_ndarray_hint,
+    is_numpy,
+    is_numpy_envelope,
+    serialize_numpy,
+)
 from common.registry import Registry
 
 _type_serializers: dict[type, Callable[[Any], Any]] = {}
@@ -138,47 +149,30 @@ def serialize_value(value: Any) -> Any:
         return [serialize_value(v) for v in value]
     if isinstance(value, dict):
         return {str(k): serialize_value(v) for k, v in value.items()}
-    try:
-        import numpy as np
-
-        if isinstance(value, np.ndarray):
-            # Dtype-aware envelope — preserves dtype, shape, and datetime64 unit on round-trip.
-            if np.issubdtype(value.dtype, np.datetime64):
-                data: Any = value.astype(str).tolist()
-            else:
-                data = value.tolist()
-            return {"__ndarray__": True, "dtype": str(value.dtype), "shape": list(value.shape), "data": data}
-        if isinstance(value, (np.integer, np.bool_)):
-            return int(value)
-        if isinstance(value, np.floating):
-            return float(value)
-        if isinstance(value, np.datetime64):
-            return str(value)
-    except ImportError:
-        pass
+    if is_numpy(value):
+        return serialize_numpy(value)
     return str(value)
-
-
-def _rebuild_ndarray(env: dict[str, Any]) -> Any:
-    """Reconstruct a numpy array from the dtype-aware envelope written by serialize_value."""
-    import numpy as np
-
-    return np.array(env["data"], dtype=env["dtype"]).reshape(env["shape"])
 
 
 def deserialize_value(value: Any, type_hint: type | None) -> Any:
     if value is None:
         return None
 
+    origin = get_origin(type_hint)
+    is_union = origin is Union or origin is builtin_types.UnionType
+
     # ── Marker-driven detection (fires regardless of type hint) ──────────────
     if isinstance(value, dict):
-        # dtype-aware ndarray envelope
-        if value.get("__ndarray__") is True:
-            return _rebuild_ndarray(value)
-        # Polymorphic Serializable — reconstruct whichever registered class was stored
+        # numpy array / datetime64 / timedelta64 envelope
+        if is_numpy_envelope(value):
+            return deserialize_numpy(value)
+        # Polymorphic Serializable — reconstruct whichever registered class was stored.  A hint
+        # naming a Serializable class is enforced (the document must be that class or a subclass);
+        # a Union is left to its members below.
         type_key = value.get(TYPE_KEY)
-        if type_key and _types.has(type_key):
-            return _types.get(type_key).deserialize(value)
+        if type_key and _types.has(type_key) and not is_union:
+            via = type_hint if isinstance(type_hint, type) and issubclass(type_hint, Serializable) else Serializable
+            return via.deserialize(value)
 
     # When there's no type hint and the value is a container, recurse so that
     # nested markers (arrays / Serializables) are still found.
@@ -189,20 +183,18 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
             return {k: deserialize_value(v, None) for k, v in value.items()}
         return value
 
-    origin = get_origin(type_hint)
     args = get_args(type_hint)
 
-    # Union / Optional (X | None)
-    if origin is Union or origin is builtin_types.UnionType:
-        non_none = [a for a in args if a is not type(None)]
-        if value is None:
-            return None
-        for t in non_none:
+    # Union / Optional (X | None): the first member that reads the value wins; none is an error
+    if is_union:
+        for t in args:
+            if t is type(None):
+                continue
             try:
                 return deserialize_value(value, t)
             except (TypeError, ValueError, KeyError):
                 continue
-        return value
+        raise TypeError(f"{value!r} matches no member of {type_hint}")
 
     # list[X]
     if origin is list:
@@ -233,18 +225,12 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
     if type_hint is list and isinstance(value, list):
         return [deserialize_value(v, None) for v in value]
 
+    # A plain list under an ndarray / NDArray[...] hint (envelopes were rebuilt by the marker path)
+    if is_ndarray_hint(type_hint, origin):
+        return np.array(value)
+
     # Concrete types
     if isinstance(type_hint, type):
-        # numpy ndarray (hint-driven path; marker-driven path above handles untyped containers)
-        try:
-            import numpy as np
-
-            if issubclass(type_hint, np.ndarray) or origin is np.ndarray:
-                if isinstance(value, dict) and value.get("__ndarray__") is True:
-                    return _rebuild_ndarray(value)
-                return np.array(value)
-        except ImportError:
-            pass
         # Custom deserializers
         for type_cls, fn in _type_deserializers.items():
             if issubclass(type_hint, type_cls):
@@ -260,6 +246,32 @@ def deserialize_value(value: Any, type_hint: type | None) -> Any:
             return type_hint(value)
 
     return value
+
+
+@functools.cache
+def _field_hints(cls: type) -> dict[str, Any]:
+    """The resolved type hint of each dataclass field of ``cls``, computed once per class.
+
+    One annotation that cannot be resolved at runtime (a ``TYPE_CHECKING``-only import) leaves only
+    that field untyped (``None``); the others keep their hints.
+    """
+    try:
+        return get_type_hints(cls)
+    except Exception:
+        pass
+    hints: dict[str, Any] = {}
+    for f in dc_fields(cls):
+        hint = f.type
+        if isinstance(hint, str):  # `from __future__ import annotations`
+            owner = next(k for k in cls.__mro__ if k.__dict__.get("__dataclass_fields__", {}).get(f.name) is f)
+            try:
+                hint = eval(hint, vars(sys.modules[owner.__module__]))  # noqa: S307
+            except Exception:
+                hint = None
+        elif isinstance(hint, ForwardRef):  # lazily evaluated annotation that did not resolve
+            hint = None
+        hints[f.name] = hint
+    return hints
 
 
 class Serializable:
@@ -298,12 +310,16 @@ class Serializable:
     def deserialize(cls, data: dict[str, Any]) -> Serializable:
         """Build the object a document describes.
 
-        The document's ``__type__`` selects the class (any registered class may be loaded through
-        ``Serializable.deserialize``); a document without one is read as ``cls``.  A document older
-        than the class is upgraded step by step through the registered :func:`upgrade` functions.
+        The document's ``__type__`` selects the class, which must be ``cls`` or a subclass of it
+        (so any registered class loads through ``Serializable.deserialize``); a document without
+        one is read as ``cls``.  A document older than the class is upgraded step by step through
+        the registered :func:`upgrade` functions.
 
         Raises
         ------
+        TypeError
+            If ``__type__`` names a class that is not ``cls`` or a subclass, or a field's value
+            fits no member of its Union hint.
         KeyError
             If ``__type__`` names an unregistered class, or an upgrade step is missing.
         ValueError
@@ -316,6 +332,10 @@ class Serializable:
             target_cls = _types.get(type_key)
             if target_cls is None:
                 raise KeyError(f"unknown serialisable type {type_key!r}; register it with @serializable")
+            if not issubclass(target_cls, cls):
+                raise TypeError(
+                    f"{cls.__qualname__}.deserialize got a {type_key!r} document ({target_cls.__qualname__})"
+                )
         name, current = target_cls._serial_info()
         version = int(data.get(VERSION_KEY, 1))
         if version > current:
@@ -327,21 +347,16 @@ class Serializable:
             data = step(dict(data))
             version += 1
 
-        try:
-            hints = get_type_hints(target_cls)
-        except Exception:
-            hints = {}
-
-        init_fields = {f.name: f for f in dc_fields(target_cls) if f.init}
+        hints = _field_hints(target_cls)
         kwargs: dict[str, Any] = {}
-        for field_name, fld in init_fields.items():
-            if field_name not in data:
+        for fld in dc_fields(target_cls):
+            if not fld.init or fld.name not in data:
                 continue
-            hint = hints.get(field_name)
-            # Fallback: resolve raw field.type if get_type_hints missed it
-            if hint is None and isinstance(fld.type, type):
-                hint = fld.type
-            kwargs[field_name] = deserialize_value(data[field_name], hint)
+            try:
+                kwargs[fld.name] = deserialize_value(data[fld.name], hints.get(fld.name))
+            except Exception as exc:
+                exc.add_note(f"while reading {name}.{fld.name}")
+                raise
 
         return target_cls(**kwargs)
 
