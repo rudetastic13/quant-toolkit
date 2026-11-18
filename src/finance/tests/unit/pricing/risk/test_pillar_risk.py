@@ -8,7 +8,7 @@ from finance.dates import Date
 from finance.instruments.resolution import SofrFuture, Swap, Swaption, SwaptionModel
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve, bp
-from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
+from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 from finance.pricing.calibration import deposit_helper, fra_helper, futures_helper, swap_helper
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import NumbaRisk, calibration_jacobian, pillar_risk, template_jacobian
@@ -27,7 +27,7 @@ def _market(as_of: Date) -> MarketContext:
     z = np.array([0.0, 0.041, 0.040, 0.039, 0.038, 0.040, 0.043])
     sofr = YieldCurve.build(dates, np.exp(-z * t), key=SOFR)
     vols = VolNamespace()
-    vols.bind(SOFR, FlatVolSurface(0.01, VolUnits.Normal))
+    vols.bind(SOFR, ModelVolCube(FlatVolSurface(0.01), VolUnits.Normal))
     market = MarketContext(as_of, vols=vols)
     market[SOFR] = sofr
     market[STDCSA] = sofr

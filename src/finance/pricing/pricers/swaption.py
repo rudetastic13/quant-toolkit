@@ -14,7 +14,7 @@ from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
 from finance.pricing.types import Backend
 
-# Quoting convention each model consumes; enforced against VolSurface.units at lookup.
+# Quoting convention each model consumes; enforced against ModelVolCube.units at lookup.
 _SURFACE_UNITS = {
     SwaptionModel.Black: VolUnits.Lognormal,
     SwaptionModel.Bachelier: VolUnits.Normal,
@@ -34,8 +34,15 @@ class SwaptionPricingResult:
 
 @dataclass(frozen=True)
 class SwaptionRiskResult:
+    """Curve and vol risk per option.
+
+    ``vol_gradient[name]`` is ``d pv / d params`` of the cube bound under ``name``, shape
+    ``(n_options, n_params)``; an option priced off another cube has a zero row.
+    """
+
     curve_gradient: np.ndarray
     dv01: np.ndarray
+    vol_gradient: dict[str, np.ndarray]
 
 
 def _unit_fixed_swap(swap):
@@ -78,12 +85,14 @@ class SwaptionProgram:
         return raw, fixed_pv, float_pv, forward, annuity
 
     def _option_inputs(self, market, forward):
+        """Strike, expiry, tenor and vol per option, plus the ``(name, cube, mask)`` groups the vols came from."""
         if market.vols is None:
             raise ValueError("swaption pricing requires MarketContext.vols")
         expiry = np.empty(len(self.swaptions), dtype=np.float64)
         tenor = np.empty_like(expiry)
         strike = np.empty_like(expiry)
         vol = np.empty_like(expiry)
+        names = []
         as_of = np.datetime64(market.origin, "D")
         for i, option in enumerate(self.swaptions):
             fixed_leg = next(leg for leg in option.underlying if not leg.is_floating)
@@ -91,15 +100,21 @@ class SwaptionProgram:
             tenor[i] = (fixed_leg.maturity.to_numpy() - fixed_leg.effective.to_numpy()).astype(int) / 365.0
             strike[i] = float(fixed_leg.coupon_rate)
             name = option.vol_name or curve_name(option.underlying.currency, option.underlying.index_name)
-            surface = market.vols.resolve(name)
             required = _SURFACE_UNITS[option.model]
-            if surface.units != required:
+            units = market.vols.resolve(name).units
+            if units != required:
                 raise ValueError(
                     f"swaption model {option.model.name} requires a {required.name} vol surface; "
-                    f"'{name}' is quoted {surface.units.name}"
+                    f"'{name}' is quoted {units.name}"
                 )
-            vol[i] = float(surface.vol(expiry[i], tenor[i], strike[i], forward[i]))
-        return strike, expiry, vol
+            names.append(name)
+        groups = []
+        for name in dict.fromkeys(names):
+            cube = market.vols.resolve(name)
+            mask = np.array([n == name for n in names])
+            vol[mask] = cube.vol(expiry[mask], tenor[mask], strike[mask], forward[mask])
+            groups.append((name, cube, mask))
+        return strike, expiry, tenor, vol, groups
 
     def _unit_greeks(self, forward, strike, expiry, vol) -> OptionGreeks:
         if self.program.backend == Backend.Numba:
@@ -126,7 +141,7 @@ class SwaptionProgram:
 
     def reprice(self, market) -> SwaptionPricingResult:
         _, _, _, forward, annuity = self._underlying(market)
-        strike, expiry, vol = self._option_inputs(market, forward)
+        strike, expiry, _, vol, _ = self._option_inputs(market, forward)
         unit = self._unit_greeks(forward, strike, expiry, vol)
         monetary = OptionGreeks(*(annuity * value for value in dataclasses.astuple(unit)))
         return SwaptionPricingResult(
@@ -143,7 +158,8 @@ class SwaptionProgram:
         Over the block ``curve`` reports under, or over every parameter block of the prepared
         program when ``curve`` is ``None``.  Always runs on the Numba adjoint regardless of the
         reprice backend (numpy has no analytic adjoint), and holds the quoted vol fixed under
-        curve moves (sticky strike) — there is no dvol/dforward cross term.
+        curve moves (sticky strike) — there is no dvol/dforward cross term.  Vol risk is
+        monetary vega spread onto each cube's parameters by ``ModelVolCube.vol_gradient``.
         """
         numba_program = self.program.prepare(market, backend=Backend.Numba)
         adjoint = numba_program.value_and_grad(market)
@@ -163,10 +179,16 @@ class SwaptionProgram:
         ) / (fixed_pv * fixed_pv)[:, None]
         d_annuity = np.sign(fixed_pv)[:, None] * fixed_gradient
 
-        strike, expiry, vol = self._option_inputs(market, forward)
+        strike, expiry, tenor, vol, groups = self._option_inputs(market, forward)
         unit = self._unit_greeks(forward, strike, expiry, vol)
         curve_gradient = unit.value[:, None] * d_annuity + annuity[:, None] * unit.delta[:, None] * d_forward
-        return SwaptionRiskResult(curve_gradient=curve_gradient, dv01=curve_gradient * bp)
+        vega = annuity * unit.vega
+        vol_gradient = {}
+        for name, cube, mask in groups:
+            gradient = np.zeros((len(self.swaptions), cube.params.size))
+            gradient[mask] = vega[mask, None] * cube.vol_gradient(expiry[mask], tenor[mask], strike[mask], forward[mask])
+            vol_gradient[name] = gradient
+        return SwaptionRiskResult(curve_gradient=curve_gradient, dv01=curve_gradient * bp, vol_gradient=vol_gradient)
 
 
 class SwaptionPricer:

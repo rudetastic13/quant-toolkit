@@ -6,7 +6,7 @@ from finance.dates import Date
 from finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, YieldCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
+from finance.markets.vols import FlatVolSurface, GridVolSurface, ModelVolCube, VolNamespace, VolUnits
 from finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
@@ -28,7 +28,7 @@ def _market(as_of, *, vol=0.01):
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D")
     vols = VolNamespace()
-    vols.bind(CURVE, FlatVolSurface(vol, VolUnits.Normal))
+    vols.bind(CURVE, ModelVolCube(FlatVolSurface(vol), VolUnits.Normal))
     return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
 
 
@@ -136,11 +136,49 @@ class TestSwaptions(UnitTest):
             )
 
     def test_black_model_payer_receiver_parity(self):
-        self.market.vols.bind("USD.SOFR.LN", FlatVolSurface(0.25, VolUnits.Lognormal))
+        self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
         payer = SwaptionPricer().price([self._option(True, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
         receiver = SwaptionPricer().price([self._option(False, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
         expected = payer.annuity[0] * (payer.forward[0] - 0.04)
         self.assertAlmostEqual(payer.pv[0] - receiver.pv[0], expected, places=7)
+
+    def test_vol_gradient_matches_a_node_bump(self):
+        grid = GridVolSurface(
+            np.array([0.5, 2.0, 5.0]), np.array([2.0, 10.0]),
+            np.array([[0.010, 0.012], [0.011, 0.013], [0.009, 0.0095]]),
+        )
+        cube = ModelVolCube(grid, VolUnits.Normal)
+        self.market.vols.rebind(CURVE, cube)
+        options = [
+            self._option(True),
+            Swaption.european(notional=2e6, strike=0.045, expiry="3Y", swap_tenor="7Y", as_of=self.as_of, payer=False,
+                              model=SwaptionModel.Bachelier),
+        ]
+        program = SwaptionPricer().compile(options)
+        analytic = program.risk(self.market).vol_gradient[CURVE]
+        self.assertEqual(analytic.shape, (2, 6))
+        h = 1e-7
+        for node in range(cube.params.size):
+            shift = np.zeros(cube.params.size)
+            shift[node] = h
+            self.market.vols.rebind(CURVE, cube.with_params(cube.params + shift))
+            up = program.reprice(self.market).pv
+            self.market.vols.rebind(CURVE, cube.with_params(cube.params - shift))
+            down = program.reprice(self.market).pv
+            np.testing.assert_allclose(analytic[:, node], (up - down) / (2 * h), rtol=1e-6, atol=1e-4)
+        # every option's node vegas add up to its own vega: the weights sum to one
+        self.market.vols.rebind(CURVE, cube)
+        np.testing.assert_allclose(analytic.sum(axis=1), program.reprice(self.market).greeks.vega, rtol=1e-12)
+
+    def test_vol_gradient_is_reported_per_cube(self):
+        self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
+        options = [self._option(True), self._option(True, SwaptionModel.Black, "USD.SOFR.LN")]
+        risk = SwaptionPricer().compile(options).risk(self.market)
+        self.assertEqual(set(risk.vol_gradient), {CURVE, "USD.SOFR.LN"})
+        self.assertGreater(risk.vol_gradient[CURVE][0, 0], 0.0)
+        self.assertEqual(risk.vol_gradient[CURVE][1, 0], 0.0)
+        self.assertEqual(risk.vol_gradient["USD.SOFR.LN"][0, 0], 0.0)
+        self.assertGreater(risk.vol_gradient["USD.SOFR.LN"][1, 0], 0.0)
 
     def test_vol_units_mismatch_raises(self):
         # default vol name resolves the Normal surface; Black requires Lognormal

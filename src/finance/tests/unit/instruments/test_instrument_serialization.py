@@ -9,7 +9,7 @@ from finance.dates import Date
 from finance.instruments.resolution import Deposit, Fra, SofrFuture, Swap, Swaption
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
+from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 
 AS_OF = Date(2026, 6, 1)
 
@@ -19,7 +19,7 @@ def _market() -> MarketContext:
     t = (dates - dates[0]).astype(np.int64) / 365.0
     sofr = YieldCurve.build(dates, np.exp(-0.04 * t), key="USD.SOFR.1D")
     vols = VolNamespace()
-    vols.bind("USD.SOFR.1D", FlatVolSurface(level=0.20, units=VolUnits.Lognormal))
+    vols.bind("USD.SOFR.1D", ModelVolCube(FlatVolSurface(0.20), VolUnits.Lognormal))
     return MarketContext(AS_OF, {"USD.SOFR.1D": sofr, "USD.STDCSA": sofr}, vols=vols)
 
 

@@ -95,7 +95,7 @@ flowchart TB
         MC["MarketContext"]
         CN["key -> YieldCurve<br/>(origin + index family + fixings over a DiscountCurve)"]
         RG["RateGenerator"]
-        VN["VolNamespace -> VolSurface (seam)"]
+        VN["VolNamespace -> ModelVolCube"]
     end
     subgraph COMPILE["Compile / IR"]
         CMP["compile_portfolio<br/>(lowering)"]
@@ -251,11 +251,16 @@ single-fixing floats.
   full analytic greeks (value/delta/gamma/vega/vanna/volga) registered under
   `(KERNEL_BLACK|KERNEL_BACHELIER, Numpy|Numba)`, and `SwaptionPricer` pricing off the
   compiled unit-coupon swap program (forward and annuity read from leg PVs; option greeks
-  chained through the curve adjoint in `risk()`). The `VolSurface` protocol is
-  **units-typed** — `VolUnits.Normal` (Bachelier) vs `VolUnits.Lognormal` (Black), enforced
-  against the swaption's model at lookup — and **forward-aware** (`vol(expiry, tenor, strike,
-  forward)`) so a smile surface can interpolate in moneyness without a protocol break.
-  `FlatVolSurface` is the stub; calibrated surfaces remain future work.
+  chained through the curve adjoint in `risk()`). Pricers resolve a `ModelVolCube` by name:
+  a `VolSurface` (`FlatVolSurface`, or `GridVolSurface` — bilinear over expiry x tenor, flat
+  beyond the edges) paired with its **units** — `VolUnits.Normal` (Bachelier) vs
+  `VolUnits.Lognormal` (Black), enforced against the swaption's model at lookup — and an
+  optional `SmileModel`. With no model the surface holds quoted vols and the cube is plain 2D
+  interpolation; with one it holds the model's parameters, interpolated and then turned into a
+  vol at the strike (`vol(expiry, tenor, strike, forward)`). The surface parameters are the vol
+  risk factors: `cube.vol_gradient` is `d vol / d params`, and `SwaptionProgram.risk` returns
+  monetary vega spread onto them as `vol_gradient[name]`. No smile model is implemented yet,
+  and vol is held fixed under curve moves (sticky strike).
 - **Sensitivities.** Implemented as three layers: `Sensitivities` (universal
   bump-and-reprice), `NumbaRisk` (exact adjoint ladders + FD-of-gradient gamma), and the
   `RiskEngine` front door that dispatches between them per
