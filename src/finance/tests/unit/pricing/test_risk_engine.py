@@ -4,7 +4,7 @@ import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date
-from finance.instruments.resolution import Swap, SofrFuture, Swaption, SwaptionModel
+from finance.instruments.resolution import Swap, SofrFuture, Swaption
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, YieldCurve
 from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
@@ -70,7 +70,6 @@ class TestRiskEngine(UnitTest):
             swap_tenor="5Y",
             as_of=self.as_of,
             payer=True,
-            model=SwaptionModel.Bachelier,
         )
         program = SwaptionPricer().compile([option])
         adjoint = RiskEngine(program, self.market)

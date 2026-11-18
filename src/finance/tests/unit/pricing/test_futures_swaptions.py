@@ -1,9 +1,12 @@
 """SOFR future and European swaption product wrappers over the Numba engine."""
+import dataclasses
+
 import numpy as np
 
 from common.testing import UnitTest
 from finance.dates import Date
-from finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
+from finance.instruments.resolution import SofrFuture, Swap, Swaption, imm_date, next_quarterly_imm
+from finance.instruments.schedules import CouponSchedule, FixedCouponEvent
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, YieldCurve
 from finance.markets.vols import FlatVolSurface, GridVolSurface, ModelVolCube, VolNamespace, VolUnits
@@ -92,7 +95,7 @@ class TestSwaptions(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
 
-    def _option(self, payer=True, model=SwaptionModel.Bachelier, vol_name=None):
+    def _option(self, payer=True, vol_name=None, long=True):
         return Swaption.european(
             notional=1e6,
             strike=0.04,
@@ -100,7 +103,7 @@ class TestSwaptions(UnitTest):
             swap_tenor="5Y",
             as_of=self.as_of,
             payer=payer,
-            model=model,
+            long=long,
             vol_name=vol_name,
         )
 
@@ -137,8 +140,8 @@ class TestSwaptions(UnitTest):
 
     def test_black_model_payer_receiver_parity(self):
         self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
-        payer = SwaptionPricer().price([self._option(True, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
-        receiver = SwaptionPricer().price([self._option(False, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
+        payer = SwaptionPricer().price([self._option(True, "USD.SOFR.LN")], self.market)
+        receiver = SwaptionPricer().price([self._option(False, "USD.SOFR.LN")], self.market)
         expected = payer.annuity[0] * (payer.forward[0] - 0.04)
         self.assertAlmostEqual(payer.pv[0] - receiver.pv[0], expected, places=7)
 
@@ -151,8 +154,7 @@ class TestSwaptions(UnitTest):
         self.market.vols.rebind(CURVE, cube)
         options = [
             self._option(True),
-            Swaption.european(notional=2e6, strike=0.045, expiry="3Y", swap_tenor="7Y", as_of=self.as_of, payer=False,
-                              model=SwaptionModel.Bachelier),
+            Swaption.european(notional=2e6, strike=0.045, expiry="3Y", swap_tenor="7Y", as_of=self.as_of, payer=False),
         ]
         program = SwaptionPricer().compile(options)
         analytic = program.risk(self.market).vol_gradient[CURVE]
@@ -172,7 +174,7 @@ class TestSwaptions(UnitTest):
 
     def test_vol_gradient_is_reported_per_cube(self):
         self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
-        options = [self._option(True), self._option(True, SwaptionModel.Black, "USD.SOFR.LN")]
+        options = [self._option(True), self._option(True, "USD.SOFR.LN")]
         risk = SwaptionPricer().compile(options).risk(self.market)
         self.assertEqual(set(risk.vol_gradient), {CURVE, "USD.SOFR.LN"})
         self.assertGreater(risk.vol_gradient[CURVE][0, 0], 0.0)
@@ -180,7 +182,49 @@ class TestSwaptions(UnitTest):
         self.assertEqual(risk.vol_gradient["USD.SOFR.LN"][0, 0], 0.0)
         self.assertGreater(risk.vol_gradient["USD.SOFR.LN"][1, 0], 0.0)
 
-    def test_vol_units_mismatch_raises(self):
-        # default vol name resolves the Normal surface; Black requires Lognormal
-        with self.assertRaisesRegex(ValueError, "Lognormal"):
-            SwaptionPricer().price([self._option(True, SwaptionModel.Black)], self.market)
+    def test_the_model_follows_the_cube_units(self):
+        from finance.pricing.engines.numpy.option import bachelier_greeks, black_greeks
+
+        self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
+        result = SwaptionPricer().price([self._option(True), self._option(True, "USD.SOFR.LN")], self.market)
+        forward, annuity = result.forward[0], result.annuity[0]
+        self.assertAlmostEqual(result.pv[0], annuity * bachelier_greeks(forward, 0.04, 1.0, 0.01).value.item(), places=6)
+        self.assertAlmostEqual(result.pv[1], annuity * black_greeks(forward, 0.04, 1.0, 0.25).value.item(), places=6)
+
+    def test_strike_and_payer_are_read_off_the_underlying(self):
+        payer, receiver = self._option(True), self._option(False)
+        self.assertEqual((payer.strike, payer.payer), (0.04, True))
+        self.assertEqual((receiver.strike, receiver.payer), (0.04, False))
+        self.assertIs(payer.fixed_leg, payer.underlying.pay_leg)
+
+    def test_a_written_option_is_the_negative_of_a_held_one(self):
+        program = SwaptionPricer().compile([self._option(True), self._option(True, long=False)])
+        result = program.reprice(self.market)
+        self.assertGreater(result.pv[0], 0.0)
+        self.assertEqual(result.pv[1], -result.pv[0])
+        self.assertEqual(result.greeks.vega[1], -result.greeks.vega[0])
+        self.assertEqual(result.annuity[1], result.annuity[0])
+        risk = program.risk(self.market, CURVE)
+        np.testing.assert_array_equal(risk.curve_gradient[1], -risk.curve_gradient[0])
+        np.testing.assert_array_equal(risk.vol_gradient[CURVE][1], -risk.vol_gradient[CURVE][0])
+
+    def test_a_swaption_prices_itself(self):
+        option = self._option(True)
+        self.assertEqual(option(self.market).pv[0], SwaptionPricer().price([option], self.market).pv[0])
+        self.assertIn("_program", option.__dict__)
+
+    def test_an_underlying_without_a_flat_fixed_leg_is_rejected(self):
+        swap = self._option(True).underlying
+        with self.assertRaisesRegex(ValueError, "flat fixed leg"):
+            Swaption(underlying=Swap(receive_leg=swap.receive_leg, pay_leg=swap.receive_leg, currency="USD",
+                                     index_name=swap.index_name), expiry=Date(2027, 6, 1))
+        step_up = swap.pay_leg.replace(coupon_schedule=CouponSchedule(events=[
+            FixedCouponEvent(start_date=swap.pay_leg.effective, coupon_rate=0.03),
+            FixedCouponEvent(start_date=Date(2029, 6, 3), coupon_rate=0.05),
+        ]))
+        with self.assertRaisesRegex(ValueError, "flat fixed leg"):
+            Swaption(underlying=dataclasses.replace(swap, pay_leg=step_up), expiry=Date(2027, 6, 1))
+
+    def test_an_underlying_starting_before_expiry_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "before expiry"):
+            Swaption(underlying=self._option(True).underlying, expiry=Date(2028, 6, 1))

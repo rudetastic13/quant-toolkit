@@ -254,7 +254,7 @@ single-fixing floats.
   chained through the curve adjoint in `risk()`). Pricers resolve a `ModelVolCube` by name:
   a `VolSurface` (`FlatVolSurface`, or `GridVolSurface` — bilinear over expiry x tenor, flat
   beyond the edges) paired with its **units** — `VolUnits.Normal` (Bachelier) vs
-  `VolUnits.Lognormal` (Black), enforced against the swaption's model at lookup — and an
+  `VolUnits.Lognormal` (Black), which select the option model — and an
   optional `SmileModel`. With no model the surface holds quoted vols and the cube is plain 2D
   interpolation; with one it holds the model's parameters, interpolated and then turned into a
   vol at the strike (`vol(expiry, tenor, strike, forward)`). The surface parameters are the vol

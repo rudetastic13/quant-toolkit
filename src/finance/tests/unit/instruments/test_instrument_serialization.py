@@ -49,7 +49,7 @@ class TestInstrumentSerialization(UnitTest):
                 back = type(instrument).from_json(text)
                 self.assertEqual(back, instrument)
                 self.assertEqual(json.loads(text)["__type__"], type(instrument).__name__)  # stable name, not a module path
-                self.assertEqual(json.loads(text)["__version__"], 1)
+                self.assertEqual(json.loads(text)["__version__"], type(instrument).__serial_version__)
 
     def test_reloaded_instruments_price_the_same(self):
         from finance.pricing.pricers import FuturesPricer
