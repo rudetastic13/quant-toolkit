@@ -64,8 +64,8 @@ class PaymentSchedule:
     reset_ends: np.ndarray | None    # datetime64[D], N — single-fixing projection window end
 
     # Tier-2 observation grid (compounded/averaged legs). M total fixings across all periods.
-    obs_read_starts: np.ndarray | None = field(default=None)   # datetime64[D], M (rate-read window start)
-    obs_read_ends: np.ndarray | None = field(default=None)     # datetime64[D], M (rate-read window end)
+    obs_fixing_starts: np.ndarray | None = field(default=None)   # datetime64[D], M (fixing window start)
+    obs_fixing_ends: np.ndarray | None = field(default=None)     # datetime64[D], M (fixing window end)
     obs_weights: np.ndarray | None = field(default=None)       # float64, M (accrual weights)
     obs_offsets: np.ndarray | None = field(default=None)       # intp, N (reduceat boundaries)
 
@@ -229,7 +229,7 @@ def build_payment_schedule(
     pf = period_fractions(day_count_method, accrual_starts, accrual_ends)
 
     # 6. Tier-2 observation grid (compounded/averaged legs)
-    obs_read_starts = obs_read_ends = obs_weights = obs_offsets = None
+    obs_fixing_starts = obs_fixing_ends = obs_weights = obs_offsets = None
     if build_observations:
         if reset_faster and fixing_type == FixingType.Advance:
             raise NotImplementedError(
@@ -239,8 +239,8 @@ def build_payment_schedule(
         if not reset_faster:
             # Advance, aligned, or super-period: one governing fixing per period — the
             # step-4 windows.  The weight cancels in a single-fixing reduction.
-            obs_read_starts = reset_starts.copy()
-            obs_read_ends = reset_ends.copy()
+            obs_fixing_starts = reset_starts.copy()
+            obs_fixing_ends = reset_ends.copy()
             obs_weights = pf.copy()
             obs_offsets = np.arange(accrual_starts.shape[0], dtype=np.intp)
         else:
@@ -274,8 +274,8 @@ def build_payment_schedule(
                 else (LookbackStyle.ObservationShift if sub_boundaries is not None else LookbackStyle.Lookback),
                 sub_boundaries=sub_boundaries,
             )
-            obs_read_starts = grid.read_starts
-            obs_read_ends = grid.read_ends
+            obs_fixing_starts = grid.fixing_starts
+            obs_fixing_ends = grid.fixing_ends
             obs_weights = grid.weights
             obs_offsets = grid.offsets
 
@@ -286,8 +286,8 @@ def build_payment_schedule(
         period_fracs=pf,
         reset_starts=reset_starts,
         reset_ends=reset_ends,
-        obs_read_starts=obs_read_starts,
-        obs_read_ends=obs_read_ends,
+        obs_fixing_starts=obs_fixing_starts,
+        obs_fixing_ends=obs_fixing_ends,
         obs_weights=obs_weights,
         obs_offsets=obs_offsets,
     )

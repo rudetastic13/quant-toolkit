@@ -108,7 +108,7 @@ class TestIntraPeriodObservationGrid(UnitTest):
     def test_daily_grid_unchanged_for_daily_reset(self):
         daily_none = _build(build_observations=True)  # no reset_frequency -> aligned windows + obs
         daily_explicit = _build(reset_frequency=Frequency.Daily, build_observations=True)
-        np.testing.assert_array_equal(daily_explicit.obs_read_starts, np.asarray(daily_explicit.obs_read_starts))
+        np.testing.assert_array_equal(daily_explicit.obs_fixing_starts, np.asarray(daily_explicit.obs_fixing_starts))
         counts = np.diff(np.append(daily_explicit.obs_offsets, daily_explicit.obs_weights.shape[0]))
         self.assertGreater(counts.min(), 50)  # business-day granularity inside a quarter
         # aligned (no reset_frequency) with observations collapses to one fixing per period
@@ -118,7 +118,7 @@ class TestIntraPeriodObservationGrid(UnitTest):
     def test_lookback_applies_to_intra_period_fixings(self):
         plain = _build(reset_frequency=Frequency.Monthly, build_observations=True)
         shifted = _build(reset_frequency=Frequency.Monthly, build_observations=True, rate_lookback=5)
-        self.assertTrue((shifted.obs_read_starts < plain.obs_read_starts).all())
+        self.assertTrue((shifted.obs_fixing_starts < plain.obs_fixing_starts).all())
         np.testing.assert_array_equal(shifted.obs_weights, plain.obs_weights)  # ISDA: weights stay real
 
     def test_advance_intra_period_is_designed_seam(self):
@@ -135,5 +135,5 @@ class TestSuperPeriodObservationGrid(UnitTest):
                     build_observations=True)
         counts = np.diff(np.append(ps.obs_offsets, ps.obs_weights.shape[0]))
         self.assertTrue((counts == 1).all())
-        np.testing.assert_array_equal(ps.obs_read_starts, ps.reset_starts)
-        np.testing.assert_array_equal(ps.obs_read_ends, ps.reset_ends)
+        np.testing.assert_array_equal(ps.obs_fixing_starts, ps.reset_starts)
+        np.testing.assert_array_equal(ps.obs_fixing_ends, ps.reset_ends)
