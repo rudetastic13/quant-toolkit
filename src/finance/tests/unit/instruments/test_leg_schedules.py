@@ -177,22 +177,22 @@ class TestLookbackStyleReachesTheGrid(UnitTest):
 
     def test_the_style_is_derived_from_the_reset_grid_when_not_given(self):
         term = self._inputs(None)                                   # monthly fixings: whole sub-period
-        np.testing.assert_array_equal(term.obs_read_starts, self._inputs("ObservationShift").obs_read_starts)
-        np.testing.assert_array_equal(term.obs_read_ends, self._inputs("ObservationShift").obs_read_ends)
-        self.assertEqual(term.obs_read_ends[0], Date(2026, 2, 15).to_numpy())
+        np.testing.assert_array_equal(term.obs_fixing_starts, self._inputs("ObservationShift").obs_fixing_starts)
+        np.testing.assert_array_equal(term.obs_fixing_ends, self._inputs("ObservationShift").obs_fixing_ends)
+        self.assertEqual(term.obs_fixing_ends[0], Date(2026, 2, 15).to_numpy())
         daily = self._inputs(None, reset=Frequency.Daily)           # daily fixings: the overnight print
-        np.testing.assert_array_equal(daily.obs_read_ends, self._inputs("Lookback", reset=Frequency.Daily).obs_read_ends)
-        self.assertEqual((daily.obs_read_ends[0] - daily.obs_read_starts[0]).astype(int), 1)
+        np.testing.assert_array_equal(daily.obs_fixing_ends, self._inputs("Lookback", reset=Frequency.Daily).obs_fixing_ends)
+        self.assertEqual((daily.obs_fixing_ends[0] - daily.obs_fixing_starts[0]).astype(int), 1)
 
     def test_observation_shift_reads_the_whole_sub_period(self):
         ps = self._inputs("ObservationShift")
         self.assertEqual(ps.obs_weights.size, 60)  # 20 quarters x 3 months
-        self.assertEqual(ps.obs_read_starts[0], EFFECTIVE.to_numpy())
-        self.assertEqual(ps.obs_read_ends[0], Date(2026, 2, 15).to_numpy())
+        self.assertEqual(ps.obs_fixing_starts[0], EFFECTIVE.to_numpy())
+        self.assertEqual(ps.obs_fixing_ends[0], Date(2026, 2, 15).to_numpy())
 
     def test_isda_lookback_reads_an_overnight_at_each_sub_period_start(self):
         ps = self._inputs("Lookback")
-        self.assertEqual(ps.obs_read_ends[0], Date(2026, 1, 16).to_numpy())
+        self.assertEqual(ps.obs_fixing_ends[0], Date(2026, 1, 16).to_numpy())
 
 
 class TestOnePeriodLegWithDailyFixings(UnitTest):

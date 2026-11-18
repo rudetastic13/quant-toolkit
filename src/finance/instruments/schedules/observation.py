@@ -5,15 +5,20 @@ laid out as ONE continuous, sorted boundary set; per-period membership is recove
 ``np.searchsorted`` (no per-period Python loop).  Build order:
 
     1. boundaries = business days  UNION  accrual boundaries   (continuous, tiling)
-    2. offsets    = searchsorted(accrual_ends, sub_starts)      (period membership)
-    3. weights    = day-count on the PRE-SHIFT accrual sub-periods (the weight basis)
-    4. read window = the rate-observation window, per the lookback style
+    2. offsets    = searchsorted(accrual_ends, interest_starts) (period membership)
+    3. fixing window = where the rate is pulled from, per the lookback style
+    4. weights    = day-count on the interest sub-period (Lookback) or the fixing window
+                    (ObservationShift)
+
+Each row has two date windows, named as the ARRC conventions name them: the *interest* window
+``[interest_start, interest_end)`` is the slice of the accrual period the interest is applied
+for, and the *fixing* window is where the rate is pulled from.  They coincide until a lookback
+or a lockout moves the fixing window.
 
 Including the accrual boundaries in step 1 makes every sub-period fall inside exactly one
 accrual period.
 
-Lookback styles (the weight basis is always the pre-shift accrual sub-period; the styles
-differ in *which window's rate* is observed and *how it is weighted*):
+Lookback styles (they differ in *which window's rate* is observed and *how it is weighted*):
 
 - ``Lookback`` (ISDA, default): the rate is the overnight rate observed at the date shifted
   back ``lookback`` business days, ``[dᵢ-L, next_bd(dᵢ-L)]``; the weight is the REAL
@@ -22,8 +27,15 @@ differ in *which window's rate* is observed and *how it is weighted*):
   ``[dᵢ-L, dᵢ₊₁-L]``; telescopes against the curve shifted by L.  (The leg cashflow still
   accrues over the real ``period_frac``.)
 
-``lockout`` freezes the tail sub-periods' rate window at the cutoff
-(``accrual_end`` minus ``lockout`` business days); weights are unaffected.
+``lockout`` freezes the tail sub-periods' rate window at the cutoff, the ISDA Lockout Date:
+``accrual_end`` minus ``lockout`` business days.  The cutoff fixing is therefore used ``lockout``
+times in total (``lockout - 1`` days are frozen; ``lockout=1`` freezes nothing), and the rows are
+never merged: each locked day keeps its own weight and its own compounding step.
+
+Conventions follow the 2006 ISDA Definitions compounding provisions (OIS Compounding,
+Compounding with Lookback / Observation Period Shift / Lockout).  A period whose first day is
+not a business day carries one extra leading sub-period that reads the preceding business
+day's fixing.
 """
 from __future__ import annotations
 
@@ -36,7 +48,7 @@ from finance.dates import BDC, DayCountMethod, is_good_bd, add_business_days, pe
 
 
 class LookbackStyle(IntEnum):
-    """How the lookback shift relates the rate-observation window to the weight."""
+    """How the lookback shift relates the fixing window to the weight."""
 
     Lookback = 0          # ISDA: rate at shifted date (overnight), weight = real sub-period
     ObservationShift = 1  # rate & weight both from the shifted window
@@ -46,22 +58,22 @@ class LookbackStyle(IntEnum):
 class ObservationGrid:
     """Flat Tier-2 arrays for a single leg (M fixings, N accrual periods).
 
-    read_starts/read_ends : (M,) datetime64[D]  rate-observation window (post shift/lockout)
-    weights               : (M,) float64        accrual weight per fixing
-    offsets               : (N,) intp           start index of each accrual period
-    sub_starts/sub_ends   : (M,) datetime64[D]  pre-shift accrual sub-periods (weight basis)
+    fixing_starts/fixing_ends     : (M,) datetime64[D]  where the rate is pulled from (post lookback/lockout)
+    weights                       : (M,) float64        accrual weight per fixing
+    offsets                       : (N,) intp           start index of each accrual period
+    interest_starts/interest_ends : (M,) datetime64[D]  the days the interest is applied for (pre-shift)
     """
 
-    read_starts: np.ndarray
-    read_ends: np.ndarray
+    fixing_starts: np.ndarray
+    fixing_ends: np.ndarray
     weights: np.ndarray
     offsets: np.ndarray
-    sub_starts: np.ndarray
-    sub_ends: np.ndarray
+    interest_starts: np.ndarray
+    interest_ends: np.ndarray
 
     @property
     def n_obs(self) -> int:
-        return int(self.read_starts.shape[0])
+        return int(self.fixing_starts.shape[0])
 
 
 def build_observation_grid(
@@ -100,40 +112,45 @@ def build_observation_grid(
     mark[accrual_ends.view(np.int64) - day0] = True
     boundaries = all_days[mark]
 
-    sub_starts = boundaries[:-1]
-    sub_ends = boundaries[1:]
+    interest_starts = boundaries[:-1]
+    interest_ends = boundaries[1:]
 
     # 2. period membership + reduceat offsets (no per-period loop)
-    period_idx = np.searchsorted(accrual_ends, sub_starts, side="right")
+    period_idx = np.searchsorted(accrual_ends, interest_starts, side="right")
     n_periods = accrual_ends.shape[0]
     offsets = np.searchsorted(period_idx, np.arange(n_periods), side="left").astype(np.intp)
 
-    # 3 & 4. weights (pre-shift basis) and the rate-observation window, per style
+    # 3 & 4. the fixing window and the weights, per style
     if lookback_style == LookbackStyle.ObservationShift:
-        read_starts = add_business_days(sub_starts, -lookback, BDC.Preceding, calendar) if lookback else sub_starts.copy()
-        read_ends = add_business_days(sub_ends, -lookback, BDC.Preceding, calendar) if lookback else sub_ends.copy()
-        weights = period_fractions(day_count, read_starts, read_ends)  # shifted weights
+        fixing_starts = add_business_days(interest_starts, -lookback, BDC.Preceding, calendar) if lookback else interest_starts.copy()
+        fixing_ends = add_business_days(interest_ends, -lookback, BDC.Preceding, calendar) if lookback else interest_ends.copy()
+        weights = period_fractions(day_count, fixing_starts, fixing_ends)  # shifted weights
     else:  # ISDA Lookback: overnight rate at the shifted date; real-period weight
-        read_starts = add_business_days(sub_starts, -lookback, BDC.Preceding, calendar) if lookback else sub_starts.copy()
-        read_ends = add_business_days(read_starts, 1, BDC.Following, calendar)
-        weights = period_fractions(day_count, sub_starts, sub_ends)  # real weights
+        # Rolled Preceding even with no lookback: a period whose first day is not a business day
+        # reads the preceding business day's fixing (ISDA: r + 1 business days before day 1).
+        fixing_starts = add_business_days(interest_starts, -lookback, BDC.Preceding, calendar)
+        fixing_ends = add_business_days(fixing_starts, 1, BDC.Following, calendar)
+        weights = period_fractions(day_count, interest_starts, interest_ends)  # real weights
 
-    # lockout: freeze the tail sub-periods' rate window at the cutoff
+    # lockout: freeze the tail sub-periods' rate window at the cutoff (the ISDA Lockout Date).
+    # Counted back from the last business day in the period, so the cutoff fixing is used
+    # ``lockout`` times whether or not the period end is a business day.
     if lockout:
-        cutoff = add_business_days(accrual_ends, -lockout, BDC.Preceding, calendar)
-        locked = sub_starts > cutoff[period_idx]
+        last_bd = add_business_days(accrual_ends - np.timedelta64(1, "D"), 0, BDC.Preceding, calendar)
+        cutoff = add_business_days(last_bd, -(lockout - 1), BDC.Preceding, calendar)
+        locked = interest_starts > cutoff[period_idx]
         lock_start = cutoff[period_idx]
         if lookback:
             lock_start = add_business_days(lock_start, -lookback, BDC.Preceding, calendar)
         lock_end = add_business_days(lock_start, 1, BDC.Following, calendar)
-        read_starts = np.where(locked, lock_start, read_starts)
-        read_ends = np.where(locked, lock_end, read_ends)
+        fixing_starts = np.where(locked, lock_start, fixing_starts)
+        fixing_ends = np.where(locked, lock_end, fixing_ends)
 
     return ObservationGrid(
-        read_starts=read_starts,
-        read_ends=read_ends,
+        fixing_starts=fixing_starts,
+        fixing_ends=fixing_ends,
         weights=weights,
         offsets=offsets,
-        sub_starts=sub_starts,
-        sub_ends=sub_ends,
+        interest_starts=interest_starts,
+        interest_ends=interest_ends,
     )

@@ -163,7 +163,7 @@ array with an offset map, and the per-period reduction is `np.add.reduceat`.
 flowchart LR
     T0["Tier 0: instrument / leg<br/>row_offsets, leg_instrument"]
     T1["Tier 1: period grid (N)<br/>pay_dates, period_frac, notional"]
-    T2["Tier 2: observation grid (M)<br/>daily fixings: read window + weight"]
+    T2["Tier 2: observation grid (M)<br/>daily fixings: fixing window + weight"]
     T2 -- "reduceat(offsets)" --> T1
     T1 -- "reduceat(row_offsets) + bincount" --> T0
 ```

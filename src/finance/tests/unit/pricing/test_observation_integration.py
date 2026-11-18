@@ -43,8 +43,8 @@ class TestRealGridTelescopes(UnitTest):
 
     def test_compounded_period_rates_telescope(self):
         grid = build_observation_grid(self.ps.accrual_starts, self.ps.accrual_ends, CAL, ACT360)
-        # read overnight simple rates over each sub-period (lookback=0 => value_date == sub_start)
-        obs_rate = self.rates.simple_rate(CURVE, grid.sub_starts, grid.sub_ends, ACT360)
+        # read overnight simple rates over each sub-period (lookback=0 => value_date == interest_start)
+        obs_rate = self.rates.simple_rate(CURVE, grid.interest_starts, grid.interest_ends, ACT360)
         rates = compounded(obs_rate, grid.weights, grid.offsets)
 
         # each period's compounded rate * period_frac == DF(start)/DF(end) - 1

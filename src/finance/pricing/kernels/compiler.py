@@ -199,8 +199,8 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
             leg_off = np.append(ps.obs_offsets, len(ps.obs_weights))
             for p in np.nonzero(needs_obs)[0]:
                 s, e = int(leg_off[p]), int(leg_off[p + 1])
-                obs_rs.append(ps.obs_read_starts[s:e])
-                obs_re.append(ps.obs_read_ends[s:e])
+                obs_rs.append(ps.obs_fixing_starts[s:e])
+                obs_re.append(ps.obs_fixing_ends[s:e])
                 obs_w.append(ps.obs_weights[s:e])
                 obs_offsets.append(m)
                 obs_flow.append(f + int(p))
