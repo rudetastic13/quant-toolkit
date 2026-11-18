@@ -7,7 +7,7 @@ from finance.dates import Date
 from finance.instruments.resolution import Swap, SofrFuture, Swaption, SwaptionModel
 from finance.markets.context import MarketContext
 from finance.markets.curves import CurveInterpolator, YieldCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
+from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 from finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
 from finance.pricing.risk import RiskEngine, Sensitivities
 
@@ -24,7 +24,7 @@ def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
         dates, np.exp(-z * t), key="USD.SOFR.1D", space=space, interpolator=interpolator
     )
     vols = VolNamespace()
-    vols.bind(CURVE, FlatVolSurface(0.01, VolUnits.Normal))
+    vols.bind(CURVE, ModelVolCube(FlatVolSurface(0.01), VolUnits.Normal))
     return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
 
 

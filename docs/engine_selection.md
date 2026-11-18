@@ -164,7 +164,7 @@ import numpy as np
 from finance.dates import Date
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve
-from finance.markets.vols import FlatVolSurface, VolNamespace, VolUnits
+from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 
 as_of  = Date(2026, 6, 1)
 origin = as_of.to_numpy()
@@ -174,8 +174,8 @@ zeros  = np.array([0.0, 0.035, 0.040, 0.045, 0.047])
 
 sofr = YieldCurve.build(dates, np.exp(-zeros * t), key="USD.SOFR.1D")
 vols = VolNamespace()
-vols.bind("USD.SOFR.1D", FlatVolSurface(0.0095, VolUnits.Normal))     # 95bp normal — Bachelier
-vols.bind("USD.SOFR.LN", FlatVolSurface(0.24,   VolUnits.Lognormal))  # 24%  lognormal — Black
+vols.bind("USD.SOFR.1D", ModelVolCube(FlatVolSurface(0.0095), VolUnits.Normal))     # 95bp normal — Bachelier
+vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.24), VolUnits.Lognormal))  # 24%  lognormal — Black
 market = MarketContext(as_of, vols=vols)
 market["USD.SOFR.1D"] = sofr                                          # the projection key
 market["USD.STDCSA"] = sofr                                           # the same curve as the discount curve

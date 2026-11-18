@@ -16,6 +16,8 @@ Dabbling in interest rate analytics
   rates and European options, with FD-of-gradient second order.
 - [SOFR Futures](docs/sofr_futures.md) — implemented SR1/SR3 contracts, contract-month dating,
   pricing/risk, and convexity-adjusted calibration.
+- [Swaptions](docs/swaptions.md) — building, pricing and risking European swaptions, with worked
+  numbers for curve DV01 and node vega.
 - [SOFR calibration and aggregate risk sample](research/sofr_curve_calibration.py) — calibrates
   deposits/swaps, registers a SOFR yield curve, reports a 7Y swap, then nets N randomized
   swaps by zero and par-quote buckets with index/funding DV01 and gamma.
