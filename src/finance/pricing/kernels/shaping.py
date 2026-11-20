@@ -1,6 +1,6 @@
 """Coupon rate shaping — the single source of the index_floor/spread/floor/cap algebra.
 
-Both engines (numpy ``compiler.reprice`` and the JAX ``JaxProgram``) and the reference
+Both engines (numpy ``NumpyProgram`` and the JAX ``JaxProgram``) and the reference
 coupon calculators shape rates identically; this module is the one implementation.  The
 functions are ``xp``-parameterized (pass ``xp=jnp`` on the JAX path) and jit-safe: they use
 only ``maximum``/``minimum``/``where`` on arrays, no Python branching on values.

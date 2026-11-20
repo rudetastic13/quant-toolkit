@@ -33,8 +33,8 @@ JAX 3.2 ms (+0.6 s per-shape compile). One import-time compile, reused across al
 
 ## 1. Architecture
 
-The engine lives at `finance/pricing/engines/numba/`, registered under `Backend.Numba` against
-the same `(kernel_id, Backend)` keys as the numpy engine, consuming the same `KernelInputs`. A
+The engine lives at `finance/pricing/engines/numba/`, registered under `Backend.Numba` in
+`program_registry` next to the numpy engine (`NumpyProgram`), consuming the same `KernelInputs`. A
 small `prepare(program, market)` step lowers the columnar inputs + curve geometry into the flat
 `float64[::1]`/`int64[::1]` arguments the `@njit` kernels take (offsets, day-count fractions,
 the static query dedup map, the curves' affine rows). All date math is static and
@@ -60,7 +60,7 @@ numpy's `_project_dedup` (evaluate `DF` once per unique fixing date, gather).
 
 **Status.** `NumbaProgram` implements the fused primal under `engines/numba/program.py` and
 returns instrument, leg, flow, rate, and payment-DF outputs. Narrow DCF/rate kernels are also
-registered under `Backend.Numba`; curve-owned historical fixings are constants in the
+(the narrow DCF/rate twins were removed: 1.1-1.4x on `compounded`, microseconds on `dcf`; the option kernels remain registered under `Backend.Numba`); curve-owned historical fixings are constants in the
 adjoint. Observations before the curve origin have zero index derivative, while a coupon
 straddling the origin retains risk only to its projected observations. Payments before the
 origin have zero DF, PV, index risk, and funding risk.

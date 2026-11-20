@@ -1008,7 +1008,7 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `FuturesProgram` lowering (`leg_spec` directly, no `projection_curve_name`) | `LegPricer` path (§3.1) | keeps convexity/point value as a thin layer |
 | Six risk doors | `pillar_risk()` adapters (phase R) → `risk()` (phase E) | `Sensitivities` survives as the bump oracle |
 | `calibration_jacobian` | `template_jacobian` (phase R) | wrapper kept for `CurveCalibrator` until phase E |
-| `engine_registry` (primal-only, no production caller: `compiler.reprice` and `NumbaProgram` import kernels directly) | op registry `(kind, Backend) → OpImpl` (phase E1) | the registry becomes load-bearing |
+| ~~`engine_registry`~~ (kernel-level, no production caller) | done: `program_registry` (Backend → program) + `kernel_registry` (option kernels), both load-bearing | op registry `(kind, Backend) → OpImpl` (phase E1) replaces them |
 | `STDCSA` constant vs seven `"STDCSA"` literals | one constant in `resolution/resolver.py`, imported everywhere | `futures.py:73,113`, `swaption.py:39`, `calibration/instruments.py:214,228,242,263` |
 | `Priceable` for `SofrFuture`, `Swaption`, `Bond`, `TreasuryFuture`, `TreasuryFutureOption` | register all in `pricer_registry` | today only Swap/Deposit/Fra are registered |
 | Duplicate `class Legs` wrappers in `tests/regression/test_leg_shapes.py:52` and `research/one_leg_examples.py:50` | a `finance.instruments.Legs` product (signed legs, `Priceable`) | the natural home of `join_legs` output |

@@ -103,9 +103,9 @@ flowchart TB
         PP2["PricingProgram"]
     end
     subgraph ENGINE["Engine — pure kernels"]
-        REG["engine_registry<br/>key = (kernel_id, Backend)"]
-        RK["rate kernels<br/>compounded / averaged"]
-        DCF["dcf reducer"]
+        REG["program_registry<br/>Backend -> engine program"]
+        RK["NumpyProgram / NumbaProgram<br/>(rate kernels, dcf, shaping)"]
+        OK["option kernels<br/>kernel_registry (kernel_id, Backend)"]
     end
 
     CONV --> RS2
@@ -113,9 +113,8 @@ flowchart TB
     RS2 --> CMP --> KI --> PP2
     MC --> RG --> PP2
     PP2 -- "reprice" --> RK
-    PP2 -- "reprice" --> DCF
     RK -. "registered under" .-> REG
-    DCF -. "registered under" .-> REG
+    PP2 -. "option greeks" .-> OK
 ```
 
 Dependencies point downward only: the contract layer knows nothing about markets or engines.
@@ -201,7 +200,7 @@ single-fixing floats.
 
 | Pattern | Where | Why |
 |---|---|---|
-| **Registry + Factory** | `common/registry.py`; `engine_registry` keyed `(kernel_id, Backend)`; `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add a numba/rust kernel or a new convention without touching call sites. |
+| **Registry + Factory** | `common/registry.py`; `program_registry` keyed `Backend` (whole-portfolio engines); `kernel_registry` keyed `(kernel_id, Backend)` (narrow option kernels); `ConventionRegistry` keyed `(ccy, index)` | Pluggable dispatch; add an engine (a primal-only Rust program, say) or a convention without touching call sites. |
 | **Concrete resolved instruments as the contract** | `Swap` / `Deposit` / `Fra` / `SofrFuture` + `CommonInstrument` | The pricer's input type IS the contract — mypy checks it directly, no parallel trait layer to hand-sync. Every product is signed legs (`instrument.legs`) and prices through one `LegPricer`; a deposit is one fixed leg with principal out and back, a FRA a one-period fixed vs float pair, a future's reference period a unit-notional leg. (A property-only Protocol layer was tried and deleted; the field-mixin recipe for when Bond/Loan lands is documented on `CommonInstrument`.) |
 | **Flat leg, schedule truth** | `CommonInstrument.coupon_schedule` | The leg is flat to write (`coupon_type`, `coupon_rate`, `spread`, `cap` ...) and a schedule to price: a supplied `CouponSchedule` tags the leg `coupon_type = Custom` and is used as is, otherwise the flat fields build a one-event schedule at construction. The compiler lowers only the schedule, so step-ups and fixed→float switches need no special path and the two faces cannot drift. `leg.replace(coupon_rate=...)` rebuilds a derived schedule and keeps a `Custom` one. Amortisation follows the same shape: `amortization` names a generator (`Bullet`, `StraightLine`, `LevelPay`) driven by the window fields, or a supplied `notional_schedule` tags the leg `Custom`; `notional_profile(leg, schedule)` is the one per-period array the compiler reads. |
 | **Functor instruments (`Priceable`)** | `instruments/priceable.py`; `swap(market, requests=None)`, `deposit(market)`, `fra(market)` | An instrument is a standalone calculator routed through the same compile→reprice machinery — compiled once on first call, cached, then repriced per market. Leg-bearing types dispatch to `LegPricer` through `pricer_registry`. |
@@ -245,10 +244,12 @@ single-fixing floats.
 
 ## 7. Extension points
 
-- **Backends.** Register `(kernel_id, Backend)` kernels with the same `KernelInputs` /
+- **Backends.** Register a program class under a new `Backend` in `program_registry` (contract in
+  `finance/pricing/engines/registry.py`: `__init__(inputs, market)`, `compatible`, `reprice`; `value_and_grad`
+  optional). It consumes the same `KernelInputs` /
   `KernelResult` contract — no pricer changes; the registry readmits a backend when one exists.
 - **Options / vols.** Implemented for European swaptions: Black-76 / Bachelier kernels with
-  full analytic greeks (value/delta/gamma/vega/vanna/volga) registered under
+  full analytic greeks (value/delta/gamma/vega/vanna/volga) registered in `kernel_registry` under
   `(KERNEL_BLACK|KERNEL_BACHELIER, Numpy|Numba)`, and `SwaptionPricer` pricing off the
   compiled unit-coupon swap program (forward and annuity read from leg PVs; option greeks
   chained through the curve adjoint in `risk()`). Pricers resolve a `ModelVolCube` by name:

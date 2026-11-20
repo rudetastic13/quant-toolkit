@@ -13,7 +13,7 @@ import numpy as np
 from scipy.special import ndtr
 
 from common.registry import register_with
-from finance.pricing.engines import engine_registry
+from finance.pricing.engines.registry import kernel_registry
 from finance.pricing.types import Backend, KERNEL_BACHELIER, KERNEL_BLACK
 
 FloatArray = np.ndarray
@@ -49,20 +49,19 @@ def _phi(is_call: bool) -> float:
     return 1.0 if is_call else -1.0
 
 
-@register_with(engine_registry, (KERNEL_BACHELIER, Backend.Numpy))
 def bachelier(forward: FloatArray, strike: FloatArray, expiry: FloatArray, vol: FloatArray,
               is_call: bool = True) -> FloatArray:
     """Normal-vol (Bachelier) option value per unit annuity."""
     return bachelier_greeks(forward, strike, expiry, vol, is_call).value
 
 
-@register_with(engine_registry, (KERNEL_BLACK, Backend.Numpy))
 def black(forward: FloatArray, strike: FloatArray, expiry: FloatArray, vol: FloatArray,
           is_call: bool = True) -> FloatArray:
     """Lognormal-vol (Black-76) option value per unit annuity."""
     return black_greeks(forward, strike, expiry, vol, is_call).value
 
 
+@register_with(kernel_registry, (KERNEL_BACHELIER, Backend.Numpy))
 def bachelier_greeks(forward, strike, expiry, vol, is_call: bool = True) -> OptionGreeks:
     """Bachelier value, delta, gamma, vega, vanna, and volga.
 
@@ -95,6 +94,7 @@ def bachelier_greeks(forward, strike, expiry, vol, is_call: bool = True) -> Opti
     return OptionGreeks(value, delta, gamma, vega, vanna, volga)
 
 
+@register_with(kernel_registry, (KERNEL_BLACK, Backend.Numpy))
 def black_greeks(forward, strike, expiry, vol, is_call: bool = True) -> OptionGreeks:
     """Black-76 value, delta, gamma, vega, vanna, and volga."""
     f, k, t, sigma = _inputs(forward, strike, expiry, vol)
