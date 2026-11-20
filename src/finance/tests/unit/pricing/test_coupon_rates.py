@@ -4,7 +4,7 @@ Covers: simple float (IBOR), averaged, compounded, averaged+index_floor,
 compounded margin inclusive vs exclusive, caps & floors — including the subtle
 cap/floor-on-final-period-coupon (NOT daily-running) convention.  The scalar/None
 helpers below are the per-leg view of ``prep_obs`` → kernel → ``shape_period`` that
-``compiler.reprice`` applies columnwise; the explicit loops are the reference.
+``NumpyProgram.reprice`` applies columnwise; the explicit loops are the reference.
 """
 import numpy as np
 

@@ -1,9 +1,10 @@
-"""Small Numba kernels registered against the backend-neutral engine ABI.
+"""Numba option kernels (Black / Bachelier with greeks), registered under ``(kernel_id, Backend.Numba)``.
 
-The fused :class:`~finance.pricing.engines.numba.program.NumbaProgram` is the production
-pricing path.  These narrow kernels keep the public registry complete and are useful when a
-caller already has projected rates or cashflows.  Numba specializes them on dtype/layout,
-not array length, so one compiled signature serves every portfolio shape.
+The rate and DCF reductions have no Numba twins: measured, they were 1.1-1.4x (``compounded``) and a
+few microseconds (``dcf``) over numpy, and the fused :class:`NumbaProgram` is what makes the Numba
+engine fast.  Option kernels stay narrow because pricers call them at exactly this granularity
+(forward, strike, expiry, vol in; value and greeks out).  Numba specializes on dtype/layout, not
+array length, so one compiled signature serves every shape.
 """
 from __future__ import annotations
 
@@ -13,16 +14,9 @@ import numpy as np
 from numba import njit
 
 from common.registry import register_with
-from finance.pricing.engines import engine_registry
+from finance.pricing.engines.registry import kernel_registry
 from finance.pricing.engines.numpy.option import OptionGreeks
-from finance.pricing.types import (
-    Backend,
-    KERNEL_BACHELIER,
-    KERNEL_BLACK,
-    KERNEL_DCF,
-    RATE_AVERAGED,
-    RATE_COMPOUNDED,
-)
+from finance.pricing.types import Backend, KERNEL_BACHELIER, KERNEL_BLACK
 
 _INV_SQRT_2PI = 1.0 / math.sqrt(2.0 * math.pi)
 _INV_SQRT_2 = 1.0 / math.sqrt(2.0)
@@ -30,93 +24,6 @@ _INV_SQRT_2 = 1.0 / math.sqrt(2.0)
 
 def _float_1d(a) -> np.ndarray:
     return np.ascontiguousarray(a, dtype=np.float64)
-
-
-def _int_1d(a) -> np.ndarray:
-    return np.ascontiguousarray(a, dtype=np.int64)
-
-
-def _check_segments(obs_rate, obs_w, offsets) -> None:
-    if obs_rate.shape != obs_w.shape:
-        raise ValueError("obs_rate and obs_w must share shape")
-    if offsets.ndim != 1 or offsets.size == 0 or offsets[0] != 0:
-        raise ValueError("offsets must be non-empty, 1-D, and start at zero")
-    if np.any(np.diff(offsets) <= 0) or offsets[-1] >= obs_rate.size:
-        raise ValueError("offsets must be strictly increasing and inside the observation array")
-
-
-@njit(cache=True)  # pragma: no cover - executed as Numba machine code
-def _dcf(cash, df, sign, offsets):
-    out = np.zeros(offsets.size, dtype=np.float64)
-    for row in range(offsets.size):
-        end = offsets[row + 1] if row + 1 < offsets.size else cash.size
-        total = 0.0
-        for i in range(offsets[row], end):
-            total += cash[i] * df[i] * sign[i]
-        out[row] = total
-    return out
-
-
-@register_with(engine_registry, (KERNEL_DCF, Backend.Numba))
-def dcf(cash, df, sign, row_offsets):
-    """Present value per row using the same inputs as the NumPy DCF kernel."""
-    cash = _float_1d(cash)
-    df = _float_1d(df)
-    sign = _float_1d(sign)
-    offsets = _int_1d(row_offsets)
-    if not (cash.shape == df.shape == sign.shape):
-        raise ValueError("cash, df, sign must share shape")
-    if offsets.size and offsets[0] != 0:
-        raise ValueError("row_offsets[0] must be 0")
-    return _dcf(cash, df, sign, offsets)
-
-
-@njit(cache=True)  # pragma: no cover - executed as Numba machine code
-def _compounded(obs_rate, obs_w, offsets):
-    out = np.empty(offsets.size, dtype=np.float64)
-    for p in range(offsets.size):
-        end = offsets[p + 1] if p + 1 < offsets.size else obs_rate.size
-        log_growth = 0.0
-        weight = 0.0
-        for i in range(offsets[p], end):
-            log_growth += math.log1p(obs_rate[i] * obs_w[i])
-            weight += obs_w[i]
-        out[p] = math.expm1(log_growth) / weight
-    return out
-
-
-@register_with(engine_registry, (RATE_COMPOUNDED, Backend.Numba))
-def compounded(obs_rate, obs_w, offsets):
-    """Segmented daily compounding, shape-polymorphic over the flat observation grid."""
-    obs_rate = _float_1d(obs_rate)
-    obs_w = _float_1d(obs_w)
-    offsets = _int_1d(offsets)
-    _check_segments(obs_rate, obs_w, offsets)
-    return _compounded(obs_rate, obs_w, offsets)
-
-
-@njit(cache=True)  # pragma: no cover - executed as Numba machine code
-def _averaged(obs_rate, obs_w, offsets):
-    out = np.empty(offsets.size, dtype=np.float64)
-    for p in range(offsets.size):
-        end = offsets[p + 1] if p + 1 < offsets.size else obs_rate.size
-        weighted = 0.0
-        weight = 0.0
-        for i in range(offsets[p], end):
-            weighted += obs_rate[i] * obs_w[i]
-            weight += obs_w[i]
-        out[p] = weighted / weight
-    return out
-
-
-@register_with(engine_registry, (RATE_AVERAGED, Backend.Numba))
-def averaged(obs_rate, obs_w, offsets):
-    """Segmented arithmetic averaging over a flat observation grid."""
-    obs_rate = _float_1d(obs_rate)
-    obs_w = _float_1d(obs_w)
-    offsets = _int_1d(offsets)
-    _check_segments(obs_rate, obs_w, offsets)
-    return _averaged(obs_rate, obs_w, offsets)
 
 
 @njit(cache=True, inline="always")  # pragma: no cover - executed as Numba machine code
@@ -194,12 +101,14 @@ def _option_inputs(forward, strike, expiry, vol):
     return arrays[0].shape, out
 
 
+@register_with(kernel_registry, (KERNEL_BACHELIER, Backend.Numba))
 def bachelier_greeks(forward, strike, expiry, vol, is_call: bool = True) -> OptionGreeks:
     shape, args = _option_inputs(forward, strike, expiry, vol)
     result = _bachelier_all(*args, 1.0 if is_call else -1.0)
     return OptionGreeks(*(a.reshape(shape) for a in result))
 
 
+@register_with(kernel_registry, (KERNEL_BLACK, Backend.Numba))
 def black_greeks(forward, strike, expiry, vol, is_call: bool = True) -> OptionGreeks:
     shape, args = _option_inputs(forward, strike, expiry, vol)
     if np.any(args[0] <= 0.0) or np.any(args[1] <= 0.0):
@@ -208,22 +117,4 @@ def black_greeks(forward, strike, expiry, vol, is_call: bool = True) -> OptionGr
     return OptionGreeks(*(a.reshape(shape) for a in result))
 
 
-@register_with(engine_registry, (KERNEL_BACHELIER, Backend.Numba))
-def bachelier(forward, strike, expiry, vol, is_call: bool = True):
-    return bachelier_greeks(forward, strike, expiry, vol, is_call).value
-
-
-@register_with(engine_registry, (KERNEL_BLACK, Backend.Numba))
-def black(forward, strike, expiry, vol, is_call: bool = True):
-    return black_greeks(forward, strike, expiry, vol, is_call).value
-
-
-__all__ = [
-    "dcf",
-    "compounded",
-    "averaged",
-    "bachelier",
-    "black",
-    "bachelier_greeks",
-    "black_greeks",
-]
+__all__ = ["bachelier_greeks", "black_greeks"]

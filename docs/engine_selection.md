@@ -86,23 +86,30 @@ via the cached `PricingProgram.prepare(market, backend=Backend.Numba)`. The §2 
 *model*-level invariant, not an implementation-level one: numpy and numba are two builds of
 the same closed forms, held to machine-precision agreement in CI.
 
-A compiled kernel in another language (PyO3/maturin, or the existing C++ core) would register
-under the same `(kernel_id, Backend)` key, consuming `KernelInputs` contiguous arrays
-zero-copy, and slot into the same rows as `Numba`. The registry readmits a backend when one
-exists; there is no placeholder member for one that does not.
+An engine in another language (PyO3/maturin, or the existing C++ core) registers a program class
+under a new `Backend` in `program_registry`, consuming `KernelInputs` contiguous arrays zero-copy
+(plus the backend-neutral prepared curve geometry), and slots into the same rows as `Numba`. It may
+start primal-only: `value_and_grad` is optional, and risk then runs on the Numba adjoint or by bump.
+The registry readmits a backend when one exists; there is no placeholder member for one that does not.
+
+The registry is per *program*, not per kernel, on purpose: measured on a 1,000-swap book, swapping
+only the rate/dcf reductions to Numba gained about 9%, while the fused Numba program gained about 2x,
+because the win is precomputed curve geometry plus one fused pass. Narrow kernels remain where a pricer
+calls them at that granularity: the Black/Bachelier option kernels (and, later, a lattice for American
+exercise).
 
 ---
 
 ## 4. How it binds to the existing seam
 
-Nothing new structurally — this is what `engine_registry` keyed `(kernel_id, Backend)` and the
-`pricer_registry` dispatch (keyed by contract class name) were built for.
+Nothing new structurally — this is what `program_registry` (keyed `Backend`), `kernel_registry` (keyed
+`(kernel_id, Backend)`) and the `pricer_registry` dispatch (keyed by contract class name) are for.
 
 ```mermaid
 flowchart LR
     PROD["Product / model<br/>(contract class)"]
     PRICER["Pricer<br/>declares default_backend"]
-    REG["engine_registry<br/>(kernel_id, Backend)"]
+    REG["program_registry / kernel_registry"]
     PV["PV"]
     RISK["Risk layer<br/>reads pricer.default_backend"]
     GREEKS["greeks"]
@@ -122,8 +129,9 @@ Concretely:
    Bump-and-reprice (`Sensitivities`) runs whatever backend priced; the analytic adjoint is
    Numba-only and reached uniformly through `program.prepare(market, backend=Backend.Numba)` —
    valid because numpy/numba implement the same closed forms (§3 note).
-3. **Adding a backend for a product is a registry registration**, not a call-site change —
-   register `(kernel_id, Backend.Numba)` alongside `(kernel_id, Backend.Numpy)`.
+3. **Adding a backend is a registry registration**, not a call-site change — register a program
+   class under the new `Backend`; for an option model, register its kernel under
+   `(kernel_id, Backend)` next to the existing ones.
 
 ---
 

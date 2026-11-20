@@ -1,4 +1,4 @@
-"""The kernel ABI: the columnar contract between the compiler and the engine."""
+"""The kernel ABI: the columnar contract between the compiler and the engines."""
 from finance.pricing.kernels.inputs import (
     KernelInputs,
     KernelResult,
@@ -6,7 +6,7 @@ from finance.pricing.kernels.inputs import (
     NO_FLOOR,
     NO_CURVE,
 )
-from finance.pricing.kernels.compiler import LegSpec, compile_portfolio, reprice
+from finance.pricing.kernels.compiler import LegSpec, compile_portfolio
 
 __all__ = [
     "KernelInputs",
@@ -16,5 +16,4 @@ __all__ = [
     "NO_CURVE",
     "LegSpec",
     "compile_portfolio",
-    "reprice",
 ]

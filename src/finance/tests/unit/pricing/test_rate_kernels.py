@@ -6,9 +6,7 @@ see test_coupon_rates.py). The kernels take only (obs_rate, obs_w, offsets).
 import numpy as np
 
 from common.testing import UnitTest
-from finance.pricing.engines import engine, has_engine
 from finance.pricing.engines.numpy.rates import compounded, averaged
-from finance.pricing.types import Backend, RATE_COMPOUNDED, RATE_AVERAGED, RATE_FIXED, RATE_FLOAT
 
 
 def _ragged_grid(seed: int, n_periods: int = 40):
@@ -69,27 +67,3 @@ class TestAveragedKernel(UnitTest):
     def test_matches_reference(self):
         obs_rate, obs_w, offsets, counts = _ragged_grid(11)
         np.testing.assert_allclose(averaged(obs_rate, obs_w, offsets), _ref_averaged(obs_rate, obs_w, counts), atol=1e-12)
-
-
-class TestEngineRegistryDispatch(UnitTest):
-    COVERAGE = ["finance.pricing.engines"]
-
-    def test_only_reduction_kernels_registered(self):
-        # Tight philosophy: only the hard reductions are kernels.
-        self.assertTrue(has_engine(RATE_COMPOUNDED, Backend.Numpy))
-        self.assertTrue(has_engine(RATE_AVERAGED, Backend.Numpy))
-        # fixed/float are pure shaping, NOT kernels.
-        self.assertFalse(has_engine(RATE_FIXED, Backend.Numpy))
-        self.assertFalse(has_engine(RATE_FLOAT, Backend.Numpy))
-
-    def test_dispatch_via_factory(self):
-        obs_rate, obs_w, offsets, _ = _ragged_grid(5)
-        np.testing.assert_array_equal(
-            compounded(obs_rate, obs_w, offsets),
-            engine((RATE_COMPOUNDED, Backend.Numpy), obs_rate, obs_w, offsets),
-        )
-
-    def test_unregistered_backend_raises(self):
-        self.assertFalse(has_engine(RATE_COMPOUNDED, Backend.Jax))
-        with self.assertRaises(KeyError):
-            engine((RATE_COMPOUNDED, Backend.Jax), np.array([0.04]), np.array([1.0]), np.array([0]))

@@ -8,14 +8,10 @@ from __future__ import annotations
 
 import numpy as np
 
-from common.registry import register_with
-from finance.pricing.engines import engine_registry
-from finance.pricing.types import KERNEL_DCF, Backend
 
 FloatArray = np.ndarray
 
 
-@register_with(engine_registry, (KERNEL_DCF, Backend.Numpy))
 def dcf(
     cash: FloatArray,
     df: FloatArray,

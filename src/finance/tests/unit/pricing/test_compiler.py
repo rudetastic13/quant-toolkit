@@ -18,7 +18,8 @@ from finance.instruments.schedules.coupon_schedule import (
     CompoundedCouponEvent,
 )
 from finance.instruments.enums import PrincipalExchange
-from finance.pricing.kernels import LegSpec, compile_portfolio, reprice
+from finance.pricing.engines.numpy.program import NumpyProgram
+from finance.pricing.kernels import LegSpec, compile_portfolio
 from finance.pricing.kernels.inputs import NO_CAP, NO_FLOOR
 from finance.pricing.types import RateKind
 
@@ -46,7 +47,7 @@ def _annual_schedule(years=4, build_obs=False):
 
 
 class TestFixedStepUpBond(UnitTest):
-    COVERAGE = ["finance.pricing.kernels.compiler"]
+    COVERAGE = ["finance.pricing.kernels.compiler", "finance.pricing.engines.numpy.program"]
 
     def test_step_up_rates_lowered_per_period(self):
         # 3% for y1-2, 4% y3, 5% y4 — a step-up encoded as 3 events on one leg
@@ -73,7 +74,7 @@ class TestFixedStepUpBond(UnitTest):
             FixedCouponEvent(start_date=Date(2029, 6, 1), coupon_rate=0.05),
         ])
         leg = LegSpec(ps, coupon, 1.0, CURVE, None, _notional(ps), 0)
-        res = reprice(compile_portfolio([leg]), mkt)
+        res = NumpyProgram(compile_portfolio([leg])).reprice(mkt)
 
         df = curve.discount_factor(ps.payment_dates)
         manual = float(np.sum(100.0 * np.array(rates) * ps.period_fracs * df))
@@ -81,7 +82,7 @@ class TestFixedStepUpBond(UnitTest):
 
 
 class TestParCompoundedSwap(UnitTest):
-    COVERAGE = ["finance.pricing.kernels.compiler"]
+    COVERAGE = ["finance.pricing.kernels.compiler", "finance.pricing.engines.numpy.program"]
 
     def test_par_swap_pv_zero(self):
         mkt, curve = _market()
@@ -105,7 +106,7 @@ class TestParCompoundedSwap(UnitTest):
             sign=-1.0, discount_curve=CURVE, projection_curve=CURVE,
             notional=_notional(float_ps), instrument=0,
         )
-        res = reprice(compile_portfolio([fixed_leg, float_leg]), mkt)
+        res = NumpyProgram(compile_portfolio([fixed_leg, float_leg])).reprice(mkt)
         # two legs, one instrument -> net PV ~ 0
         self.assertEqual(res.leg_pv.shape[0], 2)
         self.assertEqual(res.instrument_pv.shape[0], 1)
@@ -125,13 +126,13 @@ class TestParCompoundedSwap(UnitTest):
                                 1.0, CURVE, None, _notional(fixed_ps), inst))
             legs.append(LegSpec(float_ps, CouponSchedule(events=[CompoundedCouponEvent(start_date=Date(2026, 6, 1))]),
                                 -1.0, CURVE, CURVE, _notional(float_ps), inst))
-        res = reprice(compile_portfolio(legs), mkt)
+        res = NumpyProgram(compile_portfolio(legs)).reprice(mkt)
         self.assertEqual(res.instrument_pv.shape[0], 2)
         np.testing.assert_allclose(res.instrument_pv, 0.0, atol=1e-8)
 
 
 class TestPiecewiseSwitches(UnitTest):
-    COVERAGE = ["finance.pricing.kernels.compiler"]
+    COVERAGE = ["finance.pricing.kernels.compiler", "finance.pricing.engines.numpy.program"]
 
     def test_fixed_compounded_fixed(self):
         # one leg: y1 fixed, y2-3 compounded SOFR, y4 fixed — arbitrary switches
@@ -151,7 +152,7 @@ class TestPiecewiseSwitches(UnitTest):
         # only the two compounded periods contribute to the global obs grid
         self.assertEqual(ki.n_obs_periods, 2)
 
-        res = reprice(ki, mkt)
+        res = NumpyProgram(ki).reprice(mkt)
         # fixed periods carry their stepped rates; compounded periods are positive & sensible
         self.assertAlmostEqual(res.rate[0], 0.035, places=12)
         self.assertAlmostEqual(res.rate[3], 0.05, places=12)
@@ -162,7 +163,7 @@ class TestPiecewiseSwitches(UnitTest):
 class TestOptionalBounds(UnitTest):
     """A genuine 0% bound must be distinguishable from 'no bound' in the lowered columns."""
 
-    COVERAGE = ["finance.pricing.kernels.compiler"]
+    COVERAGE = ["finance.pricing.kernels.compiler", "finance.pricing.engines.numpy.program"]
 
     def _compile_with(self, *, index_floor, cap, floor):
         ps = _annual_schedule(2, build_obs=True)
@@ -189,7 +190,7 @@ class TestOptionalBounds(UnitTest):
 class TestPrincipalLowering(UnitTest):
     """Principal flows come from the per-period notional: a bullet repays once, an amortiser as it goes."""
 
-    COVERAGE = ["finance.pricing.kernels.compiler"]
+    COVERAGE = ["finance.pricing.kernels.compiler", "finance.pricing.engines.numpy.program"]
 
     def _leg(self, notional, exchange):
         ps = _annual_schedule(4)
@@ -226,9 +227,9 @@ class TestPrincipalLowering(UnitTest):
     def test_amortising_pv_is_the_sum_of_its_flows(self):
         mkt, _ = _market()
         ps, leg = self._leg(np.array([100.0, 75.0, 50.0, 25.0]), PrincipalExchange.Both)
-        res = reprice(compile_portfolio([leg]), mkt)
+        res = NumpyProgram(compile_portfolio([leg])).reprice(mkt)
         self.assertAlmostEqual(res.instrument_pv[0], res.flow_pv.sum(), places=9)
-        bullet = reprice(compile_portfolio([self._leg(_notional(ps), PrincipalExchange.Both)[1]]), mkt)
+        bullet = NumpyProgram(compile_portfolio([self._leg(_notional(ps), PrincipalExchange.Both)[1]])).reprice(mkt)
         self.assertLess(abs(res.instrument_pv[0]), abs(bullet.instrument_pv[0]))  # less duration, closer to par
 
     def test_notional_must_be_one_value_per_period(self):

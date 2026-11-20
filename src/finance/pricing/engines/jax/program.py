@@ -1,6 +1,6 @@
 """JaxProgram — a differentiable reprice over the columnar KernelInputs.
 
-This is the JAX-backend twin of ``compiler.reprice``: the *same* ``KernelInputs`` the numpy
+This is the JAX-backend twin of ``NumpyProgram.reprice``: the *same* ``KernelInputs`` the numpy
 engine consumes, lifted into a pure ``jax.numpy`` valuation so risk falls out of autodiff.
 It mirrors the numpy kernel period-for-period — fixed / single-fixing float / daily
 compounded / arithmetic averaged, plus spread, per-fixing ``index_floor``, and the

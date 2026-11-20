@@ -1,10 +1,8 @@
 """Shared enums and key constants for the pricing layer.
 
-The engine registry is keyed by ``(kernel_id, Backend)``.  ``Backend`` selects the
-implementation language/runtime; the *same* kernel id can have a numpy, numba, or
-rust implementation registered under the same id with a different backend — the
-swap is a one-line key change at the call site.  This mirrors the scalar-vs-numpy
-two-registry pattern in ``finance.dates.term.term_math_registry``.
+``Backend`` selects the implementation language/runtime.  Whole-portfolio engines register under it
+(``program_registry``: ``Backend -> program class``); narrow kernels register under
+``(kernel_id, Backend)`` (``kernel_registry``).  See ``finance.pricing.engines.registry``.
 """
 from __future__ import annotations
 
@@ -41,25 +39,13 @@ class RateKind(IntEnum):
     Averaged = 3     # arithmetic average of daily fixings
 
 
-# -- kernel ids -------------------------------------------------------------
-KERNEL_DCF = "dcf"               # discounted-cashflow PV reducer
-KERNEL_BACHELIER = "bachelier"   # normal-vol option model (reserved, not implemented)
-KERNEL_BLACK = "black"           # lognormal-vol option model (reserved)
-
-# -- rate-kernel kinds (also used as kernel ids in the engine registry) -----
-RATE_FIXED = "rate_fixed"
-RATE_FLOAT = "rate_float"          # single fixing per period (simple)
-RATE_COMPOUNDED = "rate_compounded"  # OIS-style daily compounding (SOFR)
-RATE_AVERAGED = "rate_averaged"      # arithmetic average of daily fixings
+# -- narrow kernel ids (``kernel_registry`` keys are ``(kernel_id, Backend)``) ------
+KERNEL_BACHELIER = "bachelier"   # normal-vol option model: value + greeks
+KERNEL_BLACK = "black"           # lognormal-vol option model: value + greeks
 
 
 __all__ = [
     "Backend",
-    "KERNEL_DCF",
     "KERNEL_BACHELIER",
     "KERNEL_BLACK",
-    "RATE_FIXED",
-    "RATE_FLOAT",
-    "RATE_COMPOUNDED",
-    "RATE_AVERAGED",
 ]

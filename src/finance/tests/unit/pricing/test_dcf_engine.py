@@ -2,9 +2,7 @@
 import numpy as np
 
 from common.testing import UnitTest
-from finance.pricing.engines import engine, has_engine
 from finance.pricing.engines.numpy.dcf import dcf
-from finance.pricing.types import KERNEL_DCF, Backend
 
 
 class TestDcfKernel(UnitTest):
@@ -28,11 +26,3 @@ class TestDcfKernel(UnitTest):
         pv = dcf(cash, df, sign, row_offsets)
         self.assertAlmostEqual(pv[0], 0.99 + 0.98, places=12)
         self.assertAlmostEqual(pv[1], -(2 * 0.99 + 2 * 0.97 + 2 * 0.95), places=12)
-
-    def test_registered_and_dispatchable(self):
-        self.assertTrue(has_engine(KERNEL_DCF, Backend.Numpy))
-        cash = np.array([1.0, 1.0])
-        df = np.array([0.99, 0.98])
-        sign = np.array([1.0, 1.0])
-        viafac = engine((KERNEL_DCF, Backend.Numpy), cash, df, sign, np.array([0]))
-        np.testing.assert_array_equal(viafac, dcf(cash, df, sign, np.array([0])))

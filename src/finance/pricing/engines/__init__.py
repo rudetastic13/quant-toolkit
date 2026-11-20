@@ -1,44 +1,47 @@
-"""Pure numeric kernels and the registry that dispatches them by backend.
+"""Pricing engines: whole-portfolio programs behind ``program_registry``, narrow kernels behind ``kernel_registry``.
 
-A *kernel* takes plain contiguous numpy arrays and returns numpy arrays — no curve
-lookups, no instrument objects.  Because the boundary is just arrays, a numpy kernel
-and a future numba/rust kernel are interchangeable behind one registry key
-``(kernel_id, Backend)``.
+Every engine consumes the same columnar ``KernelInputs`` (see ``finance.pricing.kernels``):
+
+- ``numpy``  — the reference ``NumpyProgram``; no optional dependency, no adjoint.
+- ``numba``  — ``NumbaProgram``: curve geometry prepared once, one fused ``@njit`` pass, analytic adjoint.
+- ``jax``    — ``JaxProgram``: autodiff validation oracle (a differentiable closure, not this protocol).
 
 Usage::
 
-    from finance.pricing.engines import engine
-    from finance.pricing.types import KERNEL_DCF, Backend
-    pv = engine((KERNEL_DCF, Backend.Numpy), cash, df, sign, row_offsets)
+    from finance.pricing.engines import program_class
+    program = program_class(Backend.Numba)(inputs, market)
+    result = program.reprice(market)
+
+See :mod:`finance.pricing.engines.registry` for the contract and for why the registry is per program.
 """
 from __future__ import annotations
 
-from common.registry import Registry, create_factory
-
-# (kernel_id, Backend) -> callable(*arrays) -> arrays
-engine_registry: Registry = Registry("PricingEngines")
-
-# Convenience dispatcher: engine((kernel_id, backend), *args, **kwargs)
-engine = create_factory(engine_registry)
-
-
-def has_engine(kernel_id: str, backend) -> bool:
-    """True if a kernel is registered for ``(kernel_id, backend)``."""
-    return engine_registry.has((kernel_id, backend))
-
+from finance.pricing.engines.registry import (
+    has_kernel,
+    has_program,
+    kernel,
+    kernel_registry,
+    program_class,
+    program_registry,
+)
+from finance.pricing.types import Backend
 
 # Import implementations for their registration side effects.
-from finance.pricing.engines.numpy import rates as _rates  # noqa: E402,F401
-from finance.pricing.engines.numpy import dcf as _dcf      # noqa: E402,F401
-from finance.pricing.engines.numpy import option as _option  # noqa: E402,F401
+from finance.pricing.engines.numpy import option as _numpy_option  # noqa: E402,F401
+from finance.pricing.engines.numpy.program import NumpyProgram  # noqa: E402
+
+program_registry.register(Backend.Numpy, NumpyProgram, overwrite=True)
 
 # Numba is an optional accelerator.  Register it when installed without making the base
 # package depend on it; the actual machine-code compile is lazy on first use.
 try:  # pragma: no cover - the no-numba branch is exercised only in minimal installations
     import numba as _numba_runtime  # noqa: E402,F401
 except ImportError:
-    _numba = None
+    pass
 else:
-    from finance.pricing.engines.numba import kernels as _numba  # noqa: E402,F401
+    from finance.pricing.engines.numba import kernels as _numba_kernels  # noqa: E402,F401
+    from finance.pricing.engines.numba.program import NumbaProgram  # noqa: E402
 
-__all__ = ["engine_registry", "engine", "has_engine"]
+    program_registry.register(Backend.Numba, NumbaProgram, overwrite=True)
+
+__all__ = ["program_registry", "kernel_registry", "kernel", "has_kernel", "has_program", "program_class"]

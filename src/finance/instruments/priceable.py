@@ -58,6 +58,7 @@ class Priceable(Serializable):
     def _compile(self):
         from finance.pricing import pricers  # noqa: F401 — registers the bundled pricers
 
+        # TODO(pricer-protocol): see finance.pricing.pricers.protocol — type the registry as type[Pricer].
         pricer_cls = pricer_registry.get(type(self).__name__)
         if pricer_cls is None:
             raise KeyError(

@@ -4,7 +4,8 @@ A kernel is pure, total and narrow: it takes only the contiguous arrays it needs
 the vectorized-hard thing, and nothing else.  No spread, no caps/floors, no margin, no
 optional behaviour flags — those are coupon *shaping* concerns handled by the prep layer
 (``finance.pricing.kernels.shaping``) before/after the call.  Keeping the kernel tight is what makes
-it cleanly swappable for a numba/rust implementation under the same registry key.
+it a plain, testable function.  Engines call it directly; whole-program engines
+(numba, rust) fuse it instead (see ``finance.pricing.engines``).
 
 Both kernels turn a flat ``(M,)`` observation grid (every period's daily fixings
 concatenated) into a ``(N,)`` per-period rate using ``np.add.reduceat`` over ``offsets`` —
@@ -18,9 +19,6 @@ from __future__ import annotations
 
 import numpy as np
 
-from common.registry import register_with
-from finance.pricing.engines import engine_registry
-from finance.pricing.types import Backend, RATE_COMPOUNDED, RATE_AVERAGED
 
 FloatArray = np.ndarray
 
@@ -41,7 +39,6 @@ def _check_offsets(offsets: np.ndarray, m: int) -> None:
         raise ValueError("last offset must be < number of observations")
 
 
-@register_with(engine_registry, (RATE_COMPOUNDED, Backend.Numpy))
 def compounded(obs_rate: FloatArray, obs_w: FloatArray, offsets: np.ndarray) -> FloatArray:
     """Daily-compounded (OIS) per-period rate.
 
@@ -61,7 +58,6 @@ def compounded(obs_rate: FloatArray, obs_w: FloatArray, offsets: np.ndarray) -> 
     return growth / weight
 
 
-@register_with(engine_registry, (RATE_AVERAGED, Backend.Numpy))
 def averaged(obs_rate: FloatArray, obs_w: FloatArray, offsets: np.ndarray) -> FloatArray:
     """Weighted arithmetic average of daily fixings per period.
 

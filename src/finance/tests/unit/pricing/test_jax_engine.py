@@ -1,6 +1,6 @@
 """JAX engine: PV parity with the numpy kernels, and autodiff ladders vs bump-and-reprice.
 
-The JaxProgram consumes the *same* compiled KernelInputs as ``compiler.reprice`` — these
+The JaxProgram consumes the *same* compiled KernelInputs as ``NumpyProgram.reprice`` — these
 tests pin the two engines to each other (PV) and the gradient ladders to the numpy bump
 path (risk), on a book that exercises fixed, shaped float, and compounded legs.
 """

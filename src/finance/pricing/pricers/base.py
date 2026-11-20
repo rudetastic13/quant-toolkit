@@ -16,7 +16,7 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from finance.pricing.kernels.compiler import reprice
+from finance.pricing.engines import program_class
 from finance.pricing.kernels.inputs import KernelInputs
 from finance.pricing.results import CashflowReport, PricingResult
 from finance.pricing.types import Backend
@@ -28,33 +28,25 @@ class PricingProgram:
 
     inputs: KernelInputs
     backend: Backend = Backend.Numpy
-    _prepared_numba: object | None = field(default=None, init=False, repr=False, compare=False)
+    _prepared: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def prepare(self, market, *, backend: Backend | None = None):
-        """Prepare and cache a backend-specific executable for repeated repricing.
+        """The engine program for ``backend``, prepared against ``market`` and cached per backend.
 
-        The preparation is keyed to the market's curve geometry (origin, pillars, schemes):
-        scenario and bump markets share it, and a market with a different geometry replaces it.
+        Preparation is keyed to the market's curve geometry (origin, pillars, schemes): scenario and
+        bump markets share it, and a market with a different geometry rebuilds it.  The engine is
+        looked up in ``program_registry``, so a new backend needs no change here.
         """
         selected = self.backend if backend is None else Backend(backend)
-        if selected == Backend.Numpy:
-            return self
-        if selected == Backend.Numba:
-            from finance.pricing.engines.numba import NumbaProgram
-
-            if self._prepared_numba is None or not self._prepared_numba.compatible(market):
-                self._prepared_numba = NumbaProgram(self.inputs, market)
-            return self._prepared_numba
-        raise NotImplementedError(f"prepared backend {selected.name} is not implemented")
+        prepared = self._prepared.get(selected)
+        if prepared is None or not prepared.compatible(market):
+            prepared = program_class(selected)(self.inputs, market)
+            self._prepared[selected] = prepared
+        return prepared
 
     def reprice(self, market, *, backend: Backend | None = None):
         """Raw kernel result (instrument/leg/flow PVs + realized rates)."""
-        selected = self.backend if backend is None else Backend(backend)
-        if selected == Backend.Numba:
-            return self.prepare(market, backend=selected).reprice(market)
-        if selected != Backend.Numpy:
-            raise NotImplementedError(f"backend {selected.name} is not implemented for PricingProgram")
-        return reprice(self.inputs, market)
+        return self.prepare(market, backend=backend).reprice(market)
 
     def price(
         self,

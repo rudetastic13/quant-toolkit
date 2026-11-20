@@ -19,7 +19,8 @@ from finance.instruments.schedules import (
 )
 from finance.markets.context import MarketContext
 from finance.markets.curves import YieldCurve
-from finance.pricing.kernels import compile_portfolio, reprice
+from finance.pricing.engines.numpy.program import NumpyProgram
+from finance.pricing.kernels import compile_portfolio
 from finance.pricing.pricers.legs import leg_spec
 
 EFFECTIVE = Date(2026, 1, 15)
@@ -53,7 +54,7 @@ def _flows(leg: CommonInstrument):
     n = spec.schedule.n_periods
     dates = np.array(["2026-01-15", "2031-01-15"], dtype="datetime64[D]")
     sofr = YieldCurve.build(dates, np.array([1.0, np.exp(-0.03 * 5)]), key="USD.SOFR.1D")
-    result = reprice(ki, MarketContext(EFFECTIVE, {"USD.SOFR.1D": sofr, "USD.STDCSA": sofr}))
+    result = NumpyProgram(ki).reprice(MarketContext(EFFECTIVE, {"USD.SOFR.1D": sofr, "USD.STDCSA": sofr}))
     cash = ki.notional * result.rate * ki.period_frac
     principal = np.zeros(n)
     principal[np.isin(spec.schedule.payment_dates, ki.pay_dates[n:])] = cash[n:]

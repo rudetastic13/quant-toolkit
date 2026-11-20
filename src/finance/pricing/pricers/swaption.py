@@ -9,10 +9,11 @@ import numpy as np
 from finance.instruments.resolution.swaption import Swaption, SwaptionModel
 from finance.instruments.resolution.resolver import curve_name
 from finance.markets.vols import VolUnits
+from finance.pricing.engines import kernel
 from finance.pricing.engines.numpy.option import OptionGreeks
 from finance.pricing.pricers.base import PricingProgram
 from finance.pricing.pricers.swap import SwapPricer
-from finance.pricing.types import Backend
+from finance.pricing.types import KERNEL_BACHELIER, KERNEL_BLACK, Backend
 
 # Quoting convention each model consumes; enforced against ModelVolCube.units at lookup.
 _SURFACE_UNITS = {
@@ -117,22 +118,19 @@ class SwaptionProgram:
         return strike, expiry, tenor, vol, groups
 
     def _unit_greeks(self, forward, strike, expiry, vol) -> OptionGreeks:
-        if self.program.backend == Backend.Numba:
-            from finance.pricing.engines.numba import bachelier_greeks, black_greeks
-        else:
-            from finance.pricing.engines.numpy.option import bachelier_greeks, black_greeks
-
+        backend = self.program.backend
         arrays = [np.empty_like(forward) for _ in range(6)]
-        for model, fn in (
-            (SwaptionModel.Black, black_greeks),
-            (SwaptionModel.Bachelier, bachelier_greeks),
+        for model, kernel_id in (
+            (SwaptionModel.Black, KERNEL_BLACK),
+            (SwaptionModel.Bachelier, KERNEL_BACHELIER),
         ):
             mask = np.array([option.model == model for option in self.swaptions])
             for is_call in (False, True):
                 selected = mask & np.array([option.payer == is_call for option in self.swaptions])
                 if not selected.any():
                     continue
-                greeks = fn(
+                greeks = kernel(
+                    (kernel_id, backend),
                     forward[selected], strike[selected], expiry[selected], vol[selected], is_call=is_call
                 )
                 for target, source in zip(arrays, dataclasses.astuple(greeks)):
