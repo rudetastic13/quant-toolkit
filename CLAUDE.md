@@ -5,20 +5,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project Overview
 
 **rates-lib** (published as `quant-toolkit`) is a Python quantitative finance library focused on interest rate analytics. It provides foundational classes for date/time arithmetic, financial calendars, term calculations, and rate curve modeling.
-The goal is to design interest rate analytics levering composition over inheritance often and making use of patterns defined in the **src/common** layer often.  We will leverage numpy, scipy, numba and cython where to speed up computations.
+The goal is to design interest rate analytics levering composition over inheritance often and making use of patterns defined in the **`quant_toolkit.common`** layer often.  We will leverage numpy, scipy, numba and cython where to speed up computations.
 
 ## Commands
 
 ### Environment Setup
 ```bash
 # Activate conda environment
-source bin/use_env.sh pricing
+source bin/use_env.sh pricing   # conda supplies Python only; installs every portion editable + dev extras
+bin/dev_install.sh              # re-run the editable installs in the active env (--deps adds the dev extras)
 ```
 
-### Building the C++ core (finance._core)
+### Building the C++ core (quant_toolkit.finance._core)
 ```bash
-# Requires the `cpp` extras in the active env: pip install pybind11 cmake ninja
-# Compiles src/finance/_core/cpp/ and installs the .so into src/finance/_core/
+# Requires the `cpp` extra in the active env: pip install -e '.[cpp]'
+# Compiles quant_toolkit/finance/_core/cpp/ and installs the .so next to it in packages/finance
 bin/build_core.sh
 ```
 The build is CMake + ninja, decoupled from the setuptools packaging; rerun after
@@ -34,7 +35,7 @@ pytest
 pytest -m unit
 
 # Run a specific test file
-pytest src/finance/tests/unit/dates/test_date.py
+pytest packages/finance/src/quant_toolkit/finance/tests/unit/dates/test_date.py
 
 # Run by marker (available: unit, hypothesis, datemath, market_data, instruments, risk, calculators, calibration, slow, integration, regression, performance)
 pytest -m "unit and datemath"
@@ -48,9 +49,8 @@ BENCHMARK_UPDATE_EXPECTS=1 pytest -m performance --no-cov -s   # refresh the sto
 
 ### Linting & Formatting
 ```bash
-ruff check src/       # lint
-ruff format src/      # format
-mypy src/             # type check
+ruff check            # lint (config in pyproject.toml covers packages/ only)
+ruff format packages/ # format
 ```
 
 ## Architecture
@@ -61,12 +61,12 @@ mypy src/             # type check
 > flatten-and-`reduceat`).
 
 ### Package Layout
-- `src/common/` — shared utilities (registry, singleton, array buffers, curve container, test base classes)
-- `src/finance/` — core financial domain (dates, calendars, terms, conventions, markets/curves, instruments, pricing). Layering is strict upward: `conventions` (keys, index families, family registry) depends on `dates` only; `markets` on `conventions`; `instruments` on `markets`; leg/product conventions live in `instruments/conventions` and register beside the families, so the curve layer never imports instruments
-- `src/finance/_core/` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/build_core.sh`, all day counts are 1970-01-01 epoch ordinals)
-- `src/quant_toolkit/` — public API re-exporting from `finance`
-- `src/quant_toolkit_xl/` — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
-- `src/finance/tests/` — test suite mirroring the source structure
+- `packages/common/` (`quant_toolkit.common`) — shared utilities (registry, singleton, array buffers, curve container, test base classes)
+- `packages/finance/` (`quant_toolkit.finance`) — core financial domain (dates, calendars, terms, conventions, markets/curves, instruments, pricing). Layering is strict upward: `conventions` (keys, index families, family registry) depends on `dates` only; `markets` on `conventions`; `instruments` on `markets`; leg/product conventions live in `instruments/conventions` and register beside the families, so the curve layer never imports instruments
+- `_core/` in `quant_toolkit.finance` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/build_core.sh`, all day counts are 1970-01-01 epoch ordinals)
+- `apps/excel/` (`quant_toolkit.xl`) — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
+- tests live inside each portion (`<portion>/tests`), mirroring the source structure
+- one namespace, `quant_toolkit`, shared by all portions (no `__init__.py` at `quant_toolkit/`); one distribution per portion, versions in lockstep via `VERSION` and `bin/bump_version.py`
 
 ### Core Design Patterns
 
@@ -74,7 +74,7 @@ mypy src/             # type check
 
 **Singleton** (`common/singleton.py`): Metaclass-based. Used for `Calendars()` — the global calendar registry.
 
-**Serializable / CommonObject** (`common/object/`): JSON documents with stable type names (`@serializable("Swap", version=N)`) and chained `@upgrade` migrations; contract data only, never derived state. Rules, when to bump a version, and the frozen-fixture discipline: [src/common/object/README.md](src/common/object/README.md).
+**Serializable / CommonObject** (`common/object/`): JSON documents with stable type names (`@serializable("Swap", version=N)`) and chained `@upgrade` migrations; contract data only, never derived state. Rules, when to bump a version, and the frozen-fixture discipline: [packages/common/src/quant_toolkit/common/object/README.md](packages/common/src/quant_toolkit/common/object/README.md).
 
 **Protocol** (`Calendar`): Runtime-checkable protocol defines the calendar interface without requiring inheritance.
 
@@ -88,7 +88,7 @@ mypy src/             # type check
 
 **`finance/dates/enums/`** — `Frequency`, `BDC` (Business Day Convention), `Direction`, `Roll`, `TermType`.
 
-**`finance/markets/curves/`** — `DiscountCurve` is the runtime-checkable protocol every curve satisfies (`x`, `params`/`with_params`, queries, `scheme`, and `log_df_affine`: the exact affine map of `ln DF` in the parameters the engines differentiate through). `ZeroCurve` is the atom: pure math on float day offsets, a `Line1d` in `CurveSpace.LogDF` or `CurveSpace.ZeroRate` with any `common.math.interpolation` scheme, flat-forward or no extrapolation, `with_dfs`/`with_params` for cheap rebinding. `CompositeCurve` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves with optional component labels (spreads as `{"base", "spread"}`, bases, turns, nesting); `ZeroCurve.constant(rate, horizon)` is the flat-spread atom. Curves support arithmetic (`sofr - 5 * bp`, `a + b`, `a - b`, `w * a`) that builds composites; `leaves()` / `replace(old, new)` expose and propagate through shared components. `YieldCurve` adds the origin date, a curve key, the key's `IndexFamily` (projection keys only) and fixings, and is the only layer that sees dates (`YieldCurve.build(node_dates, dfs, ...)`); it is deliberately not a `DiscountCurve` (same method names, a date axis instead of day offsets). Curve keys (`finance/conventions/keys.py`, `CurveKey`) follow one grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.1D`, `USD.CME-TERM-SOFR.3M`; carries its `IndexFamily` conventions) and `CCY.NAME` is a discount curve (`USD.STDCSA`, `USD.UST`; no conventions). A market holds one `YieldCurveGroup` per currency (`finance/markets/yield_curve_group.py`) and registers every key its trades name; discounting at SOFR is the SOFR curve under `USD.STDCSA` too (`market.add(sofr, funding_names=["USD.STDCSA"])`), and the engines give one object one parameter block whatever its keys. `market[key]` is the registered `YieldCurve` and `market[key].zero_curve` the mathematical curve under it, so a derived curve is written `market["USD.SOFR.1D"].zero_curve - 5 * bp`. Design and phases: [docs/yield_curve_group_plan.md](docs/yield_curve_group_plan.md). `CurveInterpolator` is a parse table (`resolve()` -> space + interpolator). See [docs/curves/](docs/curves/README.md) (one doc per object plus `maths/`), [docs/curve_architecture.md](docs/curve_architecture.md) for responsibilities and [docs/curves_line1d.md](docs/curves_line1d.md) for usage with figures.
+**`finance/markets/curves/`** — `DiscountCurve` is the runtime-checkable protocol every curve satisfies (`x`, `params`/`with_params`, queries, `scheme`, and `log_df_affine`: the exact affine map of `ln DF` in the parameters the engines differentiate through). `ZeroCurve` is the atom: pure math on float day offsets, a `Line1d` in `CurveSpace.LogDF` or `CurveSpace.ZeroRate` with any `quant_toolkit.common.math.interpolation` scheme, flat-forward or no extrapolation, `with_dfs`/`with_params` for cheap rebinding. `CompositeCurve` is `ln DF = Σ wᵢ ln DFᵢ` over any discount curves with optional component labels (spreads as `{"base", "spread"}`, bases, turns, nesting); `ZeroCurve.constant(rate, horizon)` is the flat-spread atom. Curves support arithmetic (`sofr - 5 * bp`, `a + b`, `a - b`, `w * a`) that builds composites; `leaves()` / `replace(old, new)` expose and propagate through shared components. `YieldCurve` adds the origin date, a curve key, the key's `IndexFamily` (projection keys only) and fixings, and is the only layer that sees dates (`YieldCurve.build(node_dates, dfs, ...)`); it is deliberately not a `DiscountCurve` (same method names, a date axis instead of day offsets). Curve keys (`finance/conventions/keys.py`, `CurveKey`) follow one grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.1D`, `USD.CME-TERM-SOFR.3M`; carries its `IndexFamily` conventions) and `CCY.NAME` is a discount curve (`USD.STDCSA`, `USD.UST`; no conventions). A market holds one `YieldCurveGroup` per currency (`finance/markets/yield_curve_group.py`) and registers every key its trades name; discounting at SOFR is the SOFR curve under `USD.STDCSA` too (`market.add(sofr, funding_names=["USD.STDCSA"])`), and the engines give one object one parameter block whatever its keys. `market[key]` is the registered `YieldCurve` and `market[key].zero_curve` the mathematical curve under it, so a derived curve is written `market["USD.SOFR.1D"].zero_curve - 5 * bp`. Design and phases: [docs/yield_curve_group_plan.md](docs/yield_curve_group_plan.md). `CurveInterpolator` is a parse table (`resolve()` -> space + interpolator). See [docs/curves/](docs/curves/README.md) (one doc per object plus `maths/`), [docs/curve_architecture.md](docs/curve_architecture.md) for responsibilities and [docs/curves_line1d.md](docs/curves_line1d.md) for usage with figures.
 
 **`common/math/line.py`, `common/math/interpolation.py`** — `Line1d(x, y, interpolator, left, right)`: nodes + a frozen interpolator instance (`Flat`, `Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`) + per-side `Extrapolation`. Fit with scipy, evaluate via `PPoly`, `coefficients` exported for engine kernels. Backbone of `ZeroCurve`, `HistoricalFixings` and `SinglePath`.
 
@@ -100,8 +100,6 @@ Test base classes in `common/testing/__init__.py`:
 - `UnitTest(TestCase)` — marks tests `@pytest.mark.unit`
 - `IntegrationTest(TestCase)` — marks tests `@pytest.mark.integration`
 - `PerformanceTest(TestCase)` — marks tests `@pytest.mark.performance`
-
-Each declares a `COVERAGE = [...]` class attribute listing the modules it targets.
 
 Custom assertions: `common/testing/numpy_array_asserts.py`. Expected data loading: `common/testing/expects_loader.py`.
 Performance tests: `common/testing/benchmark.py` (`Benchmark` = base case + contenders with a correctness gate; `BenchmarkSuite` = report + stored-ratio expects). Every performance test uses it.

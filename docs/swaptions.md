@@ -13,10 +13,10 @@ A swaption needs a curve and a vol cube. A `ModelVolCube` is a surface plus the 
 
 ```python
 import numpy as np
-from finance.dates import Date
-from finance.markets.context import MarketContext
-from finance.markets.curves import YieldCurve
-from finance.markets.vols import FlatVolSurface, GridVolSurface, ModelVolCube, VolNamespace, VolUnits
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import YieldCurve
+from quant_toolkit.finance.markets.vols import FlatVolSurface, GridVolSurface, ModelVolCube, VolNamespace, VolUnits
 
 as_of = Date(2026, 6, 1)
 origin = as_of.to_numpy()
@@ -53,7 +53,7 @@ default a swaption uses the cube named after its rate index.
 `Swaption.european` builds the option and its underlying swap from a handful of terms.
 
 ```python
-from finance.instruments.resolution import Swaption, SwaptionModel
+from quant_toolkit.finance.instruments.resolution import Swaption, SwaptionModel
 
 payer = Swaption.european(
     notional=10e6, strike=0.045, expiry="1Y", swap_tenor="5Y", as_of=as_of,
@@ -83,7 +83,7 @@ option expires 2027-06-01 and the swap runs 2027-06-03 to 2032-06-03.
 Compile a list of swaptions once, then reprice against any market.
 
 ```python
-from finance.pricing.pricers import SwaptionPricer
+from quant_toolkit.finance.pricing.pricers import SwaptionPricer
 
 program = SwaptionPricer().compile([payer, receiver, black])
 result = program.reprice(market)

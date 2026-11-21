@@ -81,7 +81,7 @@ module `__all__`, numpydoc).
 
 ### PR B — curve algebra (done 2026-10-15)
 
-- `finance.markets.curves.units`: `bp = 1e-4`, `pct = 1e-2`.
+- `quant_toolkit.finance.markets.curves.units`: `bp = 1e-4`, `pct = 1e-2`.
 - On every `DiscountCurve`: `a + b` → `CompositeCurve({"base": a, "spread": b})` (left operand
   is the base); `a - b` → `CompositeCurve((a, b), (1, -1))`; `a ± float` → base plus
   `ZeroCurve.constant(±float, a.max_x)` labelled `spread`. Only `+` and `-` are defined (the
@@ -151,7 +151,7 @@ built as `market["GBP.SONIA.1D"] + xccy_basis`.
 | `conventions/convention_registry.py` | key `(ccy, index)` | key per family; `index(ccy, name, tenor)` added |
 | `conventions/definitions.py` | `_usd_overnight_market(index_name)` builds a `RateIndex` with `tenor=None` | overnight `IndexFamily` with tenors `("ON",)` |
 | `markets/context.py` / test fixtures | markets register `USD.SOFR` only; swaps discount through the alias | every market also registers its discount key (`USD.STDCSA`); 24 `MarketContext(...)` sites, mostly tests |
-| `quant_toolkit_xl/api.py:71,98` and README | `rate_index=str(rate_index)`, `curve_name(currency, index)` | accept the grammar; register the discount key; README examples |
+| `quant_toolkit.xl/api.py:71,98` and README | `rate_index=str(rate_index)`, `curve_name(currency, index)` | accept the grammar; register the discount key; README examples |
 | tests | 21 files spell `"USD.SOFR"` / `"USD.FEDFUND"` / `rate_index="USD.SOFR.1D"` | `"USD.SOFR"` → `"USD.SOFR.1D"` (or `curve_name(...)`); add the discount-key registration |
 
 Gate: suite green; a Fed Funds swap (`USD.FEDFUND.1D` projection, `USD.STDCSA` discounting)

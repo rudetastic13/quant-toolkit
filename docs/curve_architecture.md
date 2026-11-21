@@ -11,7 +11,7 @@ itself a SOFR curve: it becomes one only after SOFR's index conventions are atta
 calibration quotes
        |
        v
-   Line1d                common.math: nodes + interpolator + per-side extrapolation
+   Line1d                quant_toolkit.common.math: nodes + interpolator + per-side extrapolation
        |
        | in log-DF or zero-rate space, DF invariants
        v
@@ -34,8 +34,8 @@ calibration quotes
 ## Responsibilities
 
 `ZeroCurve` is pure curve math on float day offsets (`x[0] == 0`, `dfs[0] == 1`). It is a
-`common.math.line.Line1d` in a declared `CurveSpace` (`LogDF` or `ZeroRate`) with any
-`common.math.interpolation` scheme (`Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`, ...),
+`quant_toolkit.common.math.line.Line1d` in a declared `CurveSpace` (`LogDF` or `ZeroRate`) with any
+`quant_toolkit.common.math.interpolation` scheme (`Linear`, `Cubic(bc_type)`, `Quadratic`, `Mixed`, ...),
 plus the discount-factor invariants. Its public queries all take day offsets:
 
 - `discount_factor(x)`, `log_discount_factor(x)`
@@ -61,7 +61,7 @@ owning key, each atom once), so a shared atom is reported once however many comp
 the SOFR ladder of a Fed Funds swap is one ladder and the Fed Funds ladder is the basis.
 
 `YieldCurve` composes an `origin` date and one `DiscountCurve` with a curve key
-(`finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that
+(`quant_toolkit.finance.conventions.CurveKey`) and optional `HistoricalFixings`. It is the only layer that
 sees dates: `discount_factor(dates)` etc. convert through `dates_to_x(origin, dates)`;
 `node_dates` and `node_index(Term | date)` map pillars back to the calendar. Keys follow one
 grammar: `CCY.INDEX.TENOR` is a projection curve (`USD.SOFR.1D`, `USD.CME-TERM-SOFR.3M`; it
@@ -113,10 +113,10 @@ solved in place (the atom it owns moves, everything else is held), which is how 
 registered as `sofr + spread` is bootstrapped:
 
 ```python
-from finance.dates import Date
-from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator
-from finance.pricing.calibration import (
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import CurveInterpolator
+from quant_toolkit.finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
     GlobalSolver,
@@ -153,11 +153,11 @@ bumped_market = market.bump("USD.SOFR.1D", 1e-4)   # +1bp on every SOFR pillar; 
 ## Pricing and rate generation
 
 ```python
-from finance.instruments.resolution import Swap
-from finance.markets import RateGenerator
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import NumbaRisk
-from finance.pricing.types import Backend
+from quant_toolkit.finance.instruments.resolution import Swap
+from quant_toolkit.finance.markets import RateGenerator
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.risk import NumbaRisk
+from quant_toolkit.finance.pricing.types import Backend
 
 template = Swap.fixed_float_swap(
     notional=100e6,
@@ -184,7 +184,7 @@ funding_dv01 = risk.funding_ladder("USD.SOFR.1D")
 gamma = risk.gamma("USD.SOFR.1D")
 
 # risk to the quotes of real instruments: a RiskTemplate view over the same pillar risk
-from finance.pricing.risk import RiskEngine, RiskTemplate
+from quant_toolkit.finance.pricing.risk import RiskEngine, RiskTemplate
 template = RiskTemplate.identity(helpers, name="calibration set")   # or any par-swap strip
 quote_risk = RiskEngine(program, market, template=template).quote_risk()
 quote_risk.dv01            # (1, K): PV change per +1bp of each template quote
@@ -197,7 +197,7 @@ and no-recompile scenario recalculation, see
 
 ## Interpolation scope
 
-`ZeroCurve` accepts any `common.math.interpolation` scheme in either space, including
+`ZeroCurve` accepts any `quant_toolkit.common.math.interpolation` scheme in either space, including
 `Mixed(short, long, switch_node)` for a log-linear front end with a spline beyond a chosen
 pillar (`YieldCurve.node_index(Term("2Y"))` resolves the switch). The Numba pricing/adjoint
 engine takes any of them: at prepare time each curve hands over `ZeroCurve.log_df_affine` on

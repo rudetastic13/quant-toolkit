@@ -56,15 +56,15 @@ import jax
 jax.config.update("jax_enable_x64", True)
 import jax.numpy as jnp  # noqa: E402  (must follow the x64 config flip)
 
-from finance.dates import Date  # noqa: E402
-from finance.instruments.resolution import Swap, curve_name  # noqa: E402
-from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import (  # noqa: E402
+from quant_toolkit.finance.dates import Date  # noqa: E402
+from quant_toolkit.finance.instruments.resolution import Swap, curve_name  # noqa: E402
+from quant_toolkit.finance.markets.context import MarketContext  # noqa: E402
+from quant_toolkit.finance.markets.curves import (  # noqa: E402
     CurveInterpolator,
     YieldCurve,
     ZeroCurve,
 )
-from finance.pricing.calibration import (  # noqa: E402
+from quant_toolkit.finance.pricing.calibration import (  # noqa: E402
     CurveCalibrator,
     CurveDefinition,
     GlobalSolver,
@@ -72,10 +72,10 @@ from finance.pricing.calibration import (  # noqa: E402
     fra_helper,
     swap_helper,
 )
-from finance.pricing.pricers import SwapPricer  # noqa: E402
-from finance.pricing.pricers.base import PricingProgram  # noqa: E402
-from finance.pricing.risk import Sensitivities  # noqa: E402
-from finance.pricing.types import RateKind  # noqa: E402
+from quant_toolkit.finance.pricing.pricers import SwapPricer  # noqa: E402
+from quant_toolkit.finance.pricing.pricers.base import PricingProgram  # noqa: E402
+from quant_toolkit.finance.pricing.risk import Sensitivities  # noqa: E402
+from quant_toolkit.finance.pricing.types import RateKind  # noqa: E402
 
 BP = 1e-4  # one basis point, in continuously-compounded-rate units
 

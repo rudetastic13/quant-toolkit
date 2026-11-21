@@ -34,8 +34,8 @@ platform must be able to price a calibration instrument off an injected curve.
 | Piece | Source | External deps | Notes |
 |---|---|---|---|
 | Line / interpolator layer | `common/math/interpolation.py` + `common/math/line.py` (formerly `finance/markets/curves/_curve_impl/interpolators.py`) | numpy, scipy (`PPoly`, `CubicSpline`) | The real engine: `Interpolator` hierarchy (log-linear/log-cubic DF, rate linear/quadratic/cubic) + `InterpolatedSegment`, all in float day-space. **This must flow through** — `ZeroCurve` is a thin date wrapper over it. |
-| `ZeroCurve` | `_curve_impl/zero_curve.py` | interpolators, `finance.dates.Term` | `Term` is only used for the dual-segment cutover convenience; either vendor `Term` or restrict the ported API to `datetime64` cutovers to drop the dependency. |
-| `CurveInterpolator` / `RateExtrapolator` enums | `markets/curves/types.py` | `common.containers.enums.SupportedIntEnum` | Trivial; vendor the enum base or replace with `IntEnum`. |
+| `ZeroCurve` | `_curve_impl/zero_curve.py` | interpolators, `quant_toolkit.finance.dates.Term` | `Term` is only used for the dual-segment cutover convenience; either vendor `Term` or restrict the ported API to `datetime64` cutovers to drop the dependency. |
+| `CurveInterpolator` / `RateExtrapolator` enums | `markets/curves/types.py` | `quant_toolkit.common.containers.enums.SupportedIntEnum` | Trivial; vendor the enum base or replace with `IntEnum`. |
 | `YieldCurve` + `CurveNamespace` | `markets/curves/yield_curve.py`, `namespace.py` | conventions | Composes pure curve state with an index definition; the namespace binds these named market objects. |
 | `HistoricalFixings` | `markets/fixings.py` | `Line1d` | Optional curve-owned date/value history with flat interpolation/extrapolation. |
 | `RateGenerator` | `markets/rate_generator.py` | market context, day counts | Owns simple/continuous/compounded/averaged rates and par-rate generation; these do not belong on `ZeroCurve`. |
@@ -65,7 +65,7 @@ platform must be able to price a calibration instrument off an injected curve.
 **Phase 0 — carve the port set.**
 Extract the table-1 modules into the platform's tree (or a shared package). Resolve the
 three small dependencies: `Term` (vendor or drop the Term-cutover API), `SupportedIntEnum`
-(vendor), and `finance.dates` day-count fractions for `RateGenerator.simple_rate`
+(vendor), and `quant_toolkit.finance.dates` day-count fractions for `RateGenerator.simple_rate`
 (the platform already has day-count utilities — use theirs).
 *Acceptance: curves construct and round-trip DF/log-DF/zero against saved fixtures from
 this repo.*
@@ -134,11 +134,11 @@ This repo uses an explicit composition: `ZeroCurve` owns mathematical state and
 the port remain:
 
 1. You cannot register an index without supplying full product conventions.
-2. ~~The bundle imports `CouponType` from `finance.instruments.enums` (via
+2. ~~The bundle imports `CouponType` from `quant_toolkit.finance.instruments.enums` (via
    `FloatLegConventions.coupon_type`), so the conventions package silently depends on the
-   instrument layer.~~ Fixed Oct 2026: `finance.conventions` holds keys, families and a
+   instrument layer.~~ Fixed Oct 2026: `quant_toolkit.finance.conventions` holds keys, families and a
    family registry (depends on dates only); the bundle moved to
-   `finance.instruments.conventions` and is registered beside its family.
+   `quant_toolkit.finance.instruments.conventions` and is registered beside its family.
 
 The right split is **two tiers**:
 

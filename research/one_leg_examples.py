@@ -25,17 +25,17 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.dates import BDC, Date, DayCountMethod, Frequency, Roll
-from finance.dates.enums import FixingType
-from finance.instruments import CommonInstrument, join_legs
-from finance.instruments.enums import CouponType
-from finance.instruments.schedules import CompoundedCouponEvent, CouponSchedule, FixedCouponEvent
-from finance.instruments.schedules.observation import LookbackStyle
-from finance.markets import HistoricalFixings
-from finance.markets.context import MarketContext
-from finance.markets.curves import YieldCurve
-from finance.pricing.pricers import LegPricer
-from finance.pricing.types import RateKind
+from quant_toolkit.finance.dates import BDC, Date, DayCountMethod, Frequency, Roll
+from quant_toolkit.finance.dates.enums import FixingType
+from quant_toolkit.finance.instruments import CommonInstrument, join_legs
+from quant_toolkit.finance.instruments.enums import CouponType
+from quant_toolkit.finance.instruments.schedules import CompoundedCouponEvent, CouponSchedule, FixedCouponEvent
+from quant_toolkit.finance.instruments.schedules.observation import LookbackStyle
+from quant_toolkit.finance.markets import HistoricalFixings
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import YieldCurve
+from quant_toolkit.finance.pricing.pricers import LegPricer
+from quant_toolkit.finance.pricing.types import RateKind
 
 AS_OF = Date(2026, 6, 1)
 EFFECTIVE = Date(2026, 6, 3)

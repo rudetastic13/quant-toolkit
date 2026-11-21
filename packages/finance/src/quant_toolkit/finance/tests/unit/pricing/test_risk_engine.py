@@ -1,0 +1,128 @@
+"""RiskEngine dispatch: adjoint vs bump agreement, method resolution, and guardrails."""
+
+import numpy as np
+
+from quant_toolkit.common.testing import UnitTest
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.instruments.resolution import Swap, SofrFuture, Swaption, SwaptionModel
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import CurveInterpolator, YieldCurve
+from quant_toolkit.finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
+from quant_toolkit.finance.pricing.pricers import FuturesPricer, SwapPricer, SwaptionPricer
+from quant_toolkit.finance.pricing.risk import RiskEngine, Sensitivities
+
+CURVE = "USD.SOFR.1D"
+
+
+def _market(as_of, *, interpolation=CurveInterpolator.LogLinearDF):
+    origin = as_of.to_numpy()
+    dates = np.array([origin + np.timedelta64(d, "D") for d in (0, 365, 3 * 365, 7 * 365, 12 * 365)])
+    t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
+    z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
+    space, interpolator = interpolation.resolve()
+    sofr = YieldCurve.build(
+        dates, np.exp(-z * t), key="USD.SOFR.1D", space=space, interpolator=interpolator
+    )
+    vols = VolNamespace()
+    vols.bind(CURVE, ModelVolCube(FlatVolSurface(0.01), VolUnits.Normal))
+    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
+
+
+class TestRiskEngine(UnitTest):
+
+    def setUp(self):
+        self.as_of = Date(2026, 6, 1)
+        self.market = _market(self.as_of)
+        self.book = [
+            Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y", as_of=self.as_of),
+            Swap.fixed_float_swap(notional=-25e6, rate_index="USD.SOFR.1D", fixed_rate=0.040, tenor="10Y", as_of=self.as_of),
+        ]
+
+    def test_swap_book_adjoint_matches_bump(self):
+        program = SwapPricer().compile(self.book)
+        adjoint = RiskEngine(program, self.market)
+        bump = RiskEngine(program, self.market, method="bump")
+        self.assertEqual(adjoint.method, "adjoint")
+        np.testing.assert_allclose(adjoint.ladder(CURVE).ladder, bump.ladder(CURVE).ladder, rtol=5e-4, atol=1e-6)
+        np.testing.assert_allclose(adjoint.dv01(CURVE), bump.dv01(CURVE), rtol=5e-4)
+        np.testing.assert_allclose(bump.dv01(CURVE), Sensitivities(program, self.market).dv01(CURVE), rtol=1e-12)
+
+    def test_every_scheme_resolves_to_adjoint_and_matches_bump(self):
+        program = SwapPricer().compile(self.book)
+        for scheme in CurveInterpolator:
+            with self.subTest(scheme=scheme.name):
+                market = _market(self.as_of, interpolation=scheme)
+                adjoint = RiskEngine(program, market)
+                bump = RiskEngine(program, market, method="bump")
+                self.assertEqual(adjoint.method, "adjoint")
+                self.assertEqual(adjoint.ladder(CURVE).method, "adjoint")
+                np.testing.assert_allclose(
+                    adjoint.ladder(CURVE).ladder, bump.ladder(CURVE).ladder, rtol=5e-4, atol=1e-6
+                )
+                np.testing.assert_allclose(adjoint.dv01(CURVE), bump.dv01(CURVE), rtol=5e-4)
+
+    def test_swaption_adjoint_matches_bump(self):
+        option = Swaption.european(
+            notional=1e6,
+            strike=0.04,
+            expiry="1Y",
+            swap_tenor="5Y",
+            as_of=self.as_of,
+            payer=True,
+            model=SwaptionModel.Bachelier,
+        )
+        program = SwaptionPricer().compile([option])
+        adjoint = RiskEngine(program, self.market)
+        bump = RiskEngine(program, self.market, method="bump")
+        self.assertEqual(adjoint.method, "adjoint")
+        np.testing.assert_allclose(adjoint.ladder(CURVE).ladder, bump.ladder(CURVE).ladder, rtol=5e-4, atol=1e-6)
+
+    def test_gamma_requires_adjoint_and_runs_on_linear(self):
+        program = SwapPricer().compile(self.book)
+        gamma = RiskEngine(program, self.market).gamma(CURVE)
+        self.assertEqual(gamma.shape, (4, 4))
+        self.assertTrue(np.isfinite(gamma).all())
+        with self.assertRaisesRegex(ValueError, "adjoint"):
+            RiskEngine(program, self.market, method="bump").gamma(CURVE)
+
+    def test_futures_program_is_rejected(self):
+        future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of)
+        with self.assertRaisesRegex(TypeError, "FuturesProgram"):
+            RiskEngine(FuturesPricer().compile([future]), self.market)
+
+
+class TestRiskEngineTemplate(UnitTest):
+
+    def setUp(self):
+        from quant_toolkit.finance.pricing.calibration import Quote, swap_helper
+        from quant_toolkit.finance.pricing.risk.template import RiskTemplate
+
+        self.as_of = Date(2026, 6, 1)
+        self.market = _market(self.as_of)
+        self.program = SwapPricer().compile(
+            [Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y", as_of=self.as_of)]
+        )
+        helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of) for t in ("1Y", "3Y", "7Y", "12Y")]
+        for h in helpers:
+            h.quote = Quote(float(h.implied(self.market)), h.quote.kind)
+        self.template = RiskTemplate.identity(helpers, name="par 1Y-12Y")
+
+    def test_quote_risk_through_the_engine_and_rebinding(self):
+        engine = RiskEngine(self.program, self.market, template=self.template)
+        risk = engine.quote_risk(labels=("5Y recv",))
+        self.assertEqual(risk.values.shape, (1, 4))
+        self.assertLess(risk.dv01.sum(), 0.0)
+        np.testing.assert_allclose(risk.unexplained, 0.0, atol=1e-9 * np.abs(engine.pillar_risk().values).max())
+        bound = engine.bound()
+        self.assertIs(engine.bound(), bound)  # same market: no rebind
+        self.assertTrue(bound.matches(self.market))
+        moved = engine.with_market(self.market.bump(CURVE, 1e-4))
+        self.assertFalse(bound.matches(moved.market))
+        self.assertIsNot(moved.bound(), bound)  # the curve moved: rebound
+        self.assertIs(moved.bound(), moved.bound())
+        other = RiskEngine(self.program, self.market)
+        with self.assertRaisesRegex(ValueError, "template"):
+            other.quote_risk()
+        np.testing.assert_allclose(other.quote_risk(self.template).values, risk.values)
+        # the engine's pillar view and the quote view agree on the parallel reconciliation
+        np.testing.assert_allclose(risk.pillar_parallel, engine.ladder(CURVE).dv01 / 1e-4, rtol=1e-10)

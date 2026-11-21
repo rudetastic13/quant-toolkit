@@ -12,12 +12,12 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt  # noqa: E402
 
-from common.math.interpolation import Cubic, Flat, Linear, Mixed, Quadratic  # noqa: E402
-from common.math.line import Extrapolation, Line1d  # noqa: E402
-from finance.dates import Date, Term  # noqa: E402
-from finance.markets import HistoricalFixings, RateGenerator  # noqa: E402
-from finance.markets.context import MarketContext  # noqa: E402
-from finance.markets.curves import CurveInterpolator, CurveSpace, YieldCurve, ZeroCurve  # noqa: E402
+from quant_toolkit.common.math.interpolation import Cubic, Flat, Linear, Mixed, Quadratic  # noqa: E402
+from quant_toolkit.common.math.line import Extrapolation, Line1d  # noqa: E402
+from quant_toolkit.finance.dates import Date, Term  # noqa: E402
+from quant_toolkit.finance.markets import HistoricalFixings, RateGenerator  # noqa: E402
+from quant_toolkit.finance.markets.context import MarketContext  # noqa: E402
+from quant_toolkit.finance.markets.curves import CurveInterpolator, CurveSpace, YieldCurve, ZeroCurve  # noqa: E402
 
 OUT = "docs/img/curves"
 

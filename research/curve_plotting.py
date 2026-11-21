@@ -24,10 +24,10 @@ import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import numpy as np
 from numpy.typing import NDArray
-from finance.dates import Date, Term, TermType
-from finance.markets import RateGenerator
-from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator, Mixed, YieldCurve, ZeroCurve
+from quant_toolkit.finance.dates import Date, Term, TermType
+from quant_toolkit.finance.markets import RateGenerator
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import CurveInterpolator, Mixed, YieldCurve, ZeroCurve
 
 # ---------------------------------------------------------------------------
 # Shared node inputs  (np.ndarray[datetime64[D]] + np.ndarray[float64])

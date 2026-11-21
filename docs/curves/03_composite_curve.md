@@ -38,7 +38,7 @@ so nothing outside the weighted-sum family can be written; any other weight is s
 the constructor.
 
 ```python
-from finance.markets.curves import bp          # bp = 1e-4
+from quant_toolkit.finance.markets.curves import bp          # bp = 1e-4
 
 fedfund = sofr - 5 * bp                        # Fed Funds is SOFR minus 5
 fedfund

@@ -97,7 +97,12 @@ fi
 printf "Activating environment %s...\n" "$ENV_NAME"
 conda activate "$ENV_NAME"
 
+# the conda env only supplies Python; the library comes from the repo's editable installs
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
+"$REPO_ROOT/bin/dev_install.sh" --deps
+
 if [ "$PRUNE" = "true" ] && [ "$ENV_EXISTS" = "true" ]; then
   printf "Pruning environment %s...\n" "$ENV_NAME"
   conda env update -n "$ENV_NAME" -f "$ENV_FILE" --prune
+  "$REPO_ROOT/bin/dev_install.sh" --deps
 fi

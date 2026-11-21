@@ -20,11 +20,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from finance.dates import Date
-from finance.instruments.resolution import Swap, curve_name
-from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator
-from finance.pricing.calibration import (
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.instruments.resolution import Swap, curve_name
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import CurveInterpolator
+from quant_toolkit.finance.pricing.calibration import (
     CurveCalibrator,
     CurveDefinition,
     GlobalSolver,
@@ -32,8 +32,8 @@ from finance.pricing.calibration import (
     fra_helper,
     swap_helper,
 )
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import Sensitivities
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.risk import Sensitivities
 
 AS_OF = Date(2026, 6, 1)
 N_SWAPS = 1_000
