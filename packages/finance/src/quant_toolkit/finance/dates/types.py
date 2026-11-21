@@ -1,0 +1,25 @@
+from typing import TypeVar, Annotated
+from quant_toolkit.finance.dates import Date
+import numpy as np
+import numpy.typing as npt
+
+# define common types used in date module
+
+# integer types
+IntScalar = int | np.integer
+IntArray = npt.NDArray[np.integer]
+IntNpType = np.integer | IntArray
+IntType = TypeVar("IntType", "IntScalar", "IntArray")
+
+# bool types
+BoolScalar = bool | np.bool_
+BoolArray = npt.NDArray[np.bool_]
+BoolNpType = np.bool_ | BoolArray
+BoolType = TypeVar("BoolType", "BoolScalar", "BoolArray")
+
+# date types
+DateNp = Annotated[np.datetime64, "datetime64[D]"]
+DateScalar = DateNp | Date
+DateArray = Annotated[npt.NDArray[np.datetime64], "datetime64[D]"]
+DateNpType = DateNp | DateArray
+DateType = TypeVar("DateType", "DateScalar", "DateArray")

@@ -282,7 +282,7 @@ should move base pillars by about 1bp; 5bp is suspicious, 25bp is a distorted vi
 ### 2.7 Objects and files
 
 ```
-src/finance/pricing/risk/
+packages/finance/src/quant_toolkit/finance/pricing/risk/
     pillar.py      PillarRisk, pillar_risk(program, market, *, backend)        # contract engines → templates
     basis.py       BasisRule (Protocol), TentBasis, LeastSquaresBasis, SchemeBasis
     jacobian.py    template_jacobian(helpers, curves, market, *, backend)       # generalises calibration_jacobian
@@ -512,8 +512,8 @@ and is computed once per market.
 
 ### 2.11 Tests
 
-`src/finance/tests/unit/pricing/risk/test_template.py` (unit) and
-`src/finance/tests/regression/test_risk_template.py` (pinned numbers).
+`packages/finance/src/quant_toolkit/finance/tests/unit/pricing/risk/test_template.py` (unit) and
+`packages/finance/src/quant_toolkit/finance/tests/regression/test_risk_template.py` (pinned numbers).
 
 | Test | Asserts |
 |---|---|
@@ -575,7 +575,7 @@ and is computed once per market.
 
 ### 3.2 US Treasury bonds (phase B)
 
-**Instrument** — `src/finance/instruments/resolution/bond.py`:
+**Instrument** — `packages/finance/src/quant_toolkit/finance/instruments/resolution/bond.py`:
 
 ```python
 @dataclass(kw_only=True)
@@ -604,7 +604,7 @@ Coupon dates are generated backwards from maturity (`Direction.Backward`), roll 
 day-of-month with `Roll.EOM` when maturity is a month end, payment adjusted `Following` on SIFMA,
 accrual unadjusted (ICMA). `Frequency.SemiAnnually` exists.
 
-**Analytics** — `src/finance/analytics/bonds.py` (pure functions, vectorised across bonds;
+**Analytics** — `packages/finance/src/quant_toolkit/finance/analytics/bonds.py` (pure functions, vectorised across bonds;
 `YieldConvention = Street | USTreasury`):
 
 - Accrued (per 100 face): `AI = (C/2) · (settle − prev)/(next − prev)` on actual days of the
@@ -681,7 +681,7 @@ tents and `U` carries its curvature.
 
 ### 3.3 Treasury bond and note futures (phase F)
 
-**Contract table** — `src/finance/instruments/resolution/treasury_futures.py`, data, not code
+**Contract table** — `packages/finance/src/quant_toolkit/finance/instruments/resolution/treasury_futures.py`, data, not code
 (the row values below are from CME's published specifications and must be re-verified against
 the current CBOT rulebook chapters 18–21/26 when implemented; they are inputs, not derived facts):
 
@@ -836,7 +836,7 @@ gradients cost one sweep, not `N`), the contract with the RiskTemplate, and the 
 ### 4.1 Representation
 
 ```python
-# src/finance/pricing/engines/graph/program.py
+# packages/finance/src/quant_toolkit/finance/pricing/engines/graph/program.py
 @dataclass(frozen=True)
 class Slot:
     name: str; shape: tuple[int, ...]; dtype: np.dtype
@@ -908,7 +908,7 @@ production; `jax_enable_x64` set in the test harness).
 ### 4.4 The single risk entry
 
 ```python
-# src/finance/pricing/risk/engine.py (phase E form)
+# packages/finance/src/quant_toolkit/finance/pricing/risk/engine.py (phase E form)
 def risk(program: GraphProgram, market: MarketContext, *, seed: str = "instrument_pv",
          rows: Literal["instrument", "leg", "flow", "scalar"] = "instrument",
          wrt: tuple[str, ...] = ("curves",)) -> PillarRisk | VolRisk
@@ -945,7 +945,7 @@ def risk(program: GraphProgram, market: MarketContext, *, seed: str = "instrumen
 
 ## 5. `leg_group` and the cashflow report edge
 
-Joined legs (`finance.instruments.join_legs`) are separate legs to the engine and separate rows
+Joined legs (`quant_toolkit.finance.instruments.join_legs`) are separate legs to the engine and separate rows
 in `CashflowReport`. A trader wants one row per economic leg.
 
 - `LegSpec.group: int` and `KernelInputs.leg_group: IntArray (L,)` (default = leg index).
@@ -979,8 +979,8 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 
 | Item | Where | Evidence | Action |
 |---|---|---|---|
-| Stale bytecode directories | `src/finance/markets/conventions/`, `src/finance/pricing/conventions/`, `src/finance/coupons/`, `src/finance/tests/unit/coupons/`, `instruments/enums/__pycache__/leg_type*.pyc`, `markets/curves/_curve_impl/__pycache__/interpolators*.pyc` | untracked `__pycache__` only; sources moved in `8a35eba` / deleted in `1bf5c1d`, `d46bb7b` | `rm -r` from disk (not a git change); add `find src -name __pycache__ -prune -exec rm -r {} +` to `bin/` |
-| `src/finance/pricing/kernels/foo.txt` | tracked, 144 lines, a legacy `fixedfloatswap` sketch | commit `92f6f72` | `git rm` |
+| Stale bytecode directories | `packages/finance/src/quant_toolkit/finance/markets/conventions/`, `packages/finance/src/quant_toolkit/finance/pricing/conventions/`, `packages/finance/src/quant_toolkit/finance/coupons/`, `packages/finance/src/quant_toolkit/finance/tests/unit/coupons/`, `instruments/enums/__pycache__/leg_type*.pyc`, `markets/curves/_curve_impl/__pycache__/interpolators*.pyc` | untracked `__pycache__` only; sources moved in `8a35eba` / deleted in `1bf5c1d`, `d46bb7b` | `rm -r` from disk (not a git change); add `find src -name __pycache__ -prune -exec rm -r {} +` to `bin/` |
+| `packages/finance/src/quant_toolkit/finance/pricing/kernels/foo.txt` | tracked, 144 lines, a legacy `fixedfloatswap` sketch | commit `92f6f72` | `git rm` |
 | `ProductKind` | `pricing/types.py:45` | 0 consumers | delete; `pricer_registry` keys by class name |
 | `AmortizationType` and `CommonInstrument.{original_notional, amortization_type, amortization_start, amortization_end}` | `instruments/enums/amortization.py`, `common_instrument.py:71-74` | never read | delete now; when amortization lands, reintroduce as `amortization_type` generator **or** `Custom` + `notional_schedule`, mirroring the coupon design (settled 2026-10-13) |
 | `ScheduledNotional`, `RateDependentNotional`, `NotionalProvider.is_rate_dependent` | `kernels/inputs.py:58-85` | only re-exported | delete; `StaticNotional` stays until the amortization design above |
@@ -997,8 +997,8 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `DayCountMethod.{ThirtyE365, Bus252}` | enum members without implementation | 0 uses | delete; `ThirtyE360`, `ThirtyE360ISDA` get implementations with the 30/360 fix (§3.1) |
 | `DayCountMethod.is_supported`, `SupportedIntEnum.is_supported` call sites | always true, never called | — | delete |
 | `research/pricing_libs/numba_kernel.py`, `numba_perf.py` lines calling `NumbaProgram.from_program` | removed in `cfd013d` | fail at runtime | fix or delete the scripts |
-| `src/common/factories/` | empty package | no consumers anywhere | delete |
-| `src/finance/tests/unit/dates/test_enums.py` | 0-byte test module (commit `db7a6ed`) | collects nothing | delete or write the enum tests |
+| `packages/common/src/quant_toolkit/common/factories/` | empty package | no consumers anywhere | delete |
+| `packages/finance/src/quant_toolkit/finance/tests/unit/dates/test_enums.py` | 0-byte test module (commit `db7a6ed`) | collects nothing | delete or write the enum tests |
 | Declared-but-unused pytest markers `market_data`, `instruments`, `calculators`, `slow`; `IntegrationTest` base never subclassed | `pyproject.toml`, `common/testing/__init__.py` | 0 uses | delete the markers; keep `IntegrationTest` only if the parity oracles of §3.2–3.3 use it (they should: `tests/parity/` = integration) |
 
 ### 6.2 Fold (two things that should be one)
@@ -1011,7 +1011,7 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | ~~`engine_registry`~~ (kernel-level, no production caller) | done: `program_registry` (Backend → program) + `kernel_registry` (option kernels), both load-bearing | op registry `(kind, Backend) → OpImpl` (phase E1) replaces them |
 | `STDCSA` constant vs seven `"STDCSA"` literals | one constant in `resolution/resolver.py`, imported everywhere | `futures.py:73,113`, `swaption.py:39`, `calibration/instruments.py:214,228,242,263` |
 | `Priceable` for `SofrFuture`, `Swaption`, `Bond`, `TreasuryFuture`, `TreasuryFutureOption` | register all in `pricer_registry` | today only Swap/Deposit/Fra are registered |
-| Duplicate `class Legs` wrappers in `tests/regression/test_leg_shapes.py:52` and `research/one_leg_examples.py:50` | a `finance.instruments.Legs` product (signed legs, `Priceable`) | the natural home of `join_legs` output |
+| Duplicate `class Legs` wrappers in `tests/regression/test_leg_shapes.py:52` and `research/one_leg_examples.py:50` | a `quant_toolkit.finance.instruments.Legs` product (signed legs, `Priceable`) | the natural home of `join_legs` output |
 
 ### 6.3 Fix (latent defects found by the sweep)
 
@@ -1027,10 +1027,10 @@ From the read-only sweep. Evidence is the grep counts and file references the sw
 | `CommonInstrument.first/last_regular_accrual_date` are plumbed but never set | `legs.py:61` | **keep** — bonds with odd first coupons use them (§3.2) |
 | `PrincipalExchange.Initial` unused | `enums/principal.py` | **keep** — needed for a funded-leg representation (`Both` on deposits exists) |
 | JAX not declared in `pyproject.toml`; x64 never enabled in `src/` | packaging | add an `oracle` extra (`jax`), enable x64 in the test harness only (JAX is test-only by decision) |
-| `quant_toolkit/__init__.py` is `from finance import *` over an empty `finance/__init__.py`, so the published package exports nothing | `src/quant_toolkit/__init__.py`, `src/finance/__init__.py` | curated `__all__` in `finance/__init__.py` (dates, instruments, markets, pricing, calibration, risk, template) — the public API surface this document defines |
+| `quant_toolkit/__init__.py` is `from quant_toolkit.finance import *` over an empty `finance/__init__.py`, so the published package exports nothing | `src/quant_toolkit/__init__.py`, `packages/finance/src/quant_toolkit/finance/__init__.py` | curated `__all__` in `finance/__init__.py` (dates, instruments, markets, pricing, calibration, risk, template) — the public API surface this document defines |
 | `common/testing/__init__.py:30-32` assigns `df.copy_columns = …` on the input frame (typo for `df_copy.columns`) | `common/testing/__init__.py` | fix; it only affects the markdown helper's `else` branch |
-| `pytest`/`pytest-cov` are runtime dependencies; `tabulate` (needed by `DataFrame.to_markdown` in `common/testing`) undeclared; ruff lint keys under `[tool.ruff]` (deprecated placement); `--cov` omits `quant_toolkit_xl` although it is in `testpaths` | `pyproject.toml` | move test deps to `dev`, add `tabulate` to `dev`, move lint keys to `[tool.ruff.lint]`, add `--cov=quant_toolkit_xl` |
-| `quant_toolkit_xl/README.md:118` says `interpolation` is the 5th positional argument of `qBuildCurve`; it is the 3rd (`functions.py:20`) | README | edit |
+| `pytest`/`pytest-cov` are runtime dependencies; `tabulate` (needed by `DataFrame.to_markdown` in `common/testing`) undeclared; ruff lint keys under `[tool.ruff]` (deprecated placement); `--cov` omits `quant_toolkit.xl` although it is in `testpaths` | `pyproject.toml` | move test deps to `dev`, add `tabulate` to `dev`, move lint keys to `[tool.ruff.lint]`, add `--cov=quant_toolkit.xl` |
+| `quant_toolkit.xl/README.md:118` says `interpolation` is the 5th positional argument of `qBuildCurve`; it is the 3rd (`functions.py:20`) | README | edit |
 
 ### 6.3b Documentation that no longer matches the code
 

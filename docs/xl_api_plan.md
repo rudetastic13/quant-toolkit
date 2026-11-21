@@ -1,9 +1,9 @@
 # Excel add-in: the function surface and how it ships
 
 > **Status: DRAFT FOR REVIEW (2026-11-11).** Written after the first end-to-end run of
-> `quant_toolkit_xl` in desktop Excel (demo workbook prices the README swap in-cell). Covers the
+> `quant_toolkit.xl` in desktop Excel (demo workbook prices the README swap in-cell). Covers the
 > function catalogue to expose next, the `api/` package layout behind it, marshalling rules, the
-> `.xlam` add-in and the `qtk-xl` CLI. Companion to [src/quant_toolkit_xl/README.md](../src/quant_toolkit_xl/README.md)
+> `.xlam` add-in and the `qtk-xl` CLI. Companion to [apps/excel/src/quant_toolkit/xl/README.md](../apps/excel/src/quant_toolkit/xl/README.md)
 > (user-facing install and troubleshooting) and [pricing_architecture.md](pricing_architecture.md).
 
 ## 0. Decisions, so they are not re-litigated
@@ -44,7 +44,7 @@ library users never see Excel, and `pip install quant-toolkit[excel]` adds it.
 
 ```
 pyproject.toml                     quant-toolkit: meta-package (depends on the portions; extra `excel`)
-                                   + all tool config (ruff, mypy, pytest, coverage)
+                                   + all tool config (ruff, pytest, coverage)
 packages/common/pyproject.toml     quant-toolkit-common   -> src/quant_toolkit/common/
 packages/finance/pyproject.toml    quant-toolkit-finance  -> src/quant_toolkit/finance/   deps: common (later infra)
 packages/infra/pyproject.toml      quant-toolkit-infra    -> src/quant_toolkit/infra/     created when it has content
@@ -86,8 +86,7 @@ Rules of the split.
 - **Dev flow is editable installs**: `bin/dev_install.sh` runs `pip install -e` on each portion
   (CI does the same). `PYTHONPATH=packages/common/src:packages/finance/src:apps/excel/src` also
   works because namespace portions merge across path entries.
-- **One root for tools.** mypy: `namespace_packages = true`, `explicit_package_bases = true`;
-  pytest: `--import-mode=importlib`, `testpaths` lists every portion's in-package test tree;
+- **One root for tools.** pytest: `--import-mode=importlib`, `testpaths` lists every portion's in-package test tree;
   coverage targets `quant_toolkit`.
 - **Not now:** a uv workspace (wants to own the venv; the env is conda). Revisit if conda goes.
 - UDF module setting becomes `quant_toolkit.xl.functions`; the xlwings `_xw` shim is unchanged.
@@ -99,7 +98,7 @@ real Excel date, an ISO string or a range of either; every function that accepts
 column of the same length. Enum arguments are strings matched case-insensitively against the enum
 member name (`"ModifiedFollowing"`, `"Actual360"`, `"Quarterly"`).
 
-### 2.1 `QTK_DATE_*` — `api/dates.py` → `finance.dates`
+### 2.1 `QTK_DATE_*` — `api/dates.py` → `quant_toolkit.finance.dates`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -128,7 +127,7 @@ Notes.
 - `Schedule` is the same generator the instruments use, so what a trader sees is what the pricer accrues.
 - Term parsing is the library's (`"5D"`, `"3M"`, `"1Y"`, `"2B"`); no separate parse UDF.
 
-### 2.2 `QTK_CURVE_*` — `api/curves.py` → `finance.markets.curves`, `finance.pricing.calibration`
+### 2.2 `QTK_CURVE_*` — `api/curves.py` → `quant_toolkit.finance.markets.curves`, `quant_toolkit.finance.pricing.calibration`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -151,7 +150,7 @@ Notes.
 - The calibrated handle is an ordinary `Curve::` so `QTK_MKT_Build` and everything downstream
   are unchanged; the report is cached beside it.
 
-### 2.3 `QTK_MKT_*` — `api/markets.py` → `finance.markets.context`
+### 2.3 `QTK_MKT_*` — `api/markets.py` → `quant_toolkit.finance.markets.context`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -167,7 +166,7 @@ Notes.
 - Every curve's origin must equal `as_of` (today's check, kept).
 - Keys follow the grammar in `finance/conventions/keys.py`; an unknown projection family is a `#QERR` naming the valid families.
 
-### 2.4 `QTK_INST_*` — `api/instruments.py` → `finance.instruments.resolution`
+### 2.4 `QTK_INST_*` — `api/instruments.py` → `quant_toolkit.finance.instruments.resolution`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -176,7 +175,7 @@ Notes.
 | `QTK_INST_Fra(rate, start, end, as_of, [rate_index], [ccy], [funding_id], [notional], [day_count])` | `Fra.forward_starting` | `start`/`end` are terms (`"3M"`, `"6M"`) | `Inst::` | P1 |
 | `QTK_INST_Future(contract, month, as_of, [contracts], [entry_price], [rate_index], [ccy], [funding_id], [convexity])` | `SofrFuture.from_contract_month` | `"SR3"`, `"U26"` | `Inst::` | P1 |
 | `QTK_INST_Program(instruments)` | pricer `compile` per type | range of `Inst::` | `Program::` | P1 (exists as `qCompileProgram`) |
-| `QTK_INST_FromDict(dict)` | `common.object.load` | a `Dict::` document with `type` | `Inst::` | P2 |
+| `QTK_INST_FromDict(dict)` | `quant_toolkit.common.object.load` | a `Dict::` document with `type` | `Inst::` | P2 |
 | `QTK_INST_ToDict(inst)` | `dump` | `Inst::` | table of the document, dotted keys | P2 |
 
 Notes.
@@ -184,7 +183,7 @@ Notes.
   resolved object; `Program` groups by type and compiles each with its registered pricer.
 - Swaption stays out of P1; it needs vols on the market first.
 
-### 2.5 `QTK_CALC_*` — `api/calc.py` → `finance.markets.rate_generator`, `finance.pricing`
+### 2.5 `QTK_CALC_*` — `api/calc.py` → `quant_toolkit.finance.markets.rate_generator`, `quant_toolkit.finance.pricing`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -204,7 +203,7 @@ Notes.
   `Program` stays for portfolios where the trader wants the compile step explicit.
 - Compounded and averaged rates need an observation grid; they land with the schedule work.
 
-### 2.6 `QTK_REPORT_*` — `api/reports.py` → `finance.pricing.results`, `Priceable.requests`
+### 2.6 `QTK_REPORT_*` — `api/reports.py` → `quant_toolkit.finance.pricing.results`, `Priceable.requests`
 
 | Excel | Library | Arguments | Returns | Phase |
 |---|---|---|---|---|
@@ -275,7 +274,7 @@ Logic updates are `pip install -U` alone.
 
 | PR | Content | Effort |
 |---|---|---|
-| X0 | namespace restructure: `packages/common`, `packages/finance`, `apps/excel` as portions of `quant_toolkit`; imports rewritten (`from finance.` → `from quant_toolkit.finance.`, ~744 lines / 168 files); meta-package root toml; CMake install path for `_core`; docs + CLAUDE.md; Windows venv reinstalled. Lands alone, nothing long-lived in flight | 1 day |
+| X0 | namespace restructure: `packages/common`, `packages/finance`, `apps/excel` as portions of `quant_toolkit`; imports rewritten (`from quant_toolkit.finance.` → `from quant_toolkit.finance.`, ~744 lines / 168 files); meta-package root toml; CMake install path for `_core`; docs + CLAUDE.md; Windows venv reinstalled. Lands alone, nothing long-lived in flight | 1 day |
 | X1 | `api/` package, rename to `QTK_*`, `QTK_DATE_*` incl. calendars and schedule, marshalling for enums/tables, tests per area, README catalogue | 1 day |
 | X2 | `QTK_INST_*` deposit/FRA/future, `QTK_MKT_*` multi-curve, `QTK_CURVE_*` extras, `QTK_CALC_*` P1 | 1 day |
 | X3 | `QTK_REPORT_Cashflows`, `QTK_REPORT_Inspect`, `QTK_CALC_LegPVs` | ½ day |

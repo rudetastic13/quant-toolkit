@@ -34,11 +34,11 @@ os.environ.setdefault("JAX_ENABLE_X64", "true")
 import numpy as np
 
 import sofr_curve_calibration as S
-from finance.pricing.calibration import fra_helper
-from finance.pricing.engines.jax.calibration import calibration_jacobian
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import Sensitivities
-from finance.pricing.risk.autodiff import AutodiffRisk
+from quant_toolkit.finance.pricing.calibration import fra_helper
+from quant_toolkit.finance.pricing.engines.jax.calibration import calibration_jacobian
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.risk import Sensitivities
+from quant_toolkit.finance.pricing.risk.autodiff import AutodiffRisk
 
 import jax
 

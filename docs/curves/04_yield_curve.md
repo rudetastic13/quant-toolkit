@@ -12,7 +12,7 @@ DiscountCurve (02–04)  +  origin  +  key (+ index family for a projection key)
     DiscountCurve  ──market[key] = curve──▶  MarketContext  ──market[key]──▶  RateGenerator, pricers
 ```
 
-Keys follow one grammar (`finance.conventions.CurveKey`). The slot count says what the curve is:
+Keys follow one grammar (`quant_toolkit.finance.conventions.CurveKey`). The slot count says what the curve is:
 
 | form | kind | examples |
 |---|---|---|
@@ -36,8 +36,8 @@ curve, by `currency=` and `index_name=` (`"SOFR"` is the overnight family, `"CME
 term tenor).
 
 ```python
-from finance.dates import Date, Term
-from finance.markets.curves import YieldCurve, dates_to_x
+from quant_toolkit.finance.dates import Date, Term
+from quant_toolkit.finance.markets.curves import YieldCurve, dates_to_x
 
 as_of = Date(2026, 6, 1)
 origin = as_of.to_numpy()
@@ -100,7 +100,7 @@ only cutover: a fixing date before `origin` is historical and carries no index r
 it is projected from the curve.
 
 ```python
-from finance.markets import HistoricalFixings
+from quant_toolkit.finance.markets import HistoricalFixings
 
 fixings = HistoricalFixings(
     np.array(["2026-05-27", "2026-05-28", "2026-05-29"], dtype="datetime64[D]"),
@@ -134,8 +134,8 @@ is wrapped under the key it is assigned to; a `YieldCurve` under its own key kee
 `market[key]` is the view and `market[key].zero_curve` the mathematical curve.
 
 ```python
-from finance.markets import RateGenerator
-from finance.markets.context import MarketContext
+from quant_toolkit.finance.markets import RateGenerator
+from quant_toolkit.finance.markets.context import MarketContext
 
 market = MarketContext(as_of)
 market["USD.SOFR.1D"] = seasoned                  # a YieldCurve: its ZeroCurve and its fixings

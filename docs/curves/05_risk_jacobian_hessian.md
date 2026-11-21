@@ -158,11 +158,11 @@ one fused Numba kernel for primal and adjoint. The adjoint is the hand-written r
 section 2 generalised to compounded legs, and it consumes exactly the `(offset, J)` rows above.
 
 ```python
-from finance.instruments.resolution import Swap
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import NumbaRisk
-from finance.pricing.risk.sensitivities import Sensitivities
-from finance.pricing.types import Backend
+from quant_toolkit.finance.instruments.resolution import Swap
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.risk import NumbaRisk
+from quant_toolkit.finance.pricing.risk.sensitivities import Sensitivities
+from quant_toolkit.finance.pricing.types import Backend
 
 sofr_only = MarketContext(as_of, {"USD.SOFR.1D": sofr_yc, "USD.STDCSA": sofr_yc})   # the swaps discount at SOFR
 template = Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.0, tenor="5Y", as_of=as_of)
@@ -236,9 +236,9 @@ path's rows into the atom's one set of columns.
 
 ## Where this goes next
 
-- **`PillarRisk`** (`finance.pricing.risk.pillar_risk`) is the typed carrier of `G` per owning
+- **`PillarRisk`** (`quant_toolkit.finance.pricing.risk.pillar_risk`) is the typed carrier of `G` per owning
   key, from any of the three program types.
-- **`RiskTemplate`** (`finance.pricing.risk.template`) computes `J_T` for a set of tradeable
+- **`RiskTemplate`** (`quant_toolkit.finance.pricing.risk.template`) computes `J_T` for a set of tradeable
   instruments on the base curve and solves `R = G B (J_T B)⁻¹` so the book's risk is reported
   against those quotes, with the unexplained remainder `U` shown rather than hidden;
   `RiskEngine(program, market, template=...).quote_risk()` is the front door.

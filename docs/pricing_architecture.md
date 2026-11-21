@@ -210,7 +210,7 @@ single-fixing floats.
 | **Flatten-and-reduce** | rate kernels + dcf reducer | Ragged per-fixing work becomes segmented `reduceat`; no per-flow Python. |
 | **Sentinel encoding** | `cap=+inf`, `floor/index_floor=-inf`, `proj_curve=-1` | Branchless shaping; a genuine `0.0` bound is distinct from "no bound" (`None`). |
 | **Shared shaping algebra** | `pricing/kernels/shaping.py` — `shape_float`, `prep_obs`, `shape_period` | One implementation of the index_floor→spread→floor→cap algebra, `xp`-parameterized (numpy or `jnp`) and jit-safe, consumed by the numpy compiler and the JAX program (the Numba kernel mirrors it scalar-wise and is held to parity in CI) — they can't drift. |
-| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (`finance.instruments.conventions`: per-leg / per-product tiers) does the rest. The bundle is registered beside the `IndexFamily` the curve layer reads (`finance.conventions`), so curves never import instruments. |
+| **Convention resolution** | `Swap.fixed_float_swap(...)` + `ConventionRegistry` | Trader fills ~4 fields; the `(currency, index)` `MarketConventions` bundle (`quant_toolkit.finance.instruments.conventions`: per-leg / per-product tiers) does the rest. The bundle is registered beside the `IndexFamily` the curve layer reads (`quant_toolkit.finance.conventions`), so curves never import instruments. |
 | **Market as a Mapping** | `MarketContext` | `market[key] = curve` assembles; `with_curve` / `bump` return frozen copies that propagate through composites by object identity; `VolNamespace` keeps the versioned-store pattern for surfaces. |
 
 ---
@@ -271,7 +271,7 @@ single-fixing floats.
   lowers the principal flows from it: under `PrincipalExchange.Final` each drop in outstanding
   notional is paid on its payment date, so a bullet repays once, an amortiser as it goes, and a
   balance left on the balloon date is repaid there. The leg says what is outstanding through
-  `finance.instruments.schedules.amortization`:
+  `quant_toolkit.finance.instruments.schedules.amortization`:
   - `amortization = Bullet | StraightLine | LevelPay`, or `Custom` with a `NotionalSchedule` of
     `(start_date, notional)` events ("from this period the outstanding is X": known
     curtailments, a seasoned loan's history).
@@ -301,7 +301,7 @@ single-fixing floats.
 
 ## 8. Calibration layer
 
-`finance.pricing.calibration` builds market curves from quotes. It wires three things — a
+`quant_toolkit.finance.pricing.calibration` builds market curves from quotes. It wires three things — a
 list of **calibration instruments**, a **solver**, and a **target curve definition** — into
 one residual closure and hands it to the solver. Output is a mathematical `ZeroCurve`.
 The caller explicitly composes it with index conventions to form a `YieldCurve`, then binds
@@ -351,8 +351,8 @@ The **soft layer** is the trader-facing builder: minimal input, conventions reso
 rest. The same three builders cover the swap and both money-market instruments.
 
 ```python
-from finance.dates import Date
-from finance.instruments.resolution import Swap, Deposit, Fra
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.instruments.resolution import Swap, Deposit, Fra
 
 as_of = Date(2026, 6, 1)
 
@@ -393,7 +393,7 @@ A leg has two faces. The flat coupon fields above are the simple one; the genera
 schedule when none is given):
 
 ```python
-from finance.instruments.schedules import CouponSchedule, FixedCouponEvent, CompoundedCouponEvent
+from quant_toolkit.finance.instruments.schedules import CouponSchedule, FixedCouponEvent, CompoundedCouponEvent
 
 step_up = recv.replace(coupon_schedule=CouponSchedule(events=[
     FixedCouponEvent(start_date=recv.effective, coupon_rate=0.03),
@@ -417,9 +417,9 @@ A `CurveCalibrator` takes single-quote helpers, a solver, and a target definitio
 solves for the curve that reprices every quote.
 
 ```python
-from finance.markets.context import MarketContext
-from finance.markets.curves import CurveInterpolator
-from finance.pricing.calibration import (
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import CurveInterpolator
+from quant_toolkit.finance.pricing.calibration import (
     CurveCalibrator, CurveDefinition, GlobalSolver,
     deposit_helper, fra_helper, swap_helper,
 )
@@ -470,7 +470,7 @@ Repeat with the 6M key built on the 1M curve for the 6M/1M basis.
 the market's `as_of` is the origin.
 
 ```python
-from finance.markets import RateGenerator
+from quant_toolkit.finance.markets import RateGenerator
 
 market = result.market                       # USD.SOFR.1D and USD.STDCSA: one curve, two keys
 CN = "USD.SOFR.1D"
@@ -502,7 +502,7 @@ the swap's projection curve from `rate_index` (`USD.SOFR.1D`) and its discount c
 `funding_id` (`USD.STDCSA`) — the same SOFR object under both keys here.
 
 ```python
-from finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.pricers import SwapPricer
 
 program = SwapPricer().compile([swap])   # compile once
 priced  = program.price(market)          # reprice against any market
@@ -535,7 +535,7 @@ program.price(market).instrument_pv      # [224,696.22, 305,787.36]  (first matc
 DV01 and a key-rate ladder across the curve's pillars:
 
 ```python
-from finance.pricing.risk import Sensitivities
+from quant_toolkit.finance.pricing.risk import Sensitivities
 
 sens = Sensitivities(program, market)
 CN = curve_name("USD", "USD.SOFR.1D")
@@ -556,7 +556,7 @@ returns `-(Σ float_pv) / (Σ fixed_pv)`.  No positional assumption; a non-stand
 structure (step-up fixed, multi-index basis) is handled by the same iterator.
 
 ```python
-from finance.pricing.calibration import swap_helper
+from quant_toolkit.finance.pricing.calibration import swap_helper
 
 # rate=0.0 is a placeholder quote — implied() ignores it and reads off the curve
 par_2y  = swap_helper(rate=0.0, tenor="2Y",  as_of=as_of).implied(market)  # ~0.04200
@@ -584,7 +584,7 @@ triggers no recalibration; it re-expresses `G = ∂PV/∂z` as `R = G B (J_T B)�
 remainder `U = G − R J_T` alongside.
 
 ```python
-from finance.pricing.risk import RiskEngine, RiskTemplate
+from quant_toolkit.finance.pricing.risk import RiskEngine, RiskTemplate
 
 template = RiskTemplate.identity(helpers, name="calibration set")   # square: R = G J⁻¹ exactly
 risk = RiskEngine(program, market, template=template).quote_risk()

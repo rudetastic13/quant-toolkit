@@ -1,6 +1,6 @@
 # 01 · `DiscountCurve`: the protocol
 
-`finance.markets.curves.DiscountCurve` is a `runtime_checkable` `Protocol`. It is the contract
+`quant_toolkit.finance.markets.curves.DiscountCurve` is a `runtime_checkable` `Protocol`. It is the contract
 `YieldCurve`, `MarketContext` and the pricing engines consume. Nothing downstream of a curve
 knows whether it is a single interpolated line or a sum of several, so a composite prices and
 risks through exactly the same path as an atom.
@@ -19,7 +19,7 @@ discount factors they imply. Everything that follows reuses `x`, `z`, `dfs`, `so
 
 ```python
 import numpy as np
-from finance.markets.curves import CompositeCurve, CurveSpace, DiscountCurve, ZeroCurve
+from quant_toolkit.finance.markets.curves import CompositeCurve, CurveSpace, DiscountCurve, ZeroCurve
 
 x = np.array([0.0, 90.0, 365.0, 730.0, 1825.0, 3650.0])          # 3M 1Y 2Y 5Y 10Y, in days
 z = np.array([0.0, 0.0410, 0.0400, 0.0390, 0.0410, 0.0430])      # Act/365 cc zero rates at the pillars
@@ -145,7 +145,7 @@ both. The 5000-day query is beyond the last pillar; flat-forward extrapolation c
 10Y segment's slope, so it depends on the 5Y and 10Y pillars with large opposite weights (the
 terminal forward is a difference quotient of the last two nodes).
 
-Why it holds for everything in the library: every scheme in `common.math.interpolation` is
+Why it holds for everything in the library: every scheme in `quant_toolkit.common.math.interpolation` is
 linear in its node values (see [maths/01](maths/01_interpolation.md)), node values are linear in
 the zero rates in either space (`ln DF_j = -z_j x_j / 365`, or `r_j = z_j`), both extrapolation
 rules are linear, and a weighted sum of affine maps is affine. `ZeroCurve.log_df_affine` probes

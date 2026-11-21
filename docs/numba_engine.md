@@ -2,7 +2,7 @@
 
 > Companion to [engine_selection.md](engine_selection.md) (which products bind to this engine)
 > and [pricing_architecture.md](pricing_architecture.md) (the columnar `KernelInputs` ABI this
-> engine consumes). Production code lives in `finance.pricing.engines.numba`; the research
+> engine consumes). Production code lives in `quant_toolkit.finance.pricing.engines.numba`; the research
 > scripts now exercise that implementation directly.
 
 The Numba engine is the production fast path for **linear rates** and **European optionality**
@@ -79,7 +79,7 @@ Jacobian**. *Depends on F1.*
 ### 3.1 The core identity (why it is cheap and sparse)
 
 The curve parameter is `z_p` = continuously-compounded zero at pillar `p`. Every scheme in
-`common.math.interpolation` is affine in its node values, the node values are linear in `z`
+`quant_toolkit.common.math.interpolation` is affine in its node values, the node values are linear in `z`
 in either space, and both extrapolations are linear — so `ln DF(x)` is affine in `z` for any
 curve the library can build, and `prepare` captures it once per static query:
 

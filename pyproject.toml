@@ -1,23 +1,21 @@
 [build-system]
-requires = ["setuptools", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+# Meta-package: installs the library portions; all tool config (pytest, coverage, ruff) lives here.
+# Library:  pip install quant-toolkit    (common + finance)
+# The Excel add-in (apps/excel) is standalone: install it separately so Windows-only tooling never touches this env.
 [project]
 name = "quant-toolkit"
-version = "0.1.0"
+version = "0.1.0"  # lockstep with VERSION; bin/bump_version.py rewrites every portion
 description = "A data science project for financial pricing instruments, rate products."
 authors = [{name = "Carlos Garay", email = "cagaray13@gmail.com"}]
 license = "MIT"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
-    "numpy",
-    "pandas",
-    "python-dateutil",
-    "scipy",
-    "matplotlib",
-    "pytest",
-    "pytest-cov",
+    "quant-toolkit-common==0.1.0",
+    "quant-toolkit-finance==0.1.0",
 ]
 
 classifiers = [
@@ -38,60 +36,31 @@ keywords = ["finance", "pricing", "rates", "quant", "data-science"]
 
 
 [project.optional-dependencies]
-dev = [
-    "pytest>=7.0",
-    "pytest-cov>=4.0",
-    "ruff>=0.12",
-    "mypy>=1.9",
-    "black>=24.0",
-    "hypothesis>=6.0",
-    "coverage>=7.0",
-    "pytest-ruff",
-]
-# Excel add-in adapter (quant_toolkit_xl). xlwings only drives Excel on Windows/macOS;
-# on Linux it imports but cannot connect, so this is intentionally an opt-in extra and
-# belongs in the Windows trader bundle, not the WSL/CI env.
-excel = [
-    "xlwings>=0.30",
-]
-# toolchain for the finance._core C++ extensions (built via bin/build_core.sh);
-# pybind11 3.x is the line with CPython 3.14 support
-cpp = [
-    "pybind11>=3.0",
-    "cmake>=3.26",
-    "ninja",
-]
-# optional jitted kernels (finance.dates.schedules.numba_based degrades without it)
-accel = [
-    "numba>=0.64",
-]
-
+# optional jitted kernels and the Numba engine (finance degrades without it)
+accel = ["numba>=0.64"]
+# validation oracles for the engines (JAX today; QuantLib may join)
+oracle = ["jax", "jaxlib"]
+# toolchain for the finance._core C++ extension (bin/build_core.sh); pybind11 3.x supports CPython 3.14
+cpp = ["pybind11>=3.0", "cmake>=3.26", "ninja"]
+# what the test suite needs (common.testing uses pandas + tabulate for its markdown helpers)
+test = ["pytest", "pytest-cov", "hypothesis", "pandas", "tabulate"]
+notebook = ["ipykernel", "matplotlib"]
+dev = ["pytest", "pytest-cov", "hypothesis", "pandas", "tabulate", "ruff"]
 
 [tool.setuptools]
-package-dir = {"" = "src"}
+packages = []
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include=[
-    "finance",
-    "finance.*",
-    "common",
-    "common.*",
-    "quant_toolkit",
-    "quant_toolkit.*",
-    "quant_toolkit_xl",
-    "quant_toolkit_xl.*",
-]
 [tool.pytest.ini_options]
-pythonpath=["src"]
-testpaths=[
-    "src/finance/tests",
-    "src/common/tests",
-    "src/quant_toolkit_xl/tests",
+testpaths = [
+    "packages/common/src/quant_toolkit/common/tests",
+    "packages/finance/src/quant_toolkit/finance/tests",
 ]
+# the portions share the quant_toolkit namespace (no __init__.py); importlib mode + this keep test modules
+# under their real dotted names, so importing one from another module does not execute it twice
+consider_namespace_packages = true
 addopts = [
-    "--cov=finance", # measure coverage for finance package
-    "--cov=common", # measure coverage for common package
+    "--import-mode=importlib",
+    "--cov=quant_toolkit", # coverage over every installed portion
     "--cov-report=html:./pytest-reports/cov-reports", # generate HTML coverage report
     #"--junitxml=./pytest-reports/junit.xml", # generate JUnit XML report
 ]
@@ -111,14 +80,13 @@ markers = [
 
 [tool.coverage.run]
 branch = true
+source = ["quant_toolkit"]
 omit = [
-    "*/tests/*",
-    "\\tests\\*",
-    "*/data/*",
-    "*\\data\\*",
-    "*/finance/_core/*",
-    "*\\finance\\_core\\*",
-    "setup.py"]
+    "*/quant_toolkit/*/tests/*",
+    "*\\quant_toolkit\\*\\tests\\*",
+    "*/quant_toolkit/finance/_core/*",
+    "*\\quant_toolkit\\finance\\_core\\*",
+]
 
 [tool.coverage.report]
 show_missing = true
@@ -130,7 +98,7 @@ exclude_also = [
 
 [tool.ruff]
 # linting config (used when ruff is installed as a dev dependency)
-include = ["src/**/*.py"]
+include = ["packages/**/*.py"]
 exclude = ["build", "dist", ".venv", ".eggs"]
 line-length = 120
 indent-width = 4

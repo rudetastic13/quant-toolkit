@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quant-toolkit-finance"
+version = "0.1.0"  # lockstep with VERSION; bin/bump_version.py rewrites every portion
+description = "Interest rate analytics: dates, calendars, curves, instruments, pricing and risk."
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "quant-toolkit-common==0.1.0",
+    "pandas",
+    "python-dateutil",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["quant_toolkit.finance", "quant_toolkit.finance.*"]
+namespaces = true
+
+[tool.setuptools.package-data]
+"quant_toolkit.finance._core" = ["*.pyi"]

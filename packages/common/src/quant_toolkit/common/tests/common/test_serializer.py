@@ -1,0 +1,729 @@
+from __future__ import annotations
+
+import json
+import sys
+import types
+from dataclasses import dataclass, field
+from enum import IntEnum, StrEnum, auto
+from typing import Union
+
+import numpy as np
+
+from quant_toolkit.common.object import CommonObject, Serializable, dump, dumps, load, loads, register_type, serializable, upgrade
+from quant_toolkit.common.object.serializer import _field_hints, deserialize_value, serialize_value
+from quant_toolkit.common.testing import UnitTest
+
+
+class Color(IntEnum):
+    Red = auto()
+    Green = auto()
+    Blue = auto()
+
+
+class Status(StrEnum):
+    Active = "active"
+    Inactive = "inactive"
+
+
+@serializable("test.SimpleObj")
+@dataclass(kw_only=True)
+class SimpleObj(CommonObject):
+    name: str
+    value: float
+    count: int = 0
+    flag: bool = True
+
+
+@serializable("test.ObjWithEnum")
+@dataclass(kw_only=True)
+class ObjWithEnum(CommonObject):
+    color: Color
+    status: Status = Status.Active
+
+
+@serializable("test.ObjWithOptional")
+@dataclass(kw_only=True)
+class ObjWithOptional(CommonObject):
+    name: str
+    label: str | None = None
+    score: float | None = None
+
+
+@serializable("test.Inner")
+@dataclass(kw_only=True)
+class Inner(CommonObject):
+    x: int
+
+
+@serializable("test.Outer")
+@dataclass(kw_only=True)
+class Outer(CommonObject):
+    inner: Inner
+    items: list[Inner] = field(default_factory=list)
+
+
+@serializable("test.ObjWithCollections")
+@dataclass(kw_only=True)
+class ObjWithCollections(CommonObject):
+    tags: list[str] = field(default_factory=list)
+    metadata: dict[str, float] = field(default_factory=dict)
+
+
+@serializable("test.ObjWithTimes")
+@dataclass(kw_only=True)
+class ObjWithTimes(CommonObject):
+    when: np.datetime64 | None = None
+    lag: np.timedelta64 | None = None
+    extra: dict = field(default_factory=dict)
+
+
+class TestSerializePrimitives(UnitTest):
+
+    def test_round_trip_simple(self):
+        obj = SimpleObj(name="test", value=3.14, count=5, flag=False)
+        data = obj.serialize()
+        restored = SimpleObj.deserialize(data)
+        self.assertEqual(restored.name, "test")
+        self.assertAlmostEqual(restored.value, 3.14)
+        self.assertEqual(restored.count, 5)
+        self.assertFalse(restored.flag)
+
+    def test_json_round_trip(self):
+        obj = SimpleObj(name="hello", value=1.0)
+        json_str = obj.to_json()
+        restored = SimpleObj.from_json(json_str)
+        self.assertEqual(restored.name, "hello")
+        self.assertAlmostEqual(restored.value, 1.0)
+        self.assertEqual(restored.count, 0)
+        self.assertTrue(restored.flag)
+
+    def test_serialize_stamps_the_stable_name_and_version(self):
+        obj = SimpleObj(name="a", value=0.0)
+        data = obj.serialize()
+        self.assertEqual(data["__type__"], "test.SimpleObj")
+        self.assertEqual(data["__version__"], 1)
+
+
+class TestSerializeEnums(UnitTest):
+
+    def test_int_enum_round_trip(self):
+        obj = ObjWithEnum(color=Color.Green)
+        data = obj.serialize()
+        self.assertEqual(data["color"], "Green")
+        restored = ObjWithEnum.deserialize(data)
+        self.assertEqual(restored.color, Color.Green)
+
+    def test_str_enum_round_trip(self):
+        obj = ObjWithEnum(color=Color.Red, status=Status.Inactive)
+        restored = ObjWithEnum.deserialize(obj.serialize())
+        self.assertEqual(restored.status, Status.Inactive)
+
+
+class TestSerializeOptional(UnitTest):
+
+    def test_none_fields(self):
+        obj = ObjWithOptional(name="test")
+        data = obj.serialize()
+        self.assertIsNone(data["label"])
+        restored = ObjWithOptional.deserialize(data)
+        self.assertIsNone(restored.label)
+        self.assertIsNone(restored.score)
+
+    def test_present_optional_fields(self):
+        obj = ObjWithOptional(name="test", label="ok", score=9.5)
+        restored = ObjWithOptional.deserialize(obj.serialize())
+        self.assertEqual(restored.label, "ok")
+        self.assertAlmostEqual(restored.score, 9.5)
+
+
+class TestSerializeNested(UnitTest):
+
+    def test_nested_object(self):
+        obj = Outer(inner=Inner(x=42), items=[Inner(x=1), Inner(x=2)])
+        data = obj.serialize()
+        self.assertIsInstance(data["inner"], dict)
+        self.assertEqual(len(data["items"]), 2)
+
+        restored = Outer.deserialize(data)
+        self.assertEqual(restored.inner.x, 42)
+        self.assertEqual(len(restored.items), 2)
+        self.assertEqual(restored.items[0].x, 1)
+        self.assertEqual(restored.items[1].x, 2)
+
+    def test_nested_json_round_trip(self):
+        obj = Outer(inner=Inner(x=10))
+        restored = Outer.from_json(obj.to_json())
+        self.assertEqual(restored.inner.x, 10)
+
+
+class TestSerializeCollections(UnitTest):
+
+    def test_list_and_dict(self):
+        obj = ObjWithCollections(tags=["a", "b"], metadata={"x": 1.0, "y": 2.0})
+        restored = ObjWithCollections.deserialize(obj.serialize())
+        self.assertEqual(restored.tags, ["a", "b"])
+        self.assertAlmostEqual(restored.metadata["x"], 1.0)
+
+    def test_empty_collections(self):
+        obj = ObjWithCollections()
+        restored = ObjWithCollections.deserialize(obj.serialize())
+        self.assertEqual(restored.tags, [])
+        self.assertEqual(restored.metadata, {})
+
+
+class TestSerializeNumpy(UnitTest):
+
+    def test_numpy_scalars(self):
+        self.assertEqual(serialize_value(np.int64(5)), 5)
+        self.assertIsInstance(serialize_value(np.int64(5)), int)
+        self.assertAlmostEqual(serialize_value(np.float64(3.14)), 3.14)
+        self.assertIsInstance(serialize_value(np.float64(3.14)), float)
+
+    def test_numpy_array_envelope_shape(self):
+        """serialize_value on an ndarray produces a dtype-aware envelope dict."""
+        arr = np.array([1.0, 2.0, 3.0])
+        env = serialize_value(arr)
+        self.assertTrue(env["__ndarray__"])
+        self.assertEqual(env["dtype"], str(arr.dtype))
+        self.assertEqual(env["shape"], [3])
+        self.assertEqual(env["data"], [1.0, 2.0, 3.0])
+
+    def test_numpy_array_round_trip_float64(self):
+        arr = np.array([1.0, 2.0, 3.0])
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, arr.dtype)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_float32(self):
+        arr = np.array([1.0, 2.0, 3.0], dtype=np.float32)
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, np.float32)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_int8(self):
+        arr = np.array([1, -3, 127], dtype=np.int8)
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, np.int8)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_bool(self):
+        arr = np.array([True, False, True])
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, np.bool_)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_2d(self):
+        arr = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float32)
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, np.float32)
+        self.assertEqual(restored.shape, (2, 2))
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_datetime64_day(self):
+        arr = np.array(["2025-01-01", "2025-06-01"], dtype="datetime64[D]")
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, arr.dtype)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_array_round_trip_datetime64_ns(self):
+        arr = np.array(["2025-01-01T00:00:00", "2025-06-01T12:30:00"], dtype="datetime64[ns]")
+        restored = deserialize_value(serialize_value(arr), None)
+        self.assertEqual(restored.dtype, arr.dtype)
+        np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_datetime64_scalar_round_trip(self):
+        """A datetime64 scalar travels in an envelope that keeps its unit, weeks and NaT included."""
+        self.assertEqual(
+            serialize_value(np.datetime64("2025-04-03")),
+            {"__datetime64__": True, "dtype": "datetime64[D]", "value": "2025-04-03"},
+        )
+        for dt in (
+            np.datetime64("2025-04-03", "W"),
+            np.datetime64("2025-04-03", "D"),
+            np.datetime64("2025-04-03T10:00:00.123456789", "ns"),
+            np.datetime64("NaT", "D"),
+        ):
+            with self.subTest(dt=dt):
+                restored = deserialize_value(json.loads(json.dumps(serialize_value(dt))), None)
+                self.assertEqual(restored.dtype, dt.dtype)
+                np.testing.assert_array_equal(restored, dt)
+
+    def test_numpy_timedelta64_scalar_round_trip(self):
+        """timedelta64 is an np.integer subclass with an unparseable text form; it gets its own envelope."""
+        self.assertEqual(
+            serialize_value(np.timedelta64(5, "D")),
+            {"__timedelta64__": True, "dtype": "timedelta64[D]", "value": 5},
+        )
+        for td in (
+            np.timedelta64(5, "D"),
+            np.timedelta64(90, "s"),
+            np.timedelta64(7, "ns"),
+            np.timedelta64(3, "2D"),
+            np.timedelta64("NaT", "D"),
+        ):
+            with self.subTest(td=td):
+                restored = deserialize_value(json.loads(json.dumps(serialize_value(td))), None)
+                self.assertEqual(restored.dtype, td.dtype)
+                np.testing.assert_array_equal(restored, td)
+
+    def test_numpy_array_round_trip_timedelta64(self):
+        for arr in (
+            np.array([1, 2, "NaT"], dtype="timedelta64[D]"),
+            np.arange(10, dtype="timedelta64[D]")[::2],
+            np.array([1, 2], dtype="timedelta64[ns]"),
+        ):
+            with self.subTest(dtype=arr.dtype):
+                restored = deserialize_value(json.loads(json.dumps(serialize_value(arr))), None)
+                self.assertEqual(restored.dtype, arr.dtype)
+                np.testing.assert_array_equal(restored, arr)
+
+    def test_numpy_time_scalars_as_fields(self):
+        obj = ObjWithTimes(when=np.datetime64("2025-04-03"), lag=np.timedelta64(2, "D"), extra={"t": np.datetime64("2025-01-01")})
+        restored = loads(dumps(obj))
+        self.assertEqual((restored.when, restored.lag, restored.extra["t"]), (obj.when, obj.lag, obj.extra["t"]))
+        self.assertEqual((restored.when.dtype, restored.lag.dtype), (obj.when.dtype, obj.lag.dtype))
+        self.assertIsNone(loads(dumps(ObjWithTimes())).when)
+
+    def test_ndarray_hint_over_a_plain_list(self):
+        from numpy.typing import NDArray
+
+        for hint in (np.ndarray, NDArray[np.float64]):
+            self.assertIsInstance(deserialize_value([1.0, 2.0], hint), np.ndarray)
+
+
+class MyCustom:
+    def __init__(self, val: int):
+        self.val = val
+
+
+register_type(
+    MyCustom,
+    serializer=lambda obj: {"custom_val": obj.val},
+    deserializer=lambda data: MyCustom(data["custom_val"]),
+)
+
+
+@serializable("test.ObjWithCustom")
+@dataclass(kw_only=True)
+class ObjWithCustom(CommonObject):
+    custom: MyCustom
+
+
+class TestRegisterType(UnitTest):
+
+    def test_custom_type_round_trip(self):
+        obj = ObjWithCustom(custom=MyCustom(99))
+        data = obj.serialize()
+        self.assertEqual(data["custom"], {"custom_val": 99})
+
+        restored = ObjWithCustom.deserialize(data)
+        self.assertEqual(restored.custom.val, 99)
+
+
+class TestPolymorphicDeserialization(UnitTest):
+
+    def test_deserialize_via_base_class(self):
+        obj = SimpleObj(name="poly", value=1.0)
+        data = obj.serialize()
+        # Deserialize via Serializable base — should resolve to SimpleObj
+        restored = Serializable.deserialize(data)
+        self.assertIsInstance(restored, SimpleObj)
+        self.assertEqual(restored.name, "poly")
+
+    def test_missing_fields_use_defaults(self):
+        data = {
+            "__type__": "test.SimpleObj",
+            "name": "minimal",
+            "value": 0.0,
+        }
+        restored = SimpleObj.deserialize(data)
+        self.assertEqual(restored.count, 0)
+        self.assertTrue(restored.flag)
+
+
+# ── Marker-driven deserialization (untyped containers) ─────────────────────────
+
+
+@serializable("test.ObjWithUntypedDict")
+@dataclass(kw_only=True)
+class ObjWithUntypedDict(CommonObject):
+    payload: dict = field(default_factory=dict)
+
+
+@serializable("test.ObjWithArray")
+@dataclass(kw_only=True)
+class ObjWithArray(CommonObject):
+    values: np.ndarray = field(default_factory=lambda: np.array([]))
+
+
+class TestMarkerDrivenDeserialization(UnitTest):
+
+    def test_ndarray_inside_untyped_dict_round_trips(self):
+        """An ndarray nested inside an untyped dict field survives a full JSON round-trip."""
+        arr = np.array([1.5, 2.5, 3.5], dtype=np.float32)
+        obj = ObjWithUntypedDict(payload={"my_array": arr})
+        restored = ObjWithUntypedDict.from_json(obj.to_json())
+        result = restored.payload["my_array"]
+        self.assertEqual(result.dtype, np.float32)
+        np.testing.assert_array_equal(result, arr)
+
+    def test_serializable_inside_untyped_dict_round_trips(self):
+        """A Serializable nested inside an untyped dict field is reconstructed to its concrete type."""
+        inner = SimpleObj(name="nested", value=7.0)
+        obj = ObjWithUntypedDict(payload={"item": inner.serialize()})
+        restored = ObjWithUntypedDict.from_json(obj.to_json())
+        item = restored.payload["item"]
+        self.assertIsInstance(item, SimpleObj)
+        self.assertEqual(item.name, "nested")
+
+    def test_polymorphic_from_json_with_nested_array(self):
+        """Polymorphic from_json via Serializable base works when the object carries an ndarray."""
+        arr = np.array([10, 20, 30], dtype=np.int16)
+        obj = ObjWithArray(values=arr)
+        json_str = obj.to_json()
+        restored = Serializable.from_json(json_str)
+        self.assertIsInstance(restored, ObjWithArray)
+        self.assertEqual(restored.values.dtype, np.int16)
+        np.testing.assert_array_equal(restored.values, arr)
+
+    def test_plain_list_with_no_type_hint_recurses(self):
+        """deserialize_value with type_hint=None on a plain list recurses into elements."""
+        arr = np.array([7.0, 8.0], dtype=np.float64)
+        serialized = [serialize_value(arr)]
+        result = deserialize_value(serialized, None)
+        self.assertIsInstance(result[0], np.ndarray)
+        np.testing.assert_array_equal(result[0], arr)
+
+    def test_plain_dict_with_no_type_hint_recurses(self):
+        """deserialize_value with type_hint=None on a plain dict (no markers) recurses values."""
+        arr = np.array([1, 2, 3], dtype=np.int32)
+        raw = {"nested": serialize_value(arr)}
+        result = deserialize_value(raw, None)
+        self.assertIsInstance(result["nested"], np.ndarray)
+        np.testing.assert_array_equal(result["nested"], arr)
+
+    def test_scalar_with_no_type_hint_passes_through(self):
+        """deserialize_value with type_hint=None on a primitive returns it unchanged."""
+        self.assertEqual(deserialize_value(42, None), 42)
+        self.assertEqual(deserialize_value("hello", None), "hello")
+
+
+# ── Additional edge-case coverage ─────────────────────────────────────────────
+
+
+@serializable("test.ObjWithSet")
+@dataclass(kw_only=True)
+class ObjWithSet(CommonObject):
+    tags: set[str] = field(default_factory=set)
+
+
+@serializable("test.ObjWithTuple")
+@dataclass(kw_only=True)
+class ObjWithTuple(CommonObject):
+    pair: tuple[int, str] = field(default_factory=lambda: (0, ""))
+
+
+@serializable("test.ObjWithBareList")
+@dataclass(kw_only=True)
+class ObjWithBareList(CommonObject):
+    items: list = field(default_factory=list)
+
+
+@serializable("test.ObjWithNonInitField")
+@dataclass(kw_only=True)
+class ObjWithNonInitField(CommonObject):
+    name: str = ""
+    computed: str = field(init=False, default="computed")
+
+
+class TestEdgeCases(UnitTest):
+
+    def test_set_serialization(self):
+        """Sets are serialized as lists."""
+        result = serialize_value({"a", "b"})
+        self.assertIsInstance(result, list)
+        self.assertCountEqual(result, ["a", "b"])
+
+    def test_set_round_trip(self):
+        obj = ObjWithSet(tags={"x", "y", "z"})
+        restored = ObjWithSet.deserialize(obj.serialize())
+        self.assertEqual(restored.tags, {"x", "y", "z"})
+
+    def test_tuple_round_trip(self):
+        obj = ObjWithTuple(pair=(5, "hello"))
+        restored = ObjWithTuple.deserialize(obj.serialize())
+        self.assertEqual(restored.pair, (5, "hello"))
+
+    def test_bare_list_hint_recurses_marker_driven(self):
+        """A field typed as plain list still round-trips ndarray envelopes inside it."""
+        arr = np.array([1.0, 2.0], dtype=np.float32)
+        envelope = serialize_value(arr)
+        obj = ObjWithBareList(items=[envelope])
+        data = obj.serialize()
+        restored = ObjWithBareList.deserialize(data)
+        self.assertIsInstance(restored.items[0], np.ndarray)
+        np.testing.assert_array_equal(restored.items[0], arr)
+
+    def test_non_init_field_not_serialized(self):
+        """Fields with init=False are excluded from serialization."""
+        obj = ObjWithNonInitField(name="test")
+        data = obj.serialize()
+        self.assertNotIn("computed", data)
+        restored = ObjWithNonInitField.deserialize(data)
+        self.assertEqual(restored.computed, "computed")
+
+    def test_union_value_none_path(self):
+        """When a Union/Optional field has value=None, None is returned."""
+        obj = ObjWithOptional(name="x", label=None, score=None)
+        restored = ObjWithOptional.deserialize(obj.serialize())
+        self.assertIsNone(restored.label)
+        self.assertIsNone(restored.score)
+
+    def test_union_with_no_matching_member_is_refused(self):
+        """When every Union member fails to read the value, it is an error, not a raw pass-through."""
+        with self.assertRaisesRegex(TypeError, "matches no member"):
+            deserialize_value("not_a_number", Union[int, float])
+        self.assertEqual(deserialize_value("7", Union[int, float]), 7)
+
+    def test_deserialize_unknown_type_key_is_an_error(self):
+        """An unregistered __type__ is refused rather than guessed: a typo must not load as another class."""
+        data = {"__type__": "nonexistent.module.Foo", "name": "x", "value": 1.0}
+        with self.assertRaises(KeyError):
+            SimpleObj.deserialize(data)
+
+    def test_final_fallthrough_returns_value_unchanged(self):
+        """Values whose type hint is not handled are returned unchanged."""
+
+        class Opaque:
+            pass
+
+        opaque = Opaque()
+        result = deserialize_value(opaque, Opaque)
+        self.assertIs(result, opaque)
+
+    def test_hint_driven_serializable_without_type_key(self):
+        """Deserializing a raw dict (no __type__) into a known Serializable hint works."""
+        # A hand-crafted dict for Inner (no __type__ stamp) under a field typed as Inner
+        raw = {"x": 99}
+        result = deserialize_value(raw, Inner)
+        self.assertIsInstance(result, Inner)
+        self.assertEqual(result.x, 99)
+
+    def test_bare_typing_tuple_no_args(self):
+        """Tuple with no type params (typing.Tuple) returns tuple(value)."""
+        from typing import Tuple  # noqa: UP006 — intentional bare Tuple for coverage
+
+        result = deserialize_value([1, 2, 3], Tuple)
+        self.assertIsInstance(result, tuple)
+        self.assertEqual(result, (1, 2, 3))
+
+
+# ── Stable names and versions ──────────────────────────────────────────────────
+
+
+@serializable("test.Versioned", version=3)
+@dataclass(kw_only=True)
+class Versioned(CommonObject):
+    """Version history: v1 had ``amount``; v2 renamed it ``notional``; v3 added ``currency`` with a default."""
+
+    notional: float
+    currency: str = "USD"
+
+
+@upgrade("test.Versioned", from_version=1)
+def _versioned_1_to_2(doc: dict) -> dict:
+    doc["notional"] = doc.pop("amount")
+    return doc
+
+
+@upgrade("test.Versioned", from_version=2)
+def _versioned_2_to_3(doc: dict) -> dict:
+    doc.setdefault("currency", "GBP")  # documents from before the field existed were all GBP
+    return doc
+
+
+@serializable("test.Holder", version=1)
+@dataclass(kw_only=True)
+class Holder(CommonObject):
+    inner: Versioned
+
+
+class Unregistered(CommonObject):
+    pass
+
+
+@serializable("test.RegisteredChild")
+@dataclass(kw_only=True)
+class RegisteredChild(Versioned):
+    extra: int = 0
+
+
+@serializable("test.OptionalHolder")
+@dataclass(kw_only=True)
+class OptionalHolder(CommonObject):
+    inner: Versioned | None = None
+
+
+# A class with one annotation that only exists under TYPE_CHECKING, and a subclass of it.
+_GHOST_SOURCE = """
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+from quant_toolkit.common.object import CommonObject, serializable
+from quant_toolkit.common.tests.common.test_serializer import Inner
+if TYPE_CHECKING:
+    from some.missing.module import Ghost
+
+@serializable("test.Ghost{tag}")
+@dataclass(kw_only=True)
+class GhostParent(CommonObject):
+    inner: Inner
+    ghost: Ghost | None = None
+
+@serializable("test.GhostChild{tag}")
+@dataclass(kw_only=True)
+class GhostChild(GhostParent):
+    later: Inner | None = None
+"""
+
+
+class TestStableNamesAndVersions(UnitTest):
+
+    def test_the_name_is_the_type_key_not_the_module_path(self):
+        doc = Versioned(notional=1.0).serialize()
+        self.assertEqual(doc["__type__"], "test.Versioned")
+        self.assertEqual(doc["__version__"], 3)
+        self.assertNotIn(Versioned.__module__, doc["__type__"])
+        self.assertIsInstance(Serializable.deserialize(doc), Versioned)  # resolved through the registry
+
+    def test_upgrades_chain_from_the_oldest_version(self):
+        v1 = {"__type__": "test.Versioned", "__version__": 1, "amount": 5.0}
+        obj = Versioned.deserialize(v1)
+        self.assertEqual((obj.notional, obj.currency), (5.0, "GBP"))     # 1 -> 2 renamed, 2 -> 3 defaulted
+        v2 = {"__type__": "test.Versioned", "__version__": 2, "notional": 7.0}
+        self.assertEqual(Versioned.deserialize(v2).currency, "GBP")
+        self.assertEqual(Versioned.deserialize({"__type__": "test.Versioned", "__version__": 3, "notional": 1.0}).currency, "USD")
+        self.assertEqual(Versioned.deserialize(v1).serialize()["__version__"], 3)  # re-saving writes the current version
+
+    def test_a_document_without_a_version_is_version_one(self):
+        obj = Versioned.deserialize({"__type__": "test.Versioned", "amount": 2.0})
+        self.assertEqual(obj.notional, 2.0)
+
+    def test_a_newer_document_is_refused(self):
+        with self.assertRaises(ValueError):
+            Versioned.deserialize({"__type__": "test.Versioned", "__version__": 4, "notional": 1.0})
+
+    def test_a_missing_upgrade_step_is_an_error(self):
+        @serializable("test.Gapped", version=2)
+        @dataclass(kw_only=True)
+        class Gapped(CommonObject):
+            x: int = 0
+
+        with self.assertRaises(KeyError):
+            Gapped.deserialize({"__type__": "test.Gapped", "__version__": 1, "x": 1})
+
+    def test_nested_objects_carry_their_own_version(self):
+        doc = Holder(inner=Versioned(notional=1.0)).serialize()
+        self.assertEqual((doc["__version__"], doc["inner"]["__version__"]), (1, 3))
+        old = {"__type__": "test.Holder", "__version__": 1, "inner": {"__type__": "test.Versioned", "__version__": 1, "amount": 9.0}}
+        self.assertEqual(Holder.deserialize(old).inner.notional, 9.0)  # the leg upgrades, the holder did not change
+
+    def test_an_unregistered_subclass_cannot_be_serialised(self):
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Unregistered().serialize()
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Unregistered.deserialize({})
+
+    def test_a_subclass_does_not_inherit_its_parents_name(self):
+        @dataclass(kw_only=True)
+        class Child(Versioned):
+            extra: int = 0
+
+        with self.assertRaisesRegex(TypeError, "not registered"):
+            Child(notional=1.0).serialize()
+
+    def test_deserialize_refuses_an_unrelated_type(self):
+        with self.assertRaisesRegex(TypeError, "test.Inner"):
+            SimpleObj.deserialize(Inner(x=1).serialize())
+
+    def test_a_parent_document_is_not_a_child_but_a_child_document_is_a_parent(self):
+        child = RegisteredChild(notional=1.0, extra=2)
+        self.assertEqual(Versioned.deserialize(child.serialize()), child)
+        self.assertEqual(loads(dumps(child)), child)
+        with self.assertRaisesRegex(TypeError, "test.Versioned"):
+            RegisteredChild.deserialize(Versioned(notional=1.0).serialize())
+
+    def test_a_nested_field_refuses_an_unrelated_document(self):
+        doc = {"__type__": "test.Holder", "inner": Inner(x=1).serialize()}
+        with self.assertRaisesRegex(TypeError, "test.Inner") as ctx:
+            Holder.deserialize(doc)
+        self.assertIn("while reading test.Holder.inner", ctx.exception.__notes__)
+        doc["inner"] = RegisteredChild(notional=1.0, extra=2).serialize()
+        self.assertIsInstance(Holder.deserialize(doc).inner, RegisteredChild)  # a subclass document is fine
+
+    def test_a_union_miss_is_an_error(self):
+        with self.assertRaisesRegex(TypeError, "matches no member"):
+            ObjWithOptional.deserialize({"name": "a", "score": "abc"})
+        with self.assertRaisesRegex(TypeError, "matches no member"):
+            OptionalHolder.deserialize({"inner": Inner(x=1).serialize()})
+        self.assertEqual(OptionalHolder.deserialize({"inner": {"__version__": 3, "notional": 2.0}}).inner, Versioned(notional=2.0))
+
+    def test_one_unresolvable_hint_does_not_drop_the_others(self):
+        for future in ("from __future__ import annotations\n", ""):
+            with self.subTest(future=bool(future)):
+                tag = "F" if future else "L"
+                module = types.ModuleType(f"_serializer_ghost_{tag}")
+                sys.modules[module.__name__] = module
+                self.addCleanup(sys.modules.pop, module.__name__)
+                exec(future + _GHOST_SOURCE.format(tag=tag), module.__dict__)
+                hints = _field_hints(module.GhostChild)
+                self.assertEqual((hints["inner"], hints["ghost"], hints["later"]), (Inner, None, Inner | None))
+                loaded = module.GhostChild.deserialize({"inner": {"x": 3}})  # no __type__: only the hint can build it
+                self.assertEqual(loaded.inner, Inner(x=3))
+
+    def test_hints_are_resolved_once_per_class(self):
+        self.assertIs(_field_hints(SimpleObj), _field_hints(SimpleObj))
+
+    def test_a_name_cannot_be_taken_twice(self):
+        with self.assertRaises(ValueError):
+
+            @serializable("test.Versioned")
+            @dataclass(kw_only=True)
+            class Impostor(CommonObject):
+                pass
+
+        with self.assertRaises(ValueError):
+
+            @upgrade("test.Versioned", from_version=1)
+            def _again(doc):
+                return doc
+
+
+class TestModuleLevelLoadAndDump(UnitTest):
+
+    def test_loads_builds_whatever_the_document_names(self):
+        holder = Holder(inner=Versioned(notional=2.0))
+        back = loads(dumps(holder))
+        self.assertIsInstance(back, Holder)
+        self.assertEqual(back, holder)
+        self.assertIsInstance(loads(dumps(Versioned(notional=1.0))), Versioned)
+
+    def test_dump_and_load_take_a_path_or_an_open_file(self):
+        import io
+        import tempfile
+        from pathlib import Path
+
+        obj = Versioned(notional=3.0, currency="EUR")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "v.json"
+            dump(obj, path)
+            self.assertEqual(load(path), obj)
+            self.assertEqual(load(str(path)), obj)
+            with open(path) as fh:
+                self.assertEqual(load(fh), obj)
+        buffer = io.StringIO()
+        dump(obj, buffer)
+        buffer.seek(0)
+        self.assertEqual(load(buffer), obj)
+
+    def test_loads_upgrades_old_documents_too(self):
+        self.assertEqual(loads('{"__type__": "test.Versioned", "__version__": 1, "amount": 4.0}').notional, 4.0)

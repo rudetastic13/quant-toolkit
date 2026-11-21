@@ -1,8 +1,8 @@
 # maths/01 · Interpolation
 
 Interpolation fills in a function between known nodes. In this library it lives in
-`common.math.line.Line1d` (nodes + an interpolator + per-side extrapolation) and
-`common.math.interpolation` (the schemes). A curve never interpolates discount factors directly:
+`quant_toolkit.common.math.line.Line1d` (nodes + an interpolator + per-side extrapolation) and
+`quant_toolkit.common.math.interpolation` (the schemes). A curve never interpolates discount factors directly:
 it interpolates a *transform* of them, `ln DF` or the zero rate, chosen by `CurveSpace`
 ([maths/04](04_log_discount_factors.md), [maths/05](05_continuous_rates.md)).
 
@@ -19,8 +19,8 @@ Given nodes `(xᵢ, yᵢ)`, each scheme defines `y(x)` on `[x₀, xₙ]`:
 | `Mixed(short, long, switch_node)` | one scheme up to a node, another after; fit independently | C⁰ at the switch | per segment |
 
 ```python
-from common.math.line import Extrapolation, Line1d
-from finance.markets.curves import Cubic, Linear, Mixed, Quadratic
+from quant_toolkit.common.math.line import Extrapolation, Line1d
+from quant_toolkit.finance.markets.curves import Cubic, Linear, Mixed, Quadratic
 
 nodes_x = np.array([0.0, 1.0, 2.0, 4.0, 6.0])
 nodes_y = np.array([1.0, 0.5, 1.5, 1.0, 2.0])

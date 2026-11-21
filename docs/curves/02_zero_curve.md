@@ -1,6 +1,6 @@
 # 02 · `ZeroCurve`: the atom
 
-A `ZeroCurve` is a `common.math.line.Line1d` in a declared `CurveSpace`, plus the
+A `ZeroCurve` is a `quant_toolkit.common.math.line.Line1d` in a declared `CurveSpace`, plus the
 discount-factor invariants. It knows nothing about dates, indices, fixings or coupons; its axis is
 float days from the origin. `YieldCurve` ([04](04_yield_curve.md)) adds the calendar.
 
@@ -18,7 +18,7 @@ front end). `ZeroRate` with a spline gives smooth forwards. The choice is a mode
 the engines take either because of the affine contract.
 
 ```python
-from finance.markets.curves import Cubic, CurveInterpolator, Linear, Mixed, Quadratic, RateExtrapolator
+from quant_toolkit.finance.markets.curves import Cubic, CurveInterpolator, Linear, Mixed, Quadratic, RateExtrapolator
 
 rate_cubic = ZeroCurve(x, dfs, space=CurveSpace.ZeroRate, interpolator=Cubic())
 rate_cubic
@@ -34,7 +34,7 @@ sofr.instantaneous_forward(xq), rate_cubic.instantaneous_forward(xq)
 
 ## Interpolators
 
-Any `common.math.interpolation` scheme: `Linear`, `Cubic(bc_type)`, `Quadratic`, `Flat`, and
+Any `quant_toolkit.common.math.interpolation` scheme: `Linear`, `Cubic(bc_type)`, `Quadratic`, `Flat`, and
 `Mixed(short, long, switch_node)` for one scheme up to a pillar and another beyond it. The
 parameters travel with the frozen interpolator instance, so `Cubic("not-a-knot")` and
 `Cubic("natural")` are different schemes. Details and figures: [maths/01](maths/01_interpolation.md)

@@ -3,15 +3,15 @@
 Three layers. Each one adds exactly one concept.
 
 ```text
-common.math.line.Line1d          nodes (x, y) + interpolator + extrapolation per side
+quant_toolkit.common.math.line.Line1d          nodes (x, y) + interpolator + extrapolation per side
         |
         |  in log-DF or zero-rate space, DF invariants (x[0] == 0, dfs[0] == 1, dfs > 0)
         v
-finance.markets.curves.ZeroCurve discount factors on float day offsets
+quant_toolkit.finance.markets.curves.ZeroCurve discount factors on float day offsets
         |
         |  + origin date, index conventions, historical fixings
         v
-finance.markets.curves.YieldCurve the market object: dates in, rates out
+quant_toolkit.finance.markets.curves.YieldCurve the market object: dates in, rates out
 ```
 
 `Line1d` knows nothing about finance. `ZeroCurve` knows nothing about dates.
@@ -36,9 +36,9 @@ touching `ZeroCurve`; `YieldCurve.to_x(dates)` does it.
 ```python
 import numpy as np
 
-from common.math.interpolation import Cubic, Flat, Linear, Mixed, Quadratic
-from common.math.line import Extrapolation, Line1d
-from finance.markets.curves import CurveInterpolator, CurveSpace, RateExtrapolator, YieldCurve, ZeroCurve
+from quant_toolkit.common.math.interpolation import Cubic, Flat, Linear, Mixed, Quadratic
+from quant_toolkit.common.math.line import Extrapolation, Line1d
+from quant_toolkit.finance.markets.curves import CurveInterpolator, CurveSpace, RateExtrapolator, YieldCurve, ZeroCurve
 ```
 
 ## 1. `Line1d`
@@ -331,7 +331,7 @@ Maps a `Term` from the origin, or a date, to the pillar index. Raises if no pill
 there. Use it to place a `Mixed` switch.
 
 ```python
-from finance.dates import Term
+from quant_toolkit.finance.dates import Term
 
 yc.node_index(Term.from_str("2Y"))         # -> 4
 yc.node_index(np.datetime64("2031-06-01")) # -> 6
@@ -345,7 +345,7 @@ holds until the next print: Friday's covers Saturday and Sunday, Monday's takes 
 Monday.
 
 ```python
-from finance.markets import HistoricalFixings, RateGenerator
+from quant_toolkit.finance.markets import HistoricalFixings, RateGenerator
 
 history = HistoricalFixings(
     dates=np.array(["2026-05-27", "2026-05-29"], dtype="datetime64[D]"),
@@ -367,8 +367,8 @@ rates.simple_rate("USD.SOFR.1D", starts, starts + np.timedelta64(1, "D"))
 ### In the market
 
 ```python
-from finance.dates import Date
-from finance.markets.context import MarketContext
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.markets.context import MarketContext
 
 market = MarketContext(Date(2026, 6, 1))
 market["USD.SOFR.1D"] = yc                 # a YieldCurve: its ZeroCurve and fixings, under its key
@@ -454,7 +454,7 @@ overshoot on uneven ladders (see the forward panel above); prefer `Cubic()`.
 ## 6. Performance
 
 Base cases are the cheapest raw numpy call doing the same work. Ratios are what is stable
-across machines and what the performance tests assert on; see `common.testing.benchmark`.
+across machines and what the performance tests assert on; see `quant_toolkit.common.testing.benchmark`.
 Numbers below are from one laptop run with coverage off.
 
 | Operation | Base case | Ratio to base |

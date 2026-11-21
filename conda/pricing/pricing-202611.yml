@@ -1,0 +1,8 @@
+# Conda only supplies the interpreter. Library and tool dependencies come from the pyproject.toml files
+# (bin/dev_install.sh installs them with pip); add a conda package here only if pip cannot provide it.
+name: pricing-202611
+channels:
+  - conda-forge
+dependencies:
+  - python=3.14
+  - pip

@@ -1,0 +1,149 @@
+from __future__ import annotations
+import re
+from typing import Callable, Any, Generic, overload
+from functools import wraps
+import numpy as np
+from numpy.lib.mixins import NDArrayOperatorsMixin
+from quant_toolkit.finance.dates.date import Date
+from quant_toolkit.finance.dates.enums.frequencies import Frequency
+from quant_toolkit.finance.dates.types import (
+    IntType,
+    IntNpType,
+    IntScalar,
+    DateScalar,
+    DateNpType,
+    DateType
+)
+from .term_math_registry import date_term_math, np_term_math
+from .term_type import TermType
+
+# constant mapping of frequencies to term
+_FREQ_MAP = {
+    Frequency.Daily: (1, TermType.Days),
+    Frequency.Weekly: (1, TermType.Weeks),
+    Frequency.BiWeekly: (2, TermType.Weeks),
+    Frequency.Monthly: (1, TermType.Months),
+    Frequency.BiMonthly: (2, TermType.Months),
+    Frequency.Quarterly: (1, TermType.Quarters),
+    Frequency.SemiAnnually: (6, TermType.Months),
+    Frequency.Annually: (1, TermType.Years),
+    Frequency.TwoYearly: (2, TermType.Years),
+    Frequency.ThreeYearly: (3, TermType.Years),
+    Frequency.FiveYearly: (5, TermType.Years),
+    Frequency.SevenYearly: (7, TermType.Years),
+    Frequency.TenYearly: (10, TermType.Years),
+    Frequency.FifteenYearly: (15, TermType.Years),
+    Frequency.TwentyYearly: (20, TermType.Years),
+    Frequency.ThirtyYearly: (30, TermType.Years),
+}
+
+# region, decorators
+def _validate_term_input(func: Callable) -> Any:
+    @wraps(func)
+    def wrapper(self, value: Any) -> Any:
+        if not isinstance(value, Term):
+            raise TypeError(f"Input value must be of type Term, got {type(value)}")
+        return func(self, value)
+    return wrapper
+# endregion
+
+class Term(Generic[IntType], NDArrayOperatorsMixin):
+
+    @overload
+    def __init__(self, term_length: int, term_type: TermType):
+        ...
+
+    @overload
+    def __init__(self, term_length: IntNpType, term_type: TermType):
+        ...
+
+    def __init__(self, term_length: IntType, term_type: TermType):
+        term_length_dtype = getattr(term_length, "dtype", type(term_length))
+        is_int = term_length_dtype is int or np.issubdtype(term_length_dtype, np.integer)
+
+        if not is_int:
+            raise TypeError(f"Input term_length must be int like, got {term_length_dtype}")
+        if type(term_type) is not TermType:
+            raise TypeError(f"Input term_type must be of type TermType, got {type(term_type)}")
+        self.term_info = (term_length, term_type)
+
+    @property
+    def term_length(self):
+        return self.term_info[0]
+
+    @property
+    def term_type(self):
+        return self.term_info[1]
+
+    @property
+    def shape(self):
+        if type(self.term_length) is int:
+            return ()
+        return self.term_length.shape
+
+    @property
+    def size(self):
+        if type(self.term_length) is int:
+            return 1
+        return self.term_length.size
+
+    @overload
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[Date, "Term[int]"], **kwargs) -> Date:
+        ...
+
+    @overload
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateScalar, "Term[IntScalar]"], **kwargs) -> DateScalar:
+        ...
+
+    @overload
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs: tuple[DateNpType, "Term[IntNpType]"], **kwargs) -> DateNpType:
+        ...
+
+    def __array_ufunc__(self, ufunc: Callable, method: str, *inputs, **kwargs) -> DateType:
+        dates, _ = inputs
+        if type(dates) is Date:
+            if ufunc == np.subtract:
+                return date_term_math(self.term_type, dates, -self.term_length)
+            elif ufunc == np.add:
+                return date_term_math(self.term_type, dates, self.term_length)
+            else:
+                raise NotImplementedError(f"Operation {ufunc} not supported for Term and Date")
+
+        offsets = np.int64(self.term_length) if type(self.term_length) is int else self.term_length
+        if ufunc == np.subtract:
+            return np_term_math(self.term_type, dates, -1 * offsets)
+        elif ufunc == np.add:
+            return np_term_math(self.term_type, dates, offsets)
+        else:
+            raise NotImplementedError(f"Operation {ufunc} not supported for Term and Date array")
+
+    @classmethod
+    def from_str(cls, value: str) -> Term:
+        if match:= re.match(r"(-?\d+)\s*([a-zA-Z]+)", value):
+            term_length = int(match.group(1))
+            term_type = TermType(match.group(2)[0].upper())
+            return cls(term_length, term_type)
+
+        raise SyntaxError(f"Could not parse Term {value}")
+
+    @classmethod
+    def from_frequency(cls, frequency: Frequency) -> Term:
+        return Term(*_FREQ_MAP[frequency])
+
+    def __neg__(self) -> Term:
+        return Term(-self.term_length, self.term_type)
+
+    def __pos__(self) -> Term:
+        return self
+
+    def __abs__(self) -> Term:
+        return Term(abs(self.term_length), self.term_type)
+
+    @_validate_term_input
+    def __eq__(self, other: Term) -> bool:
+        return self.term_info == other.term_info
+
+    @_validate_term_input
+    def __ne__(self, other: Term) -> bool:
+        return self.term_info != other.term_info
+

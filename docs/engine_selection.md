@@ -169,10 +169,10 @@ LogLinearDF curve and two flat vol surfaces — one per quoting convention, beca
 
 ```python
 import numpy as np
-from finance.dates import Date
-from finance.markets.context import MarketContext
-from finance.markets.curves import YieldCurve
-from finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
+from quant_toolkit.finance.dates import Date
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets.curves import YieldCurve
+from quant_toolkit.finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 
 as_of  = Date(2026, 6, 1)
 origin = as_of.to_numpy()
@@ -192,9 +192,9 @@ market["USD.STDCSA"] = sofr                                           # the same
 ### 7.1 Swaps — linear rates, engines interchangeable behind one program
 
 ```python
-from finance.instruments.resolution import Swap
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.types import Backend
+from quant_toolkit.finance.instruments.resolution import Swap
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.types import Backend
 
 recv_5y = Swap.fixed_float_swap(notional=100e6, rate_index="USD.SOFR.1D", fixed_rate=0.041, tenor="5Y",  as_of=as_of)
 pay_10y = Swap.fixed_float_swap(notional=-25e6, rate_index="USD.SOFR.1D", fixed_rate=0.040, tenor="10Y", as_of=as_of)
@@ -216,8 +216,8 @@ hot.price(market).instrument_pv       # identical to ~1e-7 absolute (1e-13 relat
 ### 7.2 Swaptions — same wiring, model picks the kernel *and* the surface
 
 ```python
-from finance.instruments.resolution import Swaption, SwaptionModel
-from finance.pricing.pricers import SwaptionPricer
+from quant_toolkit.finance.instruments.resolution import Swaption, SwaptionModel
+from quant_toolkit.finance.pricing.pricers import SwaptionPricer
 
 payer_n = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor="5Y", as_of=as_of,
                             payer=True,  model=SwaptionModel.Bachelier)                       # -> USD.SOFR.1D (Normal)
@@ -248,7 +248,7 @@ support — `adjoint` (numba installed; any curve scheme) or `bump` (universal f
 serves the same requests either way. Pinning `method="bump"` is the §5 cross-check.
 
 ```python
-from finance.pricing.risk import RiskEngine
+from quant_toolkit.finance.pricing.risk import RiskEngine
 
 risk = RiskEngine(program, market)
 risk.method                 # 'adjoint'  (numba installed)
@@ -285,8 +285,8 @@ and both methods reconcile because they differentiate the same model.
 ### 7.3 Risk on a template — one base curve, a trader's view of it
 
 ```python
-from finance.pricing.calibration import swap_helper
-from finance.pricing.risk import RiskEngine, RiskTemplate
+from quant_toolkit.finance.pricing.calibration import swap_helper
+from quant_toolkit.finance.pricing.risk import RiskEngine, RiskTemplate
 
 template = RiskTemplate(
     [swap_helper(rate=float("nan"), tenor=t, as_of=as_of) for t in ("1Y", "2Y", "3Y", "5Y", "7Y", "10Y")],

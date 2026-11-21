@@ -28,14 +28,14 @@ import numpy as np
 if TYPE_CHECKING:
     import pandas as pd
 
-from finance.conventions import default_registry
-from finance.dates import Date, Term, TermType, add_term
-from finance.instruments.enums import CouponType
-from finance.instruments.resolution import Deposit, Swap, curve_name
-from finance.markets.context import MarketContext
-from finance.markets import RateGenerator
-from finance.markets.curves import CurveInterpolator, YieldCurve
-from finance.pricing.calibration import (
+from quant_toolkit.finance.conventions import default_registry
+from quant_toolkit.finance.dates import Date, Term, TermType, add_term
+from quant_toolkit.finance.instruments.enums import CouponType
+from quant_toolkit.finance.instruments.resolution import Deposit, Swap, curve_name
+from quant_toolkit.finance.markets.context import MarketContext
+from quant_toolkit.finance.markets import RateGenerator
+from quant_toolkit.finance.markets.curves import CurveInterpolator, YieldCurve
+from quant_toolkit.finance.pricing.calibration import (
     Bootstrapper,
     CalibrationResult,
     CurveCalibrator,
@@ -46,10 +46,10 @@ from finance.pricing.calibration import (
     QuoteKind,
     swap_helper,
 )
-from finance.pricing.pricers import SwapPricer
-from finance.pricing.risk import NumbaRisk, Sensitivities
-from finance.pricing.risk.autodiff import AutodiffRisk
-from finance.pricing.types import Backend
+from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.pricing.risk import NumbaRisk, Sensitivities
+from quant_toolkit.finance.pricing.risk.autodiff import AutodiffRisk
+from quant_toolkit.finance.pricing.types import Backend
 
 
 def _partial_dv01(unit_jacobian: np.ndarray, jacobian: np.ndarray) -> np.ndarray:
@@ -645,7 +645,7 @@ def par_rate_ladder(
     * ``"numba"`` — ``NumbaRisk.unit_zero_jacobian`` reads ``∂V/∂z`` from the compiled analytic
       adjoint and applies the same transform, without specializing on the book shape.
 
-    This is the identity ``RiskTemplate`` by hand (``finance.pricing.risk.template``); the
+    This is the identity ``RiskTemplate`` by hand (``quant_toolkit.finance.pricing.risk.template``); the
     template adds the basis, diagnostics and the unexplained remainder for non-square views.
 
     Returns ``(pdv01, labels)`` with ``pdv01`` shaped ``(n_instruments, n_quotes)``.
