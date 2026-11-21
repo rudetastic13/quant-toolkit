@@ -44,7 +44,7 @@ def generate_schedule_cpp(
 ) -> np.ndarray:
     """Generate a schedule with the C++ core, mirroring generate_schedule"""
     if not is_available():
-        raise RuntimeError("quant_toolkit.finance._core not built; run bin/build_core.sh")
+        raise RuntimeError("quant_toolkit.finance._core not built; run bin/bash/build_core.sh or bin/powershell/build_core.ps1")
     start_int = _to_ordinal(start_date)
     end_int = _to_ordinal(end_date)
     first_int = _to_ordinal(first_regular_date) if first_regular_date is not None else start_int

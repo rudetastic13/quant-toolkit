@@ -28,9 +28,15 @@ Dabbling in interest rate analytics
 
 Conda only supplies the Python interpreter (`conda/pricing/*.yml`); the libraries come from the `pyproject.toml` files.
 Sourcing the script creates/activates the env and editable-installs every portion plus the dev extras.
+Every script in `bin/` comes in two flavours with the same behaviour: `bin/bash/*.sh` (Linux, macOS, Git Bash)
+and `bin/powershell/*.ps1` (Windows). conda must be hooked into the shell first (`conda init bash` / `conda init powershell`).
 
 ```bash
-source bin/use_env.sh pricing
+source bin/bash/use_env.sh pricing           # bash / Git Bash
+```
+
+```powershell
+. bin/powershell/use_env.ps1 pricing          # PowerShell (dot-source so the activation sticks)
 ```
 
 Installing the library elsewhere:

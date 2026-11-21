@@ -1,6 +1,6 @@
 """Private compiled extension modules (C++ via pybind11).
 
-The extensions are built out-of-band by bin/build_core.sh (CMake + ninja) and
+The extensions are built out-of-band by bin/bash/build_core.sh (bin/powershell/build_core.ps1) (CMake + ninja) and
 installed in-tree next to this file. The package degrades gracefully when the
 extension has not been built: importing quant_toolkit.finance._core always succeeds and
 is_available() reports whether the compiled module is usable.

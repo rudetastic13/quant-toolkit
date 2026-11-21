@@ -14,7 +14,7 @@ from quant_toolkit.finance.dates.schedules.numba_based import generate_schedule_
 
 
 @pytest.mark.datemath
-@pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/build_core.sh")
+@pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/bash/build_core.sh or bin/powershell/build_core.ps1")
 class TestScalarDateMathParity(UnitTest):
 
     # leap/century edges plus the epoch neighborhood
@@ -161,12 +161,12 @@ class TestScheduleImplParity(UnitTest):
         self._assert_grid_parity(generate_schedule_numba)
         self._assert_rejects_bad_order(generate_schedule_numba)
 
-    @pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/build_core.sh")
+    @pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/bash/build_core.sh or bin/powershell/build_core.ps1")
     def test_cpp_parity(self):
         self._assert_grid_parity(generate_schedule_cpp)
         self._assert_rejects_bad_order(generate_schedule_cpp)
 
-    @pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/build_core.sh")
+    @pytest.mark.skipif(not core_available(), reason="quant_toolkit.finance._core not built; run bin/bash/build_core.sh or bin/powershell/build_core.ps1")
     def test_cpp_accepts_all_date_types(self):
         # Date, datetime.date, 1970-based int ordinal, and datetime64 must agree
         start, end = Date(2025, 1, 15), Date(2028, 1, 15)

@@ -40,7 +40,7 @@ keywords = ["finance", "pricing", "rates", "quant", "data-science"]
 accel = ["numba>=0.64"]
 # validation oracles for the engines (JAX today; QuantLib may join)
 oracle = ["jax", "jaxlib"]
-# toolchain for the finance._core C++ extension (bin/build_core.sh); pybind11 3.x supports CPython 3.14
+# toolchain for the finance._core C++ extension (bin/bash/build_core.sh, bin/powershell/build_core.ps1); pybind11 3.x supports CPython 3.14
 cpp = ["pybind11>=3.0", "cmake>=3.26", "ninja"]
 # what the test suite needs (common.testing uses pandas + tabulate for its markdown helpers)
 test = ["pytest", "pytest-cov", "hypothesis", "pandas", "tabulate"]

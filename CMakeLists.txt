@@ -3,7 +3,7 @@
 # This build is intentionally decoupled from the Python packaging backend
 # (setuptools): `cmake --install` drops the ABI-tagged extension into
 # packages/finance/src/quant_toolkit/finance/_core/ so the editable install picks it up directly.
-# Use bin/build_core.sh for a one-command configure/build/install.
+# Use bin/bash/build_core.sh (or bin/powershell/build_core.ps1) for a one-command configure/build/install.
 cmake_minimum_required(VERSION 3.26)
 project(rates_lib_core LANGUAGES CXX)
 

@@ -2,7 +2,7 @@
 #
 # Portable script to set conda environments
 # Usage:
-#     source bin/use_env.sh <name> [--prune]
+#     source bin/bash/use_env.sh <name> [--prune]
 
 # Detect being sourced (works in bash and zsh)
 # windows usage means you should work with git-bash
@@ -62,7 +62,8 @@ else
   ENV_SUFFIX=""
 fi
 
-BASE_ENV_DIR="conda"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)"
+BASE_ENV_DIR="${REPO_ROOT}/conda"
 ENV_DIR="${BASE_ENV_DIR}/${ENV_PREFIX}"
 
 # Use latest if suffix empty or 'latest'
@@ -98,11 +99,10 @@ printf "Activating environment %s...\n" "$ENV_NAME"
 conda activate "$ENV_NAME"
 
 # the conda env only supplies Python; the library comes from the repo's editable installs
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
-"$REPO_ROOT/bin/dev_install.sh" --deps
+"$REPO_ROOT/bin/bash/dev_install.sh" --deps
 
 if [ "$PRUNE" = "true" ] && [ "$ENV_EXISTS" = "true" ]; then
   printf "Pruning environment %s...\n" "$ENV_NAME"
   conda env update -n "$ENV_NAME" -f "$ENV_FILE" --prune
-  "$REPO_ROOT/bin/dev_install.sh" --deps
+  "$REPO_ROOT/bin/bash/dev_install.sh" --deps
 fi

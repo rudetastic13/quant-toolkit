@@ -5,9 +5,9 @@
 # except when run with --deps, which also installs the dev extras (tests, lint, notebooks).
 #
 # Usage:
-#     bin/dev_install.sh [--deps]
+#     bin/bash/dev_install.sh [--deps]
 set -euo pipefail
-cd "$(dirname "$0")/.."
+cd "$(dirname "$0")/../.."
 
 if [ "${1:-}" = "--deps" ]; then
   pip install -e packages/common -e packages/finance -e ".[dev,notebook,accel]"
