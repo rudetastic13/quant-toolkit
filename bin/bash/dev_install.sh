@@ -19,7 +19,7 @@ fi
 python - <<'PY'
 import quant_toolkit
 paths = list(quant_toolkit.__path__)
-print("quant_toolkit.__path__:")
+print("quant_toolkit.__path__")
 for p in paths:
     print("  ", p)
 PY
