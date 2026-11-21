@@ -83,7 +83,7 @@ Rules of the split.
 - **Layering is the dependency graph.** `common` depends on nothing internal; `infra` on `common`;
   `finance` on `common` (+ `infra`); `xl` on `finance`. A portion cannot import what it does not
   declare.
-- **Dev flow is editable installs**: `bin/dev_install.sh` runs `pip install -e` on each portion
+- **Dev flow is editable installs**: `bin/bash/dev_install.sh` (`bin/powershell/dev_install.ps1`) runs `pip install -e` on each portion
   (CI does the same). `PYTHONPATH=packages/common/src:packages/finance/src:apps/excel/src` also
   works because namespace portions merge across path entries.
 - **One root for tools.** pytest: `--import-mode=importlib`, `testpaths` lists every portion's in-package test tree;

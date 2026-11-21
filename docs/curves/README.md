@@ -32,7 +32,7 @@ the Jacobians described in 05).
 ## Running the snippets
 
 ```bash
-source bin/use_env.sh pricing          # or: PYTHONPATH=src python ...
+source bin/bash/use_env.sh pricing     # PowerShell: . bin/powershell/use_env.ps1 pricing
 python -c "import numpy as np; np.set_printoptions(precision=6, suppress=True)"
 ```
 

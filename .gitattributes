@@ -24,6 +24,12 @@
 *.sh        text eol=lf
 *.bash      text eol=lf
 *.zsh       text eol=lf
+*.ps1       text eol=lf
+*.psm1      text eol=lf
+*.psd1      text eol=lf
+# cmd.exe mis-parses labels/gotos in LF batch files: the one CRLF exception
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
 *.c         text eol=lf
 *.h         text eol=lf
 *.cpp       text eol=lf

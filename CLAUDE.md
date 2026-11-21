@@ -10,17 +10,23 @@ The goal is to design interest rate analytics levering composition over inherita
 ## Commands
 
 ### Environment Setup
+Every script has a bash twin in `bin/bash/` and a PowerShell twin in `bin/powershell/` with the same behaviour
+(PowerShell flags are `-Deps` / `-Prune`). conda must be hooked into the shell (`conda init bash|powershell`).
 ```bash
 # Activate conda environment
-source bin/use_env.sh pricing   # conda supplies Python only; installs every portion editable + dev extras
-bin/dev_install.sh              # re-run the editable installs in the active env (--deps adds the dev extras)
+source bin/bash/use_env.sh pricing   # conda supplies Python only; installs every portion editable + dev extras
+bin/bash/dev_install.sh              # re-run the editable installs in the active env (--deps adds the dev extras)
+```
+```powershell
+. bin/powershell/use_env.ps1 pricing   # dot-source so the activation sticks
+bin/powershell/dev_install.ps1 -Deps
 ```
 
 ### Building the C++ core (quant_toolkit.finance._core)
 ```bash
 # Requires the `cpp` extra in the active env: pip install -e '.[cpp]'
-# Compiles quant_toolkit/finance/_core/cpp/ and installs the .so next to it in packages/finance
-bin/build_core.sh
+# Compiles quant_toolkit/finance/_core/cpp/ and installs the .so/.pyd next to it in packages/finance
+bin/bash/build_core.sh          # PowerShell: bin/powershell/build_core.ps1 (from a VS Developer PowerShell)
 ```
 The build is CMake + ninja, decoupled from the setuptools packaging; rerun after
 pulling or editing C++ sources (header changes are tracked). Without the built
@@ -63,7 +69,7 @@ ruff format packages/ # format
 ### Package Layout
 - `packages/common/` (`quant_toolkit.common`) — shared utilities (registry, singleton, array buffers, curve container, test base classes)
 - `packages/finance/` (`quant_toolkit.finance`) — core financial domain (dates, calendars, terms, conventions, markets/curves, instruments, pricing). Layering is strict upward: `conventions` (keys, index families, family registry) depends on `dates` only; `markets` on `conventions`; `instruments` on `markets`; leg/product conventions live in `instruments/conventions` and register beside the families, so the curve layer never imports instruments
-- `_core/` in `quant_toolkit.finance` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/build_core.sh`, all day counts are 1970-01-01 epoch ordinals)
+- `_core/` in `quant_toolkit.finance` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/bash/build_core.sh` / `bin/powershell/build_core.ps1`, all day counts are 1970-01-01 epoch ordinals)
 - `apps/excel/` (`quant_toolkit.xl`) — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
 - tests live inside each portion (`<portion>/tests`), mirroring the source structure
 - one namespace, `quant_toolkit`, shared by all portions (no `__init__.py` at `quant_toolkit/`); one distribution per portion, versions in lockstep via `VERSION` and `bin/bump_version.py`
