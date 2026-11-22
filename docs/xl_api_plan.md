@@ -1,5 +1,10 @@
 # Excel add-in: the function surface and how it ships
 
+> **Superseded in part (2026-11-21):** the add-in moved from xlwings to xlOil (in-process `.xll`;
+> see [apps/excel/README.md](../apps/excel/README.md)). Decisions below that exist only because of
+> xlwings' generated VBA (no dots in names, VBA-reserved parameter names, the `.xlam`, `_xw` shim)
+> no longer apply; revisit them before building on this plan.
+>
 > **Status: DRAFT FOR REVIEW (2026-11-11).** Written after the first end-to-end run of
 > `quant_toolkit.xl` in desktop Excel (demo workbook prices the README swap in-cell). Covers the
 > function catalogue to expose next, the `api/` package layout behind it, marshalling rules, the

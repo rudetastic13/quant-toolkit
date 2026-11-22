@@ -21,7 +21,7 @@ Dabbling in interest rate analytics
 - [SOFR calibration and aggregate risk sample](research/sofr_curve_calibration.py) — calibrates
   deposits/swaps, registers a SOFR yield curve, reports a 7Y swap, then nets N randomized
   swaps by zero and par-quote buckets with index/funding DV01 and gamma.
-- [Excel Add-in](apps/excel/src/quant_toolkit/xl/README.md) — the `quant_toolkit.xl` xlwings add-in:
+- [Excel Add-in](apps/excel/README.md) — the `quant_toolkit.xl` xlOil add-in:
   worksheet functions for curves, swaps, and compiled pricing programs.
 
 # Setup
@@ -56,7 +56,7 @@ Each portion is its own distribution with its own `pyproject.toml`; versions mov
 ```
 packages/common/   quant-toolkit-common   quant_toolkit.common   core tools and patterns; imports no other portion
 packages/finance/  quant-toolkit-finance  quant_toolkit.finance  dates, calendars, curves, instruments, pricing, risk
-apps/excel/        quant-toolkit-xl       quant_toolkit.xl       Excel add-in (xlwings); standalone: `pip install -e apps/excel`, own tests
+apps/excel/        quant-toolkit-xl       quant_toolkit.xl       Excel add-in (xlOil); standalone: `pip install -e apps/excel`, own tests
 pyproject.toml     quant-toolkit          meta-package (installs common + finance) and all tool config
 research/          scratch for trying out ideas; not a distribution
 ```

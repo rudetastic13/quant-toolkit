@@ -70,7 +70,7 @@ ruff format packages/ # format
 - `packages/common/` (`quant_toolkit.common`) — shared utilities (registry, singleton, array buffers, curve container, test base classes)
 - `packages/finance/` (`quant_toolkit.finance`) — core financial domain (dates, calendars, terms, conventions, markets/curves, instruments, pricing). Layering is strict upward: `conventions` (keys, index families, family registry) depends on `dates` only; `markets` on `conventions`; `instruments` on `markets`; leg/product conventions live in `instruments/conventions` and register beside the families, so the curve layer never imports instruments
 - `_core/` in `quant_toolkit.finance` — private compiled C++ extensions (pybind11; sources in `cpp/`, built by `bin/bash/build_core.sh` / `bin/powershell/build_core.ps1`, all day counts are 1970-01-01 epoch ordinals)
-- `apps/excel/` (`quant_toolkit.xl`) — Excel add-in (xlwings): worksheet UDFs over the pricing layer (see its README)
+- `apps/excel/` (`quant_toolkit.xl`) — Excel add-in (xlOil, in-process): `q*` worksheet functions over the pricing layer; `quant_toolkit_xl_installer` wires it into Excel (see its README)
 - tests live inside each portion (`<portion>/tests`), mirroring the source structure
 - one namespace, `quant_toolkit`, shared by all portions (no `__init__.py` at `quant_toolkit/`); one distribution per portion, versions in lockstep via `VERSION` and `bin/bump_version.py`
 

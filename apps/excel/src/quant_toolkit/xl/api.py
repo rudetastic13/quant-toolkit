@@ -1,4 +1,4 @@
-"""Pure logic for the Excel adapter — no xlwings dependency, fully unit-testable.
+"""Pure logic for the Excel adapter — no Excel dependency, fully unit-testable.
 
 Each function takes already-loosely-typed Excel inputs, marshals them into core-library
 types, calls into ``quant_toolkit``, and (for object-producing calls) stashes the result in

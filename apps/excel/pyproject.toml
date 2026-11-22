@@ -5,16 +5,25 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "quant-toolkit-xl"
 version = "0.1.0"  # lockstep with VERSION; bin/bump_version.py rewrites every portion
-description = "Excel add-in (xlwings) for quant-toolkit: worksheet functions over the pricing layer."
+description = "Excel add-in (xlOil) for quant-toolkit: worksheet functions over the pricing layer."
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
     "quant-toolkit-finance==0.1.0",
-    "xlwings>=0.30",
+    # in-process Excel add-in; Windows-only wheels (0.22 ships cp37-cp314)
+    "xloil==0.22.*; sys_platform == 'win32'",
+    # COM automation for examples/bench_swaps.py (and xlOil's win32com ComLib)
     "pywin32; sys_platform == 'win32'",
 ]
 
+[project.scripts]
+# prototype: xloil install + tag our modules into %APPDATA%\xlOil\xlOil.ini
+quant_toolkit_xl_installer = "quant_toolkit.xl_installer.cli:main"
+
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["quant_toolkit.xl", "quant_toolkit.xl.*"]
+include = [
+    "quant_toolkit.xl", "quant_toolkit.xl.*",
+    "quant_toolkit.xl_installer", "quant_toolkit.xl_installer.*",
+]
 namespaces = true
