@@ -97,6 +97,8 @@ class PricingProgram:
             legs project off several).
             ``gamma_step`` : the bump behind ``gamma_1bp`` / ``gamma_ladder``, zero-rate units
             (default ``1e-5``).
+            ``rebind_template`` : with a template, rebind it at each bumped market behind the
+            gammas (default ``False``: the template stays as bound).
             ``template`` : a ``RiskTemplate`` (bound or not).  The ladders come back as
             ``QuoteRisk`` and ``dv01`` as +1bp on the template's quotes on the curve.
 
@@ -108,7 +110,15 @@ class PricingProgram:
             If a setting is not recognised.
         """
         asked = resolve_requests(requests, self.measures, PricingResult.fields)
-        kr = self.reprice(market, backend=backend)
+        selected = self.backend if backend is None else Backend(backend)
+        cache: dict = {}
+        if selected == Backend.Numba and asked & _ADJOINT_MEASURES:
+            # the adjoint pass prices too: take PV from it rather than pricing twice
+            cache["adjoint"] = self.prepare(market, backend=Backend.Numba).value_and_grad(market)
+            kr = cache["adjoint"].primal
+        else:
+            kr = self.reprice(market, backend=backend)
+        cache["kernel"] = kr
         cashflows = None
         if "cashflows" in asked:
             ki = self.inputs
@@ -129,7 +139,7 @@ class PricingProgram:
             )
         return PricingResult(
             instrument_pv=kr.instrument_pv, leg_pv=kr.leg_pv, cashflows=cashflows,
-            extras=on_demand(self, market, asked, {"kernel": kr}, settings),
+            extras=on_demand(self, market, asked, cache, settings),
         )
 
     def pillar_gradient(self, market) -> PillarGradient:
@@ -139,12 +149,27 @@ class PricingProgram:
         return PillarGradient(numba.layout, result.instrument_total_gradient, result.primal.instrument_pv)
 
 
+# Measures served by the Numba adjoint pass (which also produces PV).
+_ADJOINT_MEASURES = frozenset({"zero_ladder", "index_ladder", "funding_ladder", "dv01", "gamma_1bp", "gamma_ladder"})
+
+
 def _adjoint(program: PricingProgram, market, context: MeasureContext):
     """The Numba adjoint result, run once per ``price`` call."""
     cache = context.cache
     if "adjoint" not in cache:
         cache["adjoint"] = program.prepare(market, backend=Backend.Numba).value_and_grad(market)
     return cache["adjoint"]
+
+
+def _gradient(program: PricingProgram, market, context: MeasureContext) -> PillarGradient:
+    """The total pillar gradient from the shared adjoint pass, also published as the call's base gradient."""
+    cache = context.cache
+    if "pillar_gradient" not in cache:
+        result = _adjoint(program, market, context)
+        cache["pillar_gradient"] = PillarGradient(
+            result.layout, result.instrument_total_gradient, result.primal.instrument_pv
+        )
+    return cache["pillar_gradient"]
 
 
 def _ladder(program: PricingProgram, market, context: MeasureContext, attribute: str):
@@ -158,9 +183,7 @@ def _ladder(program: PricingProgram, market, context: MeasureContext, attribute:
 @measure(PricingProgram, "dv01")
 def _dv01(program, market, context):
     """PV change for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
-    result = _adjoint(program, market, context)
-    gradient = PillarGradient(result.layout, result.instrument_total_gradient, result.primal.instrument_pv)
-    return dv01_from(gradient, program.inputs, market, context)
+    return dv01_from(_gradient(program, market, context), program.inputs, market, context)
 
 
 @measure(PricingProgram, "zero_ladder")
@@ -214,12 +237,14 @@ def _fixed_coupons(program: PricingProgram, market, context: MeasureContext):
 @measure(PricingProgram, "gamma_1bp")
 def _gamma_1bp(program, market, context):
     """Change in ``dv01`` for a +1bp parallel move of the same curve; see :func:`gamma_1bp_from`."""
+    _gradient(program, market, context)
     return gamma_1bp_from(program, program.inputs, market, context)
 
 
 @measure(PricingProgram, "gamma_ladder")
 def _gamma_ladder(program, market, context):
     """Per-pillar change in 01 for that move; see :func:`gamma_ladder_from`."""
+    _gradient(program, market, context)
     return gamma_ladder_from(program, program.inputs, market, context)
 
 

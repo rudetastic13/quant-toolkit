@@ -27,8 +27,9 @@ What a program pins down
   ``RiskTemplate``, bound or not) re-expresses the risk measures as risk to the template's quotes:
   the ladders come back as ``QuoteRisk`` (unexplained pillar risk included) and ``dv01`` as the sum
   over the template's quotes on the curve.  Measures that are not risk are unchanged.
-  ``gamma_1bp`` / ``gamma_ladder`` (parallel curve gamma, by differencing the exact gradient) are
-  zero-pillar measures; ``gamma_step=`` sets the bump.  Requests are lenient so one
+  ``gamma_1bp`` / ``gamma_ladder`` are parallel curve gamma, by differencing the exact gradient;
+  ``gamma_step=`` sets the bump.  With a template they are in quote space with the template frozen
+  as bound; ``rebind_template=True`` rebinds it at each bumped market.  Requests are lenient so one
   list can be sent to a mixed book: a measure this product does not answer is skipped and reads back
   as ``None`` from ``result.get(name)``.  Only a name no product answers raises (a typo).
 - ``pillar_gradient(market) -> PillarGradient``: ``d value / d z`` over every curve parameter, from
@@ -43,7 +44,7 @@ class to its pricer class, and ``compile_instruments`` (in ``instruments.priceab
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Callable, Iterable, Protocol, Sequence, TypeVar, runtime_checkable
 
 import numpy as np
@@ -91,7 +92,7 @@ def known_measures() -> frozenset[str]:
 
 
 # Settings a ``price`` call may pass through to its measures.
-KNOWN_SETTINGS = frozenset({"curve", "template", "gamma_step"})
+KNOWN_SETTINGS = frozenset({"curve", "template", "gamma_step", "rebind_template"})
 
 
 @dataclass
@@ -124,6 +125,12 @@ class MeasureContext:
                 bound = bound.template.bind(market)
             self.cache["bound_template"] = bound
         return self.cache["bound_template"]
+
+    def gradient(self, program: Any, market: Any) -> PillarGradient:
+        """``program.pillar_gradient(market)``, run once per call and shared by every measure that reads it."""
+        if "pillar_gradient" not in self.cache:
+            self.cache["pillar_gradient"] = program.pillar_gradient(market)
+        return self.cache["pillar_gradient"]
 
     def ladder(self, market: Any, pillar: Any) -> Any:
         """``pillar`` (a ``PillarRisk``) as is, or as ``QuoteRisk`` when a template is set."""
@@ -269,13 +276,40 @@ def dv01_from(
     return out
 
 
-def parallel_gamma(program: Any, inputs: Any, market: Any, context: MeasureContext, bp: float = 1e-4):
-    """How each position's zero ladder changes for a +``bp`` parallel move of its curve.
+def _template_columns(bound: Any, layout: Any, name: str) -> list[int]:
+    """Template quotes on curve ``name`` (or on the block it reports under)."""
+    block = layout.block_of(name)
+    return [k for k, instrument in enumerate(bound.template.instruments) if instrument.curve in (name, block)]
 
-    A central difference of the exact gradient (``program.pillar_gradient``) under a parallel
-    bump of the curve's zero pillars: two adjoint passes per distinct curve, and no second
-    difference of price.  This is ``H @ 1_c`` (Strata's semi-parallel gamma), computed once per
-    ``price`` call and shared by ``gamma_1bp`` and ``gamma_ladder``.
+
+def _quote_move(bound: Any, market: Any, columns: list[int], size: float) -> Any:
+    """``market`` with every template quote in ``columns`` moved by ``size``."""
+    move = bound.transfer[:, columns].sum(axis=1) * size
+    out = market
+    for curve in bound.curves:
+        shift = move[bound.slice(curve)]
+        if np.any(shift != 0.0):
+            out = out.bump(curve, shift)
+    return out
+
+
+def parallel_gamma(program: Any, inputs: Any, market: Any, context: MeasureContext, bp: float = 1e-4) -> dict:
+    """How each position's 01 ladder changes for a +``bp`` parallel move of its curve.
+
+    A central difference of the exact gradient (``program.pillar_gradient``) between two bumped
+    markets: two adjoint passes per distinct curve, and no second difference of price.  Computed
+    once per ``price`` call and shared by ``gamma_1bp`` and ``gamma_ladder``.
+
+    Without a template the move is +``bp`` on every zero pillar of the curve and the ladder is
+    the zero ladder (``H @ 1_c``, Strata's semi-parallel gamma).
+
+    With ``settings["template"]`` the move is +``bp`` on every template quote on the curve and
+    the ladder is the quote ladder.  By default the template stays as bound at ``market`` (its
+    quote-to-pillar map is frozen), which is the second-order term consistent with a linear
+    quote attribution: ``A' H A``.  ``settings["rebind_template"]=True`` rebinds it at each
+    bumped market, adding the curvature of the quote-to-pillar map (proportional to the
+    position's delta) at the cost of two binds per curve: that is the change the quote DV01
+    would actually show after the move.
 
     Parameters
     ----------
@@ -285,85 +319,118 @@ def parallel_gamma(program: Any, inputs: Any, market: Any, context: MeasureConte
     market : MarketContext
     context : MeasureContext
         ``settings["curve"]`` names the curve for every position; ``settings["gamma_step"]`` is
-        the bump in zero-rate units (default ``1e-5``, a tenth of a basis point).
+        the bump (default ``1e-5``, a tenth of a basis point).
     bp : float
 
     Returns
     -------
-    base : PillarGradient
-        The gradient at ``market`` (its layout is the columns of ``ladder``).
-    ladder : ndarray of float64, shape (n_positions, n_params)
-        Change in the per-``bp`` zero ladder for a +``bp`` parallel move of the position's curve;
-        a ``nan`` row for a position with no unambiguous default curve.
-    blocks : list of (slice or None), length n_positions
-        The columns of each position's own curve.
+    dict
+        ``"scalar"`` : ndarray (n_positions,), the ladder summed over the position's own curve
+        (its pillars, or its template quotes); ``nan`` where the position has no unambiguous
+        curve, or no template quote on it.
+        ``"ladder"`` : ``PillarRisk`` or, with a template, ``QuoteRisk``.  Its arrays are already
+        per ``bp`` per ``bp``: read ``values``, not ``dv01``.
 
     Raises
     ------
-    NotImplementedError
-        With ``settings["template"]``: gamma is reported in zero-pillar space only.
     KeyError
-        If ``settings["curve"]`` is not a curve the program reads.
+        If ``settings["curve"]`` is not a curve the program reads, or has no template quote.
     ValueError
         If ``gamma_step`` is not positive.
     """
     if "parallel_gamma" in context.cache:
         return context.cache["parallel_gamma"]
-    if context.settings.get("template") is not None:
-        raise NotImplementedError("gamma_1bp / gamma_ladder are zero-pillar measures; request them without template=")
+    from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
+
     step = float(context.settings.get("gamma_step", 1e-5))
     if step <= 0.0:
         raise ValueError("gamma_step must be positive")
-    base = program.pillar_gradient(market)
+    base = context.gradient(program, market)
+    bound = context.bound_template(market)
+    rebind = bool(context.settings.get("rebind_template", False))
     n = base.values.shape[0]
     chosen = context.settings.get("curve")
     curves = [chosen] * n if chosen is not None else position_curves(inputs)
-    ladder = np.full(base.values.shape, np.nan)
-    blocks: list[slice | None] = [None] * n
+    scale = bp * bp / (2.0 * step)
+
+    def pillar(gradient: PillarGradient) -> Any:
+        return PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value)
+
+    scalar = np.full(n, np.nan)
+    if bound is None:
+        ladder = np.full(base.values.shape, np.nan)
+    else:
+        at_base = bound.quote_risk(pillar(base))
+        fields = {
+            "values": at_base.values, "unexplained": at_base.unexplained, "rebucketed": at_base.rebucketed,
+            "pillar_parallel": at_base.pillar_parallel, "template_parallel": at_base.template_parallel,
+        }
+        fields = {key: np.full(np.shape(value), np.nan) for key, value in fields.items()}
+        uncovered = {key: np.full(value.shape, np.nan) for key, value in at_base.uncovered.items()}
+
     for name in {c for c in curves if c is not None}:
+        rows = np.flatnonzero([c == name for c in curves])
         try:
             block = base.layout.block_of(name)
+            columns = _template_columns(bound, base.layout, name) if bound is not None else None
         except KeyError:
             if chosen is not None:
                 raise
             continue
-        up = program.pillar_gradient(market.bump(block, step)).values
-        down = program.pillar_gradient(market.bump(block, -step)).values
-        columns = base.layout.block_slice(block)
-        for i in np.flatnonzero([c == name for c in curves]):
-            ladder[i] = (up[i] - down[i]) / (2.0 * step) * bp * bp
-            blocks[i] = columns
-    context.cache["parallel_gamma"] = base, ladder, blocks
-    return context.cache["parallel_gamma"]
+        if bound is None:
+            up = program.pillar_gradient(market.bump(block, step)).values
+            down = program.pillar_gradient(market.bump(block, -step)).values
+            ladder[rows] = (up[rows] - down[rows]) * scale
+            scalar[rows] = ladder[rows][:, base.layout.block_slice(block)].sum(axis=1)
+            continue
+        if not columns:
+            if chosen is not None:
+                raise KeyError(f"the template has no quote on '{name}'")
+            continue
+        market_up, market_down = _quote_move(bound, market, columns, step), _quote_move(bound, market, columns, -step)
+        bound_up = bound.template.bind(market_up) if rebind else bound
+        bound_down = bound.template.bind(market_down) if rebind else bound
+        risk_up = bound_up.quote_risk(pillar(program.pillar_gradient(market_up)))
+        risk_down = bound_down.quote_risk(pillar(program.pillar_gradient(market_down)))
+        for key, out in fields.items():
+            out[rows] = (getattr(risk_up, key)[rows] - getattr(risk_down, key)[rows]) * scale
+        for key, out in uncovered.items():
+            out[rows] = (risk_up.uncovered[key][rows] - risk_down.uncovered[key][rows]) * scale
+        scalar[rows] = fields["values"][rows][:, columns].sum(axis=1)
+
+    if bound is None:
+        result = {"scalar": scalar, "ladder": PillarRisk.from_layout(base.layout, ladder, base.value)}
+    else:
+        result = {"scalar": scalar, "ladder": replace(at_base, uncovered=uncovered, **fields)}
+    context.cache["parallel_gamma"] = result
+    return result
 
 
 def gamma_1bp_from(program: Any, inputs: Any, market: Any, context: MeasureContext) -> np.ndarray:
     """Change in ``dv01`` for a +1bp parallel move of the same curve, per position.
 
     After a parallel move of ``m`` bp, ``dv01`` is about ``dv01 + gamma_1bp * m`` and the value
-    change is about ``dv01 * m + 0.5 * gamma_1bp * m**2``.  See :func:`parallel_gamma`.
+    change is about ``dv01 * m + 0.5 * gamma_1bp * m**2``.  With a template both the ``dv01`` and
+    the move are in the template's quotes.  See :func:`parallel_gamma`.
     """
-    _, ladder, blocks = parallel_gamma(program, inputs, market, context)
-    return np.array([np.nan if block is None else ladder[i, block].sum() for i, block in enumerate(blocks)])
+    return parallel_gamma(program, inputs, market, context)["scalar"]
 
 
 def gamma_ladder_from(program: Any, inputs: Any, market: Any, context: MeasureContext) -> Any:
-    """Change in each pillar's 01 for a +1bp parallel move of the position's curve, as a ``PillarRisk``.
+    """Change in each pillar's (or template quote's) 01 for a +1bp parallel move of the position's curve.
 
-    ``values`` are already per bp per bp, so read ``values`` (not ``dv01``).  The block of the
-    position's own curve sums to ``gamma_1bp``.  See :func:`parallel_gamma`.
+    A ``PillarRisk``, or a ``QuoteRisk`` with a template.  Its arrays are already per bp per bp,
+    so read ``values`` (not ``dv01``); the position's own curve sums to ``gamma_1bp``.  See
+    :func:`parallel_gamma`.
     """
-    from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
-
-    base, ladder, _ = parallel_gamma(program, inputs, market, context)
-    return PillarRisk.from_layout(base.layout, ladder, base.value)
+    return parallel_gamma(program, inputs, market, context)["ladder"]
 
 
 def pillar_measure(program: Any, market: Any, context: MeasureContext) -> Any:
     """``zero_ladder`` for any program: its ``pillar_gradient`` as a labelled :class:`PillarRisk`."""
     from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
 
-    gradient = program.pillar_gradient(market)
+    gradient = context.gradient(program, market)
     return context.ladder(market, PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value))
 
 

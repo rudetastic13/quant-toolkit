@@ -160,7 +160,7 @@ measure(FuturesProgram, "zero_ladder")(pillar_measure)
 @measure(FuturesProgram, "dv01")
 def _dv01(program, market, context):
     """Change in margined P&L for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
-    return dv01_from(program.pillar_gradient(market), program.program.inputs, market, context)
+    return dv01_from(context.gradient(program, market), program.program.inputs, market, context)
 
 
 @measure(FuturesProgram, "gamma_1bp")
