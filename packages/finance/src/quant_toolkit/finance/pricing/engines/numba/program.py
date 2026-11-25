@@ -473,6 +473,13 @@ class NumbaProgram:
         self._requires_historical_fixings = bool(
             historical_reset.any() or historical_observation.any()
         )
+        self._no_fixings = (
+            self._false_reset_fixing, self._zero_reset_fixing, self._false_obs_fixing, self._zero_obs_fixing
+        )
+        # Last fixings overlay, keyed by the HistoricalFixings objects it was read from (held by
+        # reference and compared by identity; they are immutable).  See ``_fixings_from_market``.
+        self._fixings_sources: tuple | None = None
+        self._fixings_overlay: tuple | None = None
 
     def compatible(self, market) -> bool:
         """Whether ``market`` has the origin, atoms, schemes, weights and ownership this program was prepared on."""
@@ -487,6 +494,35 @@ class NumbaProgram:
         return self.layout.params(market)
 
     def _fixings_from_market(self, market):
+        """Historical-fixing overlay for ``market``: masks and values per float flow and per observation.
+
+        The overlay depends on the market only through its origin and each curve's
+        ``HistoricalFixings``.  Scenario copies (``bump``, ``with_curve``) keep both, so:
+
+        - a book with nothing fixed before the origin this program was prepared on skips the
+          scan (the masks are all ``False`` by construction);
+        - otherwise the last overlay is reused while every curve still carries the same fixings
+          object.  ``with_fixings`` gives a new object and a new origin fails the first test, so
+          both recompute.
+
+        The returned arrays are shared between calls and must not be written to.
+        """
+        same_origin = np.datetime64(market.origin, "D") == self.origin
+        if same_origin and not self._requires_historical_fixings:
+            return self._no_fixings
+        sources = tuple(market[name].historical_fixings for name in self.curve_names)
+        if (
+            same_origin
+            and self._fixings_sources is not None
+            and all(a is b for a, b in zip(sources, self._fixings_sources))
+        ):
+            return self._fixings_overlay
+        overlay = self._scan_fixings(market)
+        if same_origin:
+            self._fixings_sources, self._fixings_overlay = sources, overlay
+        return overlay
+
+    def _scan_fixings(self, market):
         ki = self.inputs
         reset_mask = np.zeros(ki.n_flows, dtype=np.bool_)
         reset_value = np.zeros(ki.n_flows, dtype=np.float64)

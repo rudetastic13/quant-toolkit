@@ -19,6 +19,8 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     PillarGradient,
     declare_measures,
     dv01_from,
+    gamma_1bp_from,
+    gamma_ladder_from,
     measure,
     on_demand,
     pillar_measure,
@@ -174,7 +176,9 @@ class SwaptionProgram:
         ``requests`` is checked against the known vocabulary; the kernel returns value and
         greeks in one pass, so every field is always populated.  ``zero_ladder`` (curve delta at
         sticky strike as a :class:`PillarRisk`) runs the Numba adjoint and is computed only when
-        named.
+        named, as are ``dv01``, ``gamma_1bp`` and ``gamma_ladder``.  The curve gammas difference
+        that sticky-strike delta, so they are gamma at fixed vol; ``gamma`` is a different thing,
+        the option's gamma to the forward.
         """
         asked = resolve_requests(requests, self.measures, SwaptionPricingResult.fields)
         _, _, _, forward, annuity = self._underlying(market)
@@ -242,7 +246,19 @@ measure(SwaptionProgram, "zero_ladder")(pillar_measure)
 @measure(SwaptionProgram, "dv01")
 def _dv01(program, market, context):
     """Change in PV at sticky strike for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
-    return dv01_from(program.pillar_gradient(market), program.program.inputs, market, context)
+    return dv01_from(context.gradient(program, market), program.program.inputs, market, context)
+
+
+@measure(SwaptionProgram, "gamma_1bp")
+def _gamma_1bp(program, market, context):
+    """Change in ``dv01`` for a +1bp parallel move of the same curve; see :func:`gamma_1bp_from`."""
+    return gamma_1bp_from(program, program.program.inputs, market, context)
+
+
+@measure(SwaptionProgram, "gamma_ladder")
+def _gamma_ladder(program, market, context):
+    """Per-pillar change in 01 for that move; see :func:`gamma_ladder_from`."""
+    return gamma_ladder_from(program, program.program.inputs, market, context)
 
 
 @register_with(pricer_registry, Swaption, overwrite=True)
