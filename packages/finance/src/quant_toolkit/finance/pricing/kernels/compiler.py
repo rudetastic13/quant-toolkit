@@ -110,6 +110,7 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
     pay, frac, sign, notl = [], [], [], []
     rkind, frate, spr, ifloor, cap, floor, marg = [], [], [], [], [], [], []
     disc, proj, rstart, rend = [], [], [], []
+    principal_flag = []
     leg_offsets, leg_instrument = [], []
 
     # global obs accumulators
@@ -149,6 +150,7 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         marg.append(np.array([c["margin"] for c in cols], dtype=np.int8))
         disc.append(np.full(n, disc_id, dtype=np.int64))
         proj.append(np.where(rk == RateKind.Fixed, NO_CURVE, proj_id).astype(np.int64))
+        principal_flag.append(np.zeros(n, dtype=np.bool_))
         # Float projection windows: the schedule's governing reset windows (fixing type and
         # reset-frequency aware); accrual windows for schedules that didn't build them.
         has_reset = ps.reset_starts is not None
@@ -179,6 +181,7 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
             marg.append(np.array([int(MarginTreatment.Inclusive)], dtype=np.int8))
             disc.append(np.array([disc_id], dtype=np.int64))
             proj.append(np.array([NO_CURVE], dtype=np.int64))
+            principal_flag.append(np.ones(1, dtype=np.bool_))
             rstart.append(np.array([date], dtype="datetime64[D]"))
             rend.append(np.array([date], dtype="datetime64[D]"))
 
@@ -225,6 +228,7 @@ def compile_portfolio(legs: list[LegSpec]) -> KernelInputs:
         proj_curve=np.concatenate(proj).astype(np.int64) if proj else np.array([], np.int64),
         reset_starts=cat_dt(rstart),
         reset_ends=cat_dt(rend),
+        is_principal=np.concatenate(principal_flag) if principal_flag else np.array([], np.bool_),
         leg_offsets=np.array(leg_offsets, dtype=np.intp),
         leg_instrument=np.array(leg_instrument, dtype=np.intp),
         n_instruments=(max(leg_instrument) + 1) if leg_instrument else 0,

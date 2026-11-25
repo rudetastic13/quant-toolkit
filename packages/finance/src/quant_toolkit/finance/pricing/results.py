@@ -83,6 +83,7 @@ class CashflowReport:
     df: FloatArray
     sign: FloatArray
     flow_pv: FloatArray
+    is_principal: np.ndarray | None = None   # bool: a principal payment rather than a coupon
 
 
 @dataclass

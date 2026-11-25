@@ -17,11 +17,6 @@ from quant_toolkit.finance.instruments.schedules.coupon_schedule import CouponSc
 from quant_toolkit.finance.instruments.schedules.observation import LookbackStyle
 from .enums import AmortizationType, CouponType, PrincipalExchange
 
-# Flat coupon fields: the single-coupon convenience.  Changing one through ``replace`` on a
-# leg whose schedule was derived from them rebuilds the schedule; see ``replace``.
-_COUPON_FIELDS = frozenset({
-    "coupon_type", "coupon_rate", "rate_index", "spread", "index_floor", "floor", "cap",
-})
 
 
 @serializable("CommonInstrument")
@@ -139,12 +134,14 @@ class CommonInstrument(CommonObject):
     def replace(self, **changes) -> "CommonInstrument":
         """``dataclasses.replace`` that keeps the schedule honest.
 
-        A derived schedule is rebuilt when a flat coupon field changes (``coupon_rate=1.0``
-        for a unit-coupon annuity, say); a ``Custom`` leg's supplied schedule is kept as is —
+        A derived schedule is always rebuilt from the flat fields, whatever changed
+        (``coupon_rate=1.0`` for a unit-coupon annuity, say).  Carrying it over instead would
+        hand the constructor a supplied schedule, turning the copy into a ``Custom`` leg that
+        ignores later flat-field changes.  A ``Custom`` leg's supplied schedule is kept as is —
         it *is* the coupon, so pass a new ``coupon_schedule`` to change the coupon, or
         ``coupon_schedule=None`` with a flat ``coupon_type`` to go back to the flat path.
         """
-        if self.coupon_type is not CouponType.Custom and _COUPON_FIELDS & changes.keys():
+        if self.coupon_type is not CouponType.Custom:
             changes.setdefault("coupon_schedule", None)
         return replace(self, **changes)
 

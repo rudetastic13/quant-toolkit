@@ -51,6 +51,8 @@ class KernelInputs:
     proj_curve: IntArray         # index into curve_names; NO_CURVE for fixed
     reset_starts: DateArray      # datetime64[D] — simple float window start (NaT if n/a)
     reset_ends: DateArray        # datetime64[D] — simple float window end
+    is_principal: np.ndarray     # bool — a principal payment (lowered as a fixed flow with rate = frac = 1),
+                                 # not a coupon.  Engines never read it; measures and reports do.
 
     # -- leg / instrument structure ----------------------------------------
     leg_offsets: IntArray        # (L,) start flow index per leg (reduceat boundaries)

@@ -27,7 +27,7 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     resolve_requests,
 )
 from quant_toolkit.finance.pricing.results import CashflowReport, PricingResult
-from quant_toolkit.finance.pricing.types import Backend
+from quant_toolkit.finance.pricing.types import Backend, RateKind
 
 
 @dataclass
@@ -79,7 +79,8 @@ class PricingProgram:
             one kernel pass and are always populated; ``cashflows`` is assembled only when
             requested.  ``zero_ladder``, ``index_ladder`` and ``funding_ladder`` (a
             :class:`PillarRisk` each: total, projection-only, discounting-only) run the Numba
-            adjoint and are computed only when named.  A measure only another product answers
+            adjoint and are computed only when named.  ``pv01``, ``annuity`` and ``par_coupon``
+            (one number per instrument, from its fixed coupon flows) are also on request.  A measure only another product answers
             (``"vega"``) is skipped and reads ``None`` from ``result.get``.
         backend : Backend, optional
 
@@ -106,10 +107,11 @@ class PricingProgram:
             cashflows = CashflowReport(
                 pay_dates=ki.pay_dates, leg=leg_of_flow, notional=ki.notional,
                 rate=kr.rate, period_frac=ki.period_frac, df=df, sign=ki.sign, flow_pv=kr.flow_pv,
+                is_principal=ki.is_principal,
             )
         return PricingResult(
             instrument_pv=kr.instrument_pv, leg_pv=kr.leg_pv, cashflows=cashflows,
-            extras=on_demand(self, market, asked),
+            extras=on_demand(self, market, asked, {"kernel": kr}),
         )
 
     def pillar_gradient(self, market) -> PillarGradient:
@@ -149,6 +151,56 @@ def _index_ladder(program, market, cache):
 def _funding_ladder(program, market, cache):
     """``d PV / d z`` through discounting only."""
     return _ladder(program, market, cache, "instrument_funding_gradient")
+
+
+def _fixed_coupons(program: PricingProgram, market, cache: dict):
+    """Signed annuity and PV of the fixed coupon flows, per instrument.
+
+    Returns
+    -------
+    annuity : ndarray of float64, shape (n_instruments,)
+        ``sum(sign * notional * period_frac * df)`` over fixed coupon flows: ``d PV / d coupon``.
+        Principal flows are excluded (they are fixed flows too; ``is_principal`` tells them apart).
+    coupon_pv : ndarray of float64, shape (n_instruments,)
+        PV of those same flows at their contract coupons.
+    pv : ndarray of float64, shape (n_instruments,)
+    """
+    if "fixed_coupons" not in cache:
+        ki = program.inputs
+        kr = cache["kernel"] if "kernel" in cache else program.reprice(market)
+        if kr.df is None:
+            raise NotImplementedError("pv01 / annuity / par_coupon need payment discount factors from the engine")
+        leg_of_flow = np.repeat(np.arange(ki.n_legs), np.diff(np.append(ki.leg_offsets, ki.n_flows)))
+        instrument = ki.leg_instrument[leg_of_flow]
+        coupon = (ki.rate_kind == RateKind.Fixed) & ~ki.is_principal
+        n = ki.n_instruments
+        annuity = np.bincount(
+            instrument[coupon], (ki.sign * ki.notional * ki.period_frac * kr.df)[coupon], minlength=n
+        )
+        coupon_pv = np.bincount(instrument[coupon], kr.flow_pv[coupon], minlength=n)
+        cache["fixed_coupons"] = annuity, coupon_pv, kr.instrument_pv
+    return cache["fixed_coupons"]
+
+
+@measure(PricingProgram, "pv01")
+def _pv01(program, market, cache):
+    """PV change for +1bp on the fixed coupon, signed; 0 for an instrument with no fixed coupon."""
+    return _fixed_coupons(program, market, cache)[0] * 1e-4
+
+
+@measure(PricingProgram, "annuity")
+def _annuity(program, market, cache):
+    """PV of 1.0 of fixed coupon, unsigned; 0 for an instrument with no fixed coupon."""
+    return np.abs(_fixed_coupons(program, market, cache)[0])
+
+
+@measure(PricingProgram, "par_coupon")
+def _par_coupon(program, market, cache):
+    """The flat fixed coupon that makes PV zero; ``nan`` where there is no fixed coupon to solve for."""
+    annuity, coupon_pv, pv = _fixed_coupons(program, market, cache)
+    out = np.full(annuity.shape, np.nan)
+    np.divide(-(pv - coupon_pv), annuity, out=out, where=annuity != 0.0)
+    return out
 
 
 __all__ = ["PricingProgram"]
