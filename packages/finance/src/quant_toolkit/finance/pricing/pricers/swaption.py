@@ -2,7 +2,8 @@
 from __future__ import annotations
 
 import dataclasses
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, Sequence
 
 import numpy as np
 
@@ -12,6 +13,15 @@ from quant_toolkit.finance.markets.vols import VolUnits
 from quant_toolkit.finance.pricing.engines import kernel
 from quant_toolkit.finance.pricing.engines.numpy.option import OptionGreeks
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
+from quant_toolkit.finance.pricing.pricers.protocol import (
+    PillarGradient,
+    declare_measures,
+    measure,
+    on_demand,
+    pillar_measure,
+    resolve_requests,
+)
+from quant_toolkit.finance.pricing.results import read_measure
 from quant_toolkit.finance.pricing.pricers.swap import SwapPricer
 from quant_toolkit.finance.pricing.types import KERNEL_BACHELIER, KERNEL_BLACK, Backend
 
@@ -31,6 +41,22 @@ class SwaptionPricingResult:
     annuity: np.ndarray
     volatility: np.ndarray
     greeks: OptionGreeks
+    extras: dict[str, Any] = field(default_factory=dict)   # on-demand measures, by request name
+
+    fields: ClassVar[dict[str, str]] = {
+        "pv": "pv", "forward": "forward", "annuity": "annuity", "volatility": "volatility", "greeks": "greeks",
+        "delta": "greeks.delta", "gamma": "greeks.gamma", "vega": "greeks.vega",
+        "vanna": "greeks.vanna", "volga": "greeks.volga",
+    }
+
+    def get(self, measure: str):
+        """Measure by request name; ``None`` if a swaption does not answer it."""
+        return read_measure(self, self.fields, measure)
+
+    @property
+    def value(self) -> np.ndarray:
+        """PV per option: the number risk differentiates."""
+        return self.pv
 
 
 @dataclass(frozen=True)
@@ -58,6 +84,8 @@ def _unit_fixed_swap(swap):
 
 class SwaptionProgram:
     """Compiled underlying swaps, repriced without rebuilding option geometry."""
+
+    measures = declare_measures(SwaptionPricingResult.fields)
 
     def __init__(self, swaptions: list[Swaption], backend: Backend):
         if not swaptions:
@@ -137,7 +165,19 @@ class SwaptionProgram:
                     target[selected] = source
         return OptionGreeks(*arrays)
 
-    def reprice(self, market) -> SwaptionPricingResult:
+    @property
+    def n_positions(self) -> int:
+        return len(self.swaptions)
+
+    def price(self, market, requests: Sequence[str] | None = None) -> SwaptionPricingResult:
+        """PV, forward, annuity, vol and monetary greeks per option.
+
+        ``requests`` is checked against the known vocabulary; the kernel returns value and
+        greeks in one pass, so every field is always populated.  ``zero_ladder`` (curve delta at
+        sticky strike as a :class:`PillarRisk`) runs the Numba adjoint and is computed only when
+        named.
+        """
+        asked = resolve_requests(requests, self.measures, SwaptionPricingResult.fields)
         _, _, _, forward, annuity = self._underlying(market)
         strike, expiry, _, vol, _ = self._option_inputs(market, forward)
         unit = self._unit_greeks(forward, strike, expiry, vol)
@@ -148,6 +188,7 @@ class SwaptionProgram:
             annuity=annuity,
             volatility=vol,
             greeks=monetary,
+            extras=on_demand(self, market, asked),
         )
 
     def risk(self, market, curve: str | None = None, *, bp: float = 1e-4) -> SwaptionRiskResult:
@@ -188,6 +229,14 @@ class SwaptionProgram:
             vol_gradient[name] = gradient
         return SwaptionRiskResult(curve_gradient=curve_gradient, dv01=curve_gradient * bp, vol_gradient=vol_gradient)
 
+    def pillar_gradient(self, market) -> PillarGradient:
+        """Curve delta at sticky strike over every curve parameter."""
+        numba = self.program.prepare(market, backend=Backend.Numba)
+        return PillarGradient(numba.layout, self.risk(market).curve_gradient, self.price(market, ["pv"]).value)
+
+
+measure(SwaptionProgram, "zero_ladder")(pillar_measure)
+
 
 class SwaptionPricer:
     # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
@@ -201,7 +250,7 @@ class SwaptionPricer:
         return SwaptionProgram(swaptions, selected)
 
     def price(self, swaptions: list[Swaption], market, *, backend: Backend | None = None):
-        return self.compile(swaptions, backend=backend).reprice(market)
+        return self.compile(swaptions, backend=backend).price(market)
 
 
 __all__ = ["SwaptionPricer", "SwaptionProgram", "SwaptionPricingResult", "SwaptionRiskResult"]

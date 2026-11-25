@@ -1,27 +1,20 @@
 """Generic registry for stroring and retrieving objects"""
 import inspect
 from collections.abc import Callable
-from typing import (
-    TypeVar,
-    Generic,
-    Hashable,
-    Sequence,
-    Optional,
-    Any
-)
+from typing import Hashable
 
-T = TypeVar('T')
-R = TypeVar('R')
 
-class Registry(Generic[T]):
+class Registry[T]:
+    """Key -> object store.  A key is any hashable; a tuple is one composite key, not several keys."""
+
     def __init__(self, name: str = "Registry"):
         self.name = name
-        self._registry: dict[str, T] = {}
+        self._registry: dict[Hashable, T] = {}
 
-    def __contains__(self, item):
+    def __contains__(self, item: Hashable) -> bool:
         return item in self._registry
 
-    def register(self, keys: Hashable | Sequence[Hashable], obj: T, *, overwrite: bool = False) -> None:
+    def register(self, keys: Hashable | None, obj: T, *, overwrite: bool = False) -> None:
         if keys is None:
             keys = [obj.__name__]
         else:
@@ -32,10 +25,10 @@ class Registry(Generic[T]):
 
         self._registry.update({key: obj for key in keys})
 
-    def get(self, key: T) -> Optional[T]:
+    def get(self, key: Hashable) -> T | None:
         return self._registry.get(key)
 
-    def has(self, key: T) -> bool:
+    def has(self, key: Hashable) -> bool:
         return key in self._registry
 
     def all(self) -> dict[Hashable, T]:
@@ -50,12 +43,12 @@ class RegistryError(Exception):
         self.original_exception = original_exception
 
 
-def get_and_execute(
-    registry: Registry[Callable[..., R]], # maybe typing should be Registry[T]
-    key: T,
+def get_and_execute[R](
+    registry: Registry[Callable[..., R]],
+    key: Hashable,
     *args,
     **kwargs
-) -> Any:
+) -> R:
     obj = registry.get(key)
     if obj is None:
         raise KeyError(f"Key '{key}' not found in registry '{registry.name}'")
@@ -68,12 +61,12 @@ def get_and_execute(
         obj_dtype = "instantiate" if inspect.isclass(obj) else "execute"
         raise RegistryError(key, obj_dtype, e) from e
 
-def create_factory(
+def create_factory[R](
     registry: Registry[Callable[..., R]],
     *default_args,
     **default_kwargs,
-) -> R:
-    def _factory(key: T, *args, **kwargs) -> Any:
+) -> Callable[..., R]:
+    def _factory(key: Hashable, *args, **kwargs) -> R:
         all_args = (*default_args, *args)
         all_kwargs = {**default_kwargs, **kwargs}
         return get_and_execute(registry, key, *all_args, **all_kwargs)
@@ -81,9 +74,9 @@ def create_factory(
     _factory.__doc__ = f"Factory function under registry '{registry.name}'"
     return _factory
 
-def register_with(
+def register_with[T](
     registry: Registry[T],
-    keys: Hashable | Sequence[Hashable] | None = None,
+    keys: Hashable | None = None,
     **kwargs,
     ) -> Callable[[T], T]:
     def decorator(obj: T) -> T:

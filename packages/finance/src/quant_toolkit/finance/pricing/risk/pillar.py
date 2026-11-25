@@ -1,7 +1,7 @@
 """PillarRisk — ``∂PV/∂z`` for a book, one block per owning key: the contract between engines and templates.
 
 Every pricing door in the library (a ``PricingProgram`` of legs, a ``FuturesProgram``, a
-``SwaptionProgram``) can produce the same thing: a matrix of first-order sensitivities of each
+``SwaptionProgram``) produces the same thing through ``Program.pillar_gradient``: a matrix of first-order sensitivities of each
 position to every curve parameter the market holds, laid out by the engine's
 :class:`~quant_toolkit.finance.pricing.engines.layout.ParamLayout` (one block per owning key, each atom once).
 :func:`pillar_risk` is the adapter that produces it, and :class:`PillarRisk` is the only thing a
@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from quant_toolkit.finance.pricing.pricers.protocol import Program
 from quant_toolkit.finance.pricing.types import Backend
 
 FloatArray = np.ndarray
@@ -123,8 +124,8 @@ def pillar_risk(program, market, *, backend: Backend = Backend.Numba, labels=Non
 
     Parameters
     ----------
-    program : PricingProgram, FuturesProgram or SwaptionProgram
-        Legs give total (projection + discounting) PV risk; a futures strip gives the margined
+    program : Program
+        Whatever its ``pillar_gradient`` differentiates.  Legs give total (projection + discounting) PV risk; a futures strip gives the margined
         P&L gradient (no discounting; ``pv`` is the P&L against the entry price, 0 without one);
         swaptions give curve delta at sticky strike.
     market : MarketContext
@@ -136,25 +137,9 @@ def pillar_risk(program, market, *, backend: Backend = Backend.Numba, labels=Non
     -------
     PillarRisk
     """
-    from quant_toolkit.finance.pricing.pricers.base import PricingProgram
-    from quant_toolkit.finance.pricing.pricers.futures import FuturesProgram
-    from quant_toolkit.finance.pricing.pricers.swaption import SwaptionProgram
-
     if Backend(backend) != Backend.Numba:
         raise NotImplementedError(f"pillar_risk needs the Numba adjoint; backend {Backend(backend).name} has none")
-    if isinstance(program, PricingProgram):
-        numba = program.prepare(market, backend=Backend.Numba)
-        result = numba.value_and_grad(market)
-        return PillarRisk.from_layout(
-            numba.layout, result.instrument_total_gradient, result.primal.instrument_pv, labels
-        )
-    if isinstance(program, FuturesProgram):
-        numba = program.program.prepare(market, backend=Backend.Numba)
-        risk = program.risk(market)
-        pnl = program.reprice(market).pnl
-        return PillarRisk.from_layout(numba.layout, risk.pnl_gradient, np.where(np.isnan(pnl), 0.0, pnl), labels)
-    if isinstance(program, SwaptionProgram):
-        numba = program.program.prepare(market, backend=Backend.Numba)
-        risk = program.risk(market)
-        return PillarRisk.from_layout(numba.layout, risk.curve_gradient, program.reprice(market).pv, labels)
-    raise TypeError(f"pillar_risk has no adapter for {type(program).__name__}")
+    if not isinstance(program, Program):
+        raise TypeError(f"pillar_risk has no adapter for {type(program).__name__}")
+    gradient = program.pillar_gradient(market)
+    return PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value, labels)

@@ -7,7 +7,7 @@ name = "quant-toolkit-xl"
 version = "0.1.0"  # lockstep with VERSION; bin/bump_version.py rewrites every portion
 description = "Excel add-in (xlOil) for quant-toolkit: worksheet functions over the pricing layer."
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "quant-toolkit-finance==0.1.0",
     # in-process Excel add-in; Windows-only wheels (0.22 ships cp37-cp314)

@@ -60,7 +60,7 @@ class TestSofrFutures(UnitTest):
             shift = np.zeros(self.market[CURVE].zero_curve.n_params)
             shift[pillar] = h
             up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
-            finite_difference = (program.reprice(up).model_rate[0] - program.reprice(down).model_rate[0]) / (2 * h)
+            finite_difference = (program.price(up).model_rate[0] - program.price(down).model_rate[0]) / (2 * h)
             self.assertAlmostEqual(analytic[pillar], finite_difference, places=7)
 
     def test_future_participates_in_calibration_and_numba_jacobian(self):
@@ -110,7 +110,7 @@ class TestSwaptions(UnitTest):
             shift = np.zeros(self.market[CURVE].zero_curve.n_params)
             shift[pillar] = h
             up, down = self.market.bump(CURVE, shift), self.market.bump(CURVE, -shift)
-            finite_difference = (program.reprice(up).pv[0] - program.reprice(down).pv[0]) / (2 * h)
+            finite_difference = (program.price(up).pv[0] - program.price(down).pv[0]) / (2 * h)
             np.testing.assert_allclose(analytic[pillar], finite_difference, rtol=2e-7, atol=1e-3)
 
     def test_monetary_vega_is_positive(self):
@@ -154,13 +154,13 @@ class TestSwaptions(UnitTest):
             shift = np.zeros(cube.params.size)
             shift[node] = h
             self.market.vols.rebind(CURVE, cube.with_params(cube.params + shift))
-            up = program.reprice(self.market).pv
+            up = program.price(self.market).pv
             self.market.vols.rebind(CURVE, cube.with_params(cube.params - shift))
-            down = program.reprice(self.market).pv
+            down = program.price(self.market).pv
             np.testing.assert_allclose(analytic[:, node], (up - down) / (2 * h), rtol=1e-6, atol=1e-4)
         # every option's node vegas add up to its own vega: the weights sum to one
         self.market.vols.rebind(CURVE, cube)
-        np.testing.assert_allclose(analytic.sum(axis=1), program.reprice(self.market).greeks.vega, rtol=1e-12)
+        np.testing.assert_allclose(analytic.sum(axis=1), program.price(self.market).greeks.vega, rtol=1e-12)
 
     def test_vol_gradient_is_reported_per_cube(self):
         self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))

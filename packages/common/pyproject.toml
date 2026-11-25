@@ -7,7 +7,7 @@ name = "quant-toolkit-common"
 version = "0.1.0"  # lockstep with VERSION; bin/bump_version.py rewrites every portion
 description = "Shared utilities for quant-toolkit: registries, interpolation, serialization, array buffers."
 license = "MIT"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     # numpy 2.4.x broke the scipy build we run (PPoly import); drop the cap once a clean env passes the suite on 2.4
     "numpy<2.4",

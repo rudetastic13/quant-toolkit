@@ -12,7 +12,7 @@ description = "A data science project for financial pricing instruments, rate pr
 authors = [{name = "Carlos Garay", email = "cagaray13@gmail.com"}]
 license = "MIT"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "quant-toolkit-common==0.1.0",
     "quant-toolkit-finance==0.1.0",
@@ -23,7 +23,6 @@ classifiers = [
   "Intended Audience :: Developers",
   "Topic :: Scientific/Engineering :: Information Analysis",
   "Programming Language :: Python :: 3",
-  "Programming Language :: Python :: 3.11",
   "Operating System :: OS Independent",
 ]
 keywords = ["finance", "pricing", "rates", "quant", "data-science"]
@@ -102,7 +101,7 @@ include = ["packages/**/*.py"]
 exclude = ["build", "dist", ".venv", ".eggs"]
 line-length = 120
 indent-width = 4
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 # enable pyflakes 'F' and subset of pycodestyle 'E' by default
