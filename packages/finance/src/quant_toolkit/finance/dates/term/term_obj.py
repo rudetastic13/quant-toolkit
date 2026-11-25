@@ -121,7 +121,9 @@ class Term(Generic[IntType], NDArrayOperatorsMixin):
     def from_str(cls, value: str) -> Term:
         if match:= re.match(r"(-?\d+)\s*([a-zA-Z]+)", value):
             term_length = int(match.group(1))
-            term_type = TermType(match.group(2)[0].upper())
+            unit = match.group(2).upper()
+            # "BD" is the one two-letter unit; anything else goes by its first letter ("3M", "3Months")
+            term_type = TermType.BusinessDays if unit.startswith("BD") else TermType(unit[0])
             return cls(term_length, term_type)
 
         raise SyntaxError(f"Could not parse Term {value}")

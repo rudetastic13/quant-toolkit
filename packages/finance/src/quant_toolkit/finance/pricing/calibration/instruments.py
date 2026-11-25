@@ -240,11 +240,12 @@ class FuturesHelper:
 
 
 def deposit_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
+    *, rate: float, tenor: str | None = None, as_of=None, effective=None, maturity=None,
+    rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> DepositHelper:
     dep = Deposit.spot_deposit(
-        rate=rate, tenor=tenor, as_of=as_of, rate_index=rate_index,
+        rate=rate, tenor=tenor, as_of=as_of, effective=effective, maturity=maturity, rate_index=rate_index,
         currency=currency, funding_id=funding_id, registry=registry,
     )
     return DepositHelper(
@@ -254,11 +255,12 @@ def deposit_helper(
 
 
 def fra_helper(
-    *, rate: float, start: str, end: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
+    *, rate: float, start: str | None = None, end: str | None = None, as_of=None, effective=None, maturity=None,
+    rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> FraHelper:
     fra = Fra.forward_starting(
-        rate=rate, start=start, end=end, as_of=as_of, rate_index=rate_index,
+        rate=rate, start=start, end=end, as_of=as_of, effective=effective, maturity=maturity, rate_index=rate_index,
         currency=currency, funding_id=funding_id, registry=registry,
     )
     return FraHelper(
@@ -268,11 +270,13 @@ def fra_helper(
 
 
 def swap_helper(
-    *, rate: float, tenor: str, as_of, rate_index: str = "USD.SOFR.1D", currency: str = "USD",
+    *, rate: float, tenor: str = "10Y", as_of=None, effective=None, maturity=None,
+    rate_index: str = "USD.SOFR.1D", currency: str = "USD",
     funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> SwapHelper:
     swap = Swap.fixed_float_swap(
         notional=1.0, rate_index=rate_index, fixed_rate=1.0, tenor=tenor, as_of=as_of,
+        effective=effective, maturity=maturity,
         currency=currency, funding_id=funding_id, registry=registry,
     )
     return SwapHelper(
@@ -282,16 +286,17 @@ def swap_helper(
 
 
 def spread_helper(
-    *, spread: float, tenor: str, as_of, rate_index: str = "USD.UST-OTR.1D", over: str = "USD.SOFR.1D",
+    *, spread: float, tenor: str = "10Y", as_of=None, effective=None, maturity=None,
+    rate_index: str = "USD.UST-OTR.1D", over: str = "USD.SOFR.1D",
     currency: str = "USD", funding_id: str = "STDCSA", registry: ConventionRegistry = default_registry,
 ) -> SpreadHelper:
     """Par spread of ``rate_index`` over ``over`` for one tenor: the quoted ASW that pins a UST-OTR pillar."""
     swap = swap_helper(
-        rate=spread, tenor=tenor, as_of=as_of, rate_index=rate_index,
+        rate=spread, tenor=tenor, as_of=as_of, effective=effective, maturity=maturity, rate_index=rate_index,
         currency=currency, funding_id=funding_id, registry=registry,
     )
     base = swap_helper(
-        rate=0.0, tenor=tenor, as_of=as_of, rate_index=over,
+        rate=0.0, tenor=tenor, as_of=as_of, effective=effective, maturity=maturity, rate_index=over,
         currency=currency, funding_id=funding_id, registry=registry,
     )
     return SpreadHelper(swap=swap, over=base, quote=Quote(float(spread), QuoteKind.ParSpread), curve=swap.curve)

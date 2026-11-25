@@ -27,12 +27,13 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "pip install failed (exit $LASTEXITCODE)" }
 
     # a broken namespace shows up immediately: all portion roots must be listed
+    # single quotes only in the Python: Windows PowerShell 5.1 strips double quotes from native arguments
     $check = @'
 import quant_toolkit
 paths = list(quant_toolkit.__path__)
-print("quant_toolkit.__path__")
+print('quant_toolkit.__path__')
 for p in paths:
-    print("  ", p)
+    print('  ', p)
 '@
     python -c $check
     if ($LASTEXITCODE -ne 0) { throw "quant_toolkit namespace check failed (exit $LASTEXITCODE)" }
