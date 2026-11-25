@@ -18,6 +18,7 @@ from quant_toolkit.finance.pricing.pricers.base import PricingProgram
 from quant_toolkit.finance.pricing.pricers.protocol import (
     PillarGradient,
     declare_measures,
+    dv01_from,
     measure,
     on_demand,
     pillar_measure,
@@ -167,7 +168,7 @@ class SwaptionProgram:
     def n_positions(self) -> int:
         return len(self.swaptions)
 
-    def price(self, market, requests: Sequence[str] | None = None) -> SwaptionPricingResult:
+    def price(self, market, requests: Sequence[str] | None = None, **settings) -> SwaptionPricingResult:
         """PV, forward, annuity, vol and monetary greeks per option.
 
         ``requests`` is checked against the known vocabulary; the kernel returns value and
@@ -186,7 +187,7 @@ class SwaptionProgram:
             annuity=annuity,
             volatility=vol,
             greeks=monetary,
-            extras=on_demand(self, market, asked),
+            extras=on_demand(self, market, asked, settings=settings),
         )
 
     def risk(self, market, curve: str | None = None, *, bp: float = 1e-4) -> SwaptionRiskResult:
@@ -236,6 +237,12 @@ class SwaptionProgram:
 
 
 measure(SwaptionProgram, "zero_ladder")(pillar_measure)
+
+
+@measure(SwaptionProgram, "dv01")
+def _dv01(program, market, context):
+    """Change in PV at sticky strike for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
+    return dv01_from(program.pillar_gradient(market), program.program.inputs, market, context)
 
 
 @register_with(pricer_registry, Swaption, overwrite=True)

@@ -6,11 +6,14 @@ import numpy as np
 from quant_toolkit.common.testing import UnitTest
 from quant_toolkit.finance.dates import Date
 from quant_toolkit.finance.instruments.enums import PrincipalExchange
-from quant_toolkit.finance.instruments.resolution import Deposit, Swap
+from quant_toolkit.finance.instruments.resolution import Deposit, SofrFuture, Swap, Swaption
 from quant_toolkit.finance.markets.context import MarketContext
 from quant_toolkit.finance.markets.curves import YieldCurve
+from quant_toolkit.finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
 from quant_toolkit.finance.pricing.pricers import LegPricer
 
+CURVE = "USD.SOFR.1D"
+BP = 1e-4
 REQUESTS = ["pv", "pv01", "annuity", "par_coupon", "cashflows"]
 
 
@@ -20,7 +23,9 @@ def _market(as_of: Date) -> MarketContext:
     t = (dates.astype(np.int64) - dates[0].astype(np.int64)) / 365.0
     z = np.array([0.0, 0.035, 0.04, 0.045, 0.047])
     sofr = YieldCurve.build(dates, np.exp(-z * t), key="USD.SOFR.1D")
-    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr})
+    vols = VolNamespace()
+    vols.bind(CURVE, ModelVolCube(FlatVolSurface(0.01), VolUnits.Normal))
+    return MarketContext(as_of, {sofr.name: sofr, "USD.STDCSA": sofr}, vols=vols)
 
 
 class TestCouponMeasures(UnitTest):
@@ -90,3 +95,79 @@ class TestCouponMeasures(UnitTest):
         leg = self._swap().receive_leg.replace(principal_exchange=PrincipalExchange.Final)
         self.assertEqual(leg.coupon_type, self._swap().receive_leg.coupon_type)
         self.assertEqual(leg.replace(coupon_rate=0.05).coupon_schedule.events[0].coupon_rate, 0.05)
+
+
+class TestDv01(UnitTest):
+
+    def setUp(self):
+        self.as_of = Date(2026, 6, 1)
+        self.market = _market(self.as_of)
+        self.swap = Swap.fixed_float_swap(
+            notional=10e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
+        )
+
+    def _bumped(self, instrument, measure):
+        up = instrument(self.market.bump(CURVE, BP), [measure]).get(measure)
+        down = instrument(self.market.bump(CURVE, -BP), [measure]).get(measure)
+        return (up - down) / 2.0
+
+    def test_swap_dv01_matches_a_parallel_bump_and_the_ladder(self):
+        result = self.swap(self.market, ["dv01", "zero_ladder"])
+        np.testing.assert_allclose(result.get("dv01"), self._bumped(self.swap, "pv"), rtol=1e-6)
+        np.testing.assert_allclose(
+            result.get("dv01"), result.get("zero_ladder").block(CURVE).sum(axis=1) * BP, rtol=1e-12
+        )
+        self.assertLess(result.get("dv01")[0], 0.0)   # receiving fixed loses when rates rise
+
+    def test_curve_setting_picks_the_block(self):
+        default = self.swap(self.market, ["dv01"]).get("dv01")
+        # discounting is the SOFR curve under another key, so it reports under the same block
+        np.testing.assert_allclose(self.swap(self.market, ["dv01"], curve="USD.STDCSA").get("dv01"), default)
+        with self.assertRaises(KeyError):
+            self.swap(self.market, ["dv01"], curve="USD.NOPE.1D")
+
+    def test_unknown_setting_raises(self):
+        with self.assertRaisesRegex(TypeError, "curve"):
+            self.swap(self.market, ["dv01"], crv=CURVE)
+
+    def test_fixed_only_instrument_reports_against_its_discount_curve(self):
+        deposit = Deposit.spot_deposit(notional=1e6, rate=0.05, tenor="3M", as_of=self.as_of)
+        np.testing.assert_allclose(
+            deposit(self.market, ["dv01"]).get("dv01"), self._bumped(deposit, "pv"), rtol=1e-6
+        )
+
+    def test_swaption_and_future_answer_dv01(self):
+        option = Swaption.european(notional=1e6, strike=0.04, expiry="1Y", swap_tenor="5Y", as_of=self.as_of)
+        np.testing.assert_allclose(option(self.market, ["dv01"]).get("dv01"), self._bumped(option, "pv"), rtol=1e-5)
+        future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of, entry_price=96.0)
+        np.testing.assert_allclose(future(self.market, ["dv01"]).get("dv01"), self._bumped(future, "pnl"), rtol=1e-5)
+
+    def test_template_re_expresses_risk_and_leaves_the_rest_alone(self):
+        from quant_toolkit.finance.pricing.calibration import Quote, swap_helper
+        from quant_toolkit.finance.pricing.risk import RiskEngine
+        from quant_toolkit.finance.pricing.risk.template import QuoteRisk, RiskTemplate
+
+        helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of) for t in ("1Y", "3Y", "7Y", "12Y")]
+        for h in helpers:
+            h.quote = Quote(float(h.implied(self.market)), h.quote.kind)
+        template = RiskTemplate.identity(helpers, name="par 1Y-12Y")
+
+        plain = self.swap(self.market, ["pv", "pv01", "dv01", "zero_ladder"])
+        viewed = self.swap(self.market, ["pv", "pv01", "dv01", "zero_ladder"], template=template)
+        self.assertEqual(viewed.pv, plain.pv)                                  # a template changes no PV
+        np.testing.assert_array_equal(viewed.get("pv01"), plain.get("pv01"))
+
+        ladder = viewed.get("zero_ladder")
+        self.assertIsInstance(ladder, QuoteRisk)
+        expected = RiskEngine(self.swap._compiled_program(), self.market, template=template).quote_risk()
+        np.testing.assert_allclose(ladder.values, expected.values, rtol=1e-12)
+        np.testing.assert_allclose(ladder.unexplained, expected.unexplained, atol=1e-9)
+
+        self.assertEqual(viewed.get("dv01").shape, (1,))                       # a number per position
+        np.testing.assert_allclose(viewed.get("dv01"), ladder.dv01.sum(axis=1), rtol=1e-12)
+        self.assertLess(viewed.get("dv01")[0], 0.0)
+        # a bound template is accepted too, and gives the same answer
+        bound = template.bind(self.market)
+        np.testing.assert_allclose(
+            self.swap(self.market, ["dv01"], template=bound).get("dv01"), viewed.get("dv01"), rtol=1e-12
+        )

@@ -98,10 +98,15 @@ class Priceable(Serializable):
     ``result.get(name)``, and only a name no product answers raises ``ValueError``.  For leg products the measures are ``pv`` + ``leg_pvs`` +
     ``cashflows``: the first two are always populated (one kernel pass), ``cashflows`` is
     skipped unless requested, saving the per-flow report assembly in tight loops.
+
+    Keyword ``settings`` steer measures that need a choice: ``swap(market, ["dv01"],
+    curve="USD.STDCSA")`` reports DV01 against that curve instead of the swap's own projection
+    curve; ``template=risk_template`` reports the risk measures against the template's quotes
+    instead of zero pillars.  An unrecognised setting is a ``TypeError``.
     """
 
-    def __call__(self, market, requests: Sequence[PricingRequest] | None = None):
-        return self._compiled_program().price(market, requests)
+    def __call__(self, market, requests: Sequence[PricingRequest] | None = None, **settings):
+        return self._compiled_program().price(market, requests, **settings)
 
     def requests(self) -> tuple[str, ...]:
         """Every measure this instrument answers, sorted: what ``instrument(market, requests)`` accepts
