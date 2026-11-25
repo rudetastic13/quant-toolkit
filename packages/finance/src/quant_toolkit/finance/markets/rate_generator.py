@@ -1,7 +1,7 @@
 """Convention-aware rate generation over registered yield curves."""
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Iterable
 
 import numpy as np
@@ -214,24 +214,25 @@ class RateGenerator:
         return -floating_pv / fixed_pv
 
     def par_swap_rate(self, swap: Swap) -> float:
-        """Generate the par fixed rate for a resolved fixed-versus-floating swap."""
+        """Generate the par fixed rate for a resolved fixed-versus-floating swap.
+
+        The ``par_coupon`` measure: the flat fixed coupon that makes the swap's PV zero.
+
+        Raises
+        ------
+        ValueError
+            If the swap does not have both a fixed and a floating leg.
+        ZeroDivisionError
+            If the fixed-leg annuity is zero.
+        """
         from quant_toolkit.finance.instruments.priceable import compile_instruments
 
-        legs = []
-        fixed: list[int] = []
-        floating: list[int] = []
-        for index, leg in enumerate(swap):
-            if leg.is_floating:
-                legs.append(leg)
-                floating.append(index)
-            else:
-                legs.append(leg.replace(coupon_rate=1.0))
-                fixed.append(index)
-        if not fixed or not floating:
+        floating = [leg.is_floating for leg in swap]
+        if all(floating) or not any(floating):
             raise ValueError("par_swap_rate requires at least one fixed and one floating leg.")
-        unit_swap = replace(swap, receive_leg=legs[0], pay_leg=legs[1])
-        program = compile_instruments([unit_swap])
-        return self.par_rate_from_program(program, fixed_legs=fixed, floating_legs=floating)
-
+        par = float(compile_instruments([swap]).price(self.market, ["par_coupon"]).get("par_coupon")[0])
+        if np.isnan(par):
+            raise ZeroDivisionError("unit fixed-leg annuity is zero; par rate is undefined.")
+        return par
 
 __all__ = ["RateGenerator"]

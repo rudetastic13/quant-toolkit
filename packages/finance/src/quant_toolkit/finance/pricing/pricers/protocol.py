@@ -100,9 +100,12 @@ def measure(program_cls: type, name: str) -> Callable:
     return decorator
 
 
-def on_demand(program: Any, market: Any, asked: Iterable[str]) -> dict[str, Any]:
-    """Evaluate the registered on-demand measures among ``asked``, keyed by request name."""
-    cache: dict = {}
+def on_demand(program: Any, market: Any, asked: Iterable[str], cache: dict | None = None) -> dict[str, Any]:
+    """Evaluate the registered on-demand measures among ``asked``, keyed by request name.
+
+    ``cache`` seeds the per-call cache with what the pricing pass already produced.
+    """
+    cache = {} if cache is None else cache
     out: dict[str, Any] = {}
     for name in sorted(asked):
         fn = measure_registry.get((type(program), name))
