@@ -2,13 +2,14 @@
 
 A European swaption is the right to enter a fixed/float swap on the expiry date. This page
 shows how to build one, price it and read its risk. Every number below comes from running the
-snippets in order with `PYTHONPATH=src`.gvbhffn
+snippets in order with `PYTHONPATH=src`.
 
-> **Setup:** European exercise, physical settlement, long positions only. Bachelier (normal
+> **Setup:** European exercise, physical settlement. Bachelier (normal
 > vols) and Black (lognormal vols) are implemented. No smile model exists yet, so the vol does
 > not depend on strike.
 
-## 1. Markett
+## 1. Market
+
 A swaption needs a curve and a vol cube. A `ModelVolCube` is a surface plus the units its vols quote convention.
 
 ```python
@@ -53,34 +54,40 @@ default a swaption uses the cube named after its rate index.
 `Swaption.european` builds the option and its underlying swap from a handful of terms.
 
 ```python
-from quant_toolkit.finance.instruments.resolution import Swaption, SwaptionModel
+from quant_toolkit.finance.instruments.resolution import Swaption
 
 payer = Swaption.european(
     notional=10e6, strike=0.045, expiry="1Y", swap_tenor="5Y", as_of=as_of,
-    payer=True, model=SwaptionModel.Bachelier,
+    payer=True,
 )
 receiver = Swaption.european(
     notional=10e6, strike=0.045, expiry="18M", swap_tenor="7Y", as_of=as_of,
-    payer=False, model=SwaptionModel.Bachelier,
+    payer=False,
 )
 black = Swaption.european(
     notional=10e6, strike=0.045, expiry="1Y", swap_tenor="5Y", as_of=as_of,
-    payer=True, model=SwaptionModel.Black, vol_name="USD.SOFR.LN",
+    payer=True, vol_name="USD.SOFR.LN",
 )
 ```
 
-- `payer=True` is the right to pay fixed; `payer=False` is the right to receive it.
+- `payer=True` is the right to pay fixed; `payer=False` is the right to receive it. The flag only
+  sets the direction of the underlying swap; `swaption.payer` reads it back from there.
+- `position` is the number of options held, `1.0` by default; pass `-1.0` for a sold option.
+  PV, greeks and risk all scale with it.
 - `strike` becomes the fixed rate of the underlying swap.
-- `model` must match the units of the cube it reads: Bachelier needs `Normal`, Black needs
-  `Lognormal`. A mismatch raises.
 - `vol_name` picks a cube other than the default.
+- There is no model argument. The option model follows the cube the swaption reads: a `Normal`
+  cube prices Bachelier and a `Lognormal` cube prices Black. To price the same contract under
+  the other model, point it at a cube quoted that way.
 
 The underlying is an ordinary `Swap`, available as `payer.underlying`. For the payer above the
 option expires 2027-06-01 and the swap runs 2027-06-03 to 2032-06-03.
 
 ## 3. Pricing
 
-Compile a list of swaptions once, then reprice against any market.
+A swaption is a calculator: `payer(market)` prices it, and `payer(market, ["pv", "vega"])`
+asks for named measures. For a book, compile a list of swaptions once, then reprice against any
+market.
 
 ```python
 from quant_toolkit.finance.pricing.pricers import SwaptionPricer
@@ -187,4 +194,4 @@ risk.vol_gradient["USD.SOFR.LN"][2] * 0.01     # [7699.35], per one point of log
   affect the vol.
 - **Smile-adjusted delta.** With a smile model the vol moves when the forward moves. The plan
   is to report that as its own column next to the fixed-vol DV01 shown above.
-- **Short positions and cash settlement.**
+- **Cash settlement.**

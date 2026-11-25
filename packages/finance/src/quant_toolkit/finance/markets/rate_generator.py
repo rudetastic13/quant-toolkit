@@ -215,7 +215,7 @@ class RateGenerator:
 
     def par_swap_rate(self, swap: Swap) -> float:
         """Generate the par fixed rate for a resolved fixed-versus-floating swap."""
-        from quant_toolkit.finance.pricing.pricers import SwapPricer
+        from quant_toolkit.finance.instruments.priceable import compile_instruments
 
         legs = []
         fixed: list[int] = []
@@ -230,7 +230,7 @@ class RateGenerator:
         if not fixed or not floating:
             raise ValueError("par_swap_rate requires at least one fixed and one floating leg.")
         unit_swap = replace(swap, receive_leg=legs[0], pay_leg=legs[1])
-        program = SwapPricer().compile([unit_swap])
+        program = compile_instruments([unit_swap])
         return self.par_rate_from_program(program, fixed_legs=fixed, floating_legs=floating)
 
 

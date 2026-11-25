@@ -440,7 +440,7 @@ class RiskTemplate:
 
     def _unit_risk(self, market, curves, pillar_dates, backend) -> FloatArray:
         """Pillar risk (K, P) of each instrument built at its implied quote in unit size."""
-        from quant_toolkit.finance.pricing.pricers import FuturesPricer, LegPricer
+        from quant_toolkit.finance.instruments.priceable import compile_instruments
 
         legs, leg_rows, futures, future_rows = [], [], [], []
         for k, h in enumerate(self.instruments):
@@ -465,10 +465,10 @@ class RiskTemplate:
                 raise NotImplementedError(f"no unit instrument for helper type {type(h).__name__}")
         out = np.zeros((len(self.instruments), int(sum(pillar_dates[c].size for c in curves))), dtype=np.float64)
         if legs:
-            risk = pillar_risk(LegPricer().compile(legs), market, backend=backend).aligned(curves, pillar_dates)
+            risk = pillar_risk(compile_instruments(legs), market, backend=backend).aligned(curves, pillar_dates)
             out[leg_rows] = risk.values
         if futures:
-            risk = pillar_risk(FuturesPricer().compile(futures), market, backend=backend).aligned(curves, pillar_dates)
+            risk = pillar_risk(compile_instruments(futures), market, backend=backend).aligned(curves, pillar_dates)
             out[future_rows] = risk.values
         return out
 

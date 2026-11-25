@@ -32,11 +32,8 @@ What a program pins down
 ``reprice`` is not part of this protocol: it is the engine-level primitive (``PricingProgram.reprice``
 and the engine programs return the raw ``KernelResult``).
 
-TODO(pricer-protocol): code outside this package still names concrete pricers (``LegPricer()`` in
-tests, research scripts, ``quant_toolkit.xl.api``, ``Priceable._compile`` via ``pricer_registry``, the
-calibration helpers).  Replace those with ``Pricer`` / ``Program`` annotations and resolve the concrete
-class through ``pricer_registry`` throughout the project.  Also make ``pricer_registry`` a
-``Registry[type[Pricer]]``.
+Callers outside this package do not name a concrete pricer: ``pricer_registry`` maps an instrument
+class to its pricer class, and ``compile_instruments`` (in ``instruments.priceable``) is the lookup.
 """
 from __future__ import annotations
 

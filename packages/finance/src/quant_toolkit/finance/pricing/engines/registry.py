@@ -41,6 +41,19 @@ def has_program(backend) -> bool:
     return program_registry.has(backend)
 
 
+def select_backend(backend, default):
+    """``backend`` (or ``default`` when ``None``) as a ``Backend`` with a registered engine.
+
+    Raises
+    ------
+    NotImplementedError
+        If no engine is registered for it.
+    """
+    selected = type(default)(default if backend is None else backend)
+    program_class(selected)
+    return selected
+
+
 def program_class(backend):
     """The program class registered for ``backend``.
 

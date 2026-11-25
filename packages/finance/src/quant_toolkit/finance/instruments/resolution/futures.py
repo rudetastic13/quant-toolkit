@@ -5,10 +5,11 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from quant_toolkit.common.object.serializer import Serializable, serializable
+from quant_toolkit.common.object.serializer import serializable
 from quant_toolkit.finance.dates import BDC, Date, DayCountMethod, Frequency
 from quant_toolkit.finance.instruments.common_instrument import CommonInstrument
 from quant_toolkit.finance.instruments.enums import CouponType
+from quant_toolkit.finance.instruments.priceable import Priceable
 from quant_toolkit.finance.instruments.resolution.resolver import curve_name
 
 _MONTH_CODES = {code: month for month, code in enumerate("FGHJKMNQUVXZ", start=1)}
@@ -63,8 +64,11 @@ def _first_business_day(year: int, month: int) -> Date:
 
 @serializable("SofrFuture")
 @dataclass(frozen=True, kw_only=True)
-class SofrFuture(Serializable):
-    """Resolved SR1/SR3 future, independent of curves and market state."""
+class SofrFuture(Priceable):
+    """Resolved SR1/SR3 future, independent of curves and market state.
+
+    ``future(market, requests)`` prices standalone through ``FuturesPricer``.
+    """
 
     contract: str
     ref_start: Date

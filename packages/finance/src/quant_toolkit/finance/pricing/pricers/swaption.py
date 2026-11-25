@@ -7,10 +7,12 @@ from typing import Any, ClassVar, Sequence
 
 import numpy as np
 
-from quant_toolkit.finance.instruments.resolution.swaption import Swaption, SwaptionModel
+from quant_toolkit.common.registry import register_with
+from quant_toolkit.finance.instruments.priceable import compile_instruments, pricer_registry
+from quant_toolkit.finance.instruments.resolution.swaption import Swaption
 from quant_toolkit.finance.instruments.resolution.resolver import curve_name
 from quant_toolkit.finance.markets.vols import VolUnits
-from quant_toolkit.finance.pricing.engines import kernel
+from quant_toolkit.finance.pricing.engines import kernel, select_backend
 from quant_toolkit.finance.pricing.engines.numpy.option import OptionGreeks
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
 from quant_toolkit.finance.pricing.pricers.protocol import (
@@ -21,20 +23,20 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     pillar_measure,
     resolve_requests,
 )
-from quant_toolkit.finance.pricing.results import read_measure
-from quant_toolkit.finance.pricing.pricers.swap import SwapPricer
+from quant_toolkit.finance.pricing.results import measures_dict, read_measure
 from quant_toolkit.finance.pricing.types import KERNEL_BACHELIER, KERNEL_BLACK, Backend
 
-# Quoting convention each model consumes; enforced against ModelVolCube.units at lookup.
-_SURFACE_UNITS = {
-    SwaptionModel.Black: VolUnits.Lognormal,
-    SwaptionModel.Bachelier: VolUnits.Normal,
+# The option model follows the cube: its quoting convention names the kernel in ``kernel_registry``.
+OPTION_KERNEL = {
+    VolUnits.Lognormal: KERNEL_BLACK,
+    VolUnits.Normal: KERNEL_BACHELIER,
 }
 
 
 @dataclass(frozen=True)
 class SwaptionPricingResult:
-    """Reprice output; ``greeks`` are monetary — every unit (per-annuity) greek scaled by ``annuity``."""
+    """Reprice output; ``greeks`` are monetary — every unit (per-annuity) greek scaled by ``annuity``
+    and by the option's ``position`` (so a sold option has negative PV and vega)."""
 
     pv: np.ndarray
     forward: np.ndarray
@@ -52,6 +54,10 @@ class SwaptionPricingResult:
     def get(self, measure: str):
         """Measure by request name; ``None`` if a swaption does not answer it."""
         return read_measure(self, self.fields, measure)
+
+    def as_dict(self, measures=None) -> dict[str, Any]:
+        """``{request name: value}``; see :func:`measures_dict`."""
+        return measures_dict(self, self.fields, measures)
 
     @property
     def value(self) -> np.ndarray:
@@ -92,7 +98,7 @@ class SwaptionProgram:
             raise ValueError("SwaptionPricer requires at least one swaption")
         self.swaptions = tuple(swaptions)
         unit_swaps = [_unit_fixed_swap(option.underlying) for option in swaptions]
-        self.program: PricingProgram = SwapPricer().compile(unit_swaps, backend=backend)
+        self.program: PricingProgram = compile_instruments(unit_swaps, backend=backend)
         # Program legs are laid out in instrument order, each underlying's legs in its own
         # order — classify by walking them, never by assuming two legs per swap.
         fixed_idx = []
@@ -102,6 +108,7 @@ class SwaptionProgram:
             for leg, _sign in option.underlying.legs:
                 (float_idx if leg.is_floating else fixed_idx).append(leg_index)
                 leg_index += 1
+        self.position = np.array([option.position for option in swaptions], dtype=np.float64)
         self.fixed_leg = np.asarray(fixed_idx, dtype=np.int64)
         self.float_leg = np.asarray(float_idx, dtype=np.int64)
 
@@ -128,15 +135,7 @@ class SwaptionProgram:
             expiry[i] = max((option.expiry.to_numpy() - as_of).astype(int) / 365.0, 0.0)
             tenor[i] = (fixed_leg.maturity.to_numpy() - fixed_leg.effective.to_numpy()).astype(int) / 365.0
             strike[i] = float(fixed_leg.coupon_rate)
-            name = option.vol_name or curve_name(option.underlying.currency, option.underlying.index_name)
-            required = _SURFACE_UNITS[option.model]
-            units = market.vols.resolve(name).units
-            if units != required:
-                raise ValueError(
-                    f"swaption model {option.model.name} requires a {required.name} vol surface; "
-                    f"'{name}' is quoted {units.name}"
-                )
-            names.append(name)
+            names.append(option.vol_name or curve_name(option.underlying.currency, option.underlying.index_name))
         groups = []
         for name in dict.fromkeys(names):
             cube = market.vols.resolve(name)
@@ -145,16 +144,15 @@ class SwaptionProgram:
             groups.append((name, cube, mask))
         return strike, expiry, tenor, vol, groups
 
-    def _unit_greeks(self, forward, strike, expiry, vol) -> OptionGreeks:
+    def _unit_greeks(self, forward, strike, expiry, vol, groups) -> OptionGreeks:
+        """Per-annuity value and greeks, each cube's options through the kernel its units name."""
         backend = self.program.backend
         arrays = [np.empty_like(forward) for _ in range(6)]
-        for model, kernel_id in (
-            (SwaptionModel.Black, KERNEL_BLACK),
-            (SwaptionModel.Bachelier, KERNEL_BACHELIER),
-        ):
-            mask = np.array([option.model == model for option in self.swaptions])
+        payer = np.array([option.payer for option in self.swaptions])
+        for _name, cube, mask in groups:
+            kernel_id = OPTION_KERNEL[cube.units]
             for is_call in (False, True):
-                selected = mask & np.array([option.payer == is_call for option in self.swaptions])
+                selected = mask & (payer == is_call)
                 if not selected.any():
                     continue
                 greeks = kernel(
@@ -179,9 +177,9 @@ class SwaptionProgram:
         """
         asked = resolve_requests(requests, self.measures, SwaptionPricingResult.fields)
         _, _, _, forward, annuity = self._underlying(market)
-        strike, expiry, _, vol, _ = self._option_inputs(market, forward)
-        unit = self._unit_greeks(forward, strike, expiry, vol)
-        monetary = OptionGreeks(*(annuity * value for value in dataclasses.astuple(unit)))
+        strike, expiry, _, vol, groups = self._option_inputs(market, forward)
+        unit = self._unit_greeks(forward, strike, expiry, vol, groups)
+        monetary = OptionGreeks(*(self.position * annuity * value for value in dataclasses.astuple(unit)))
         return SwaptionPricingResult(
             pv=monetary.value,
             forward=forward,
@@ -219,9 +217,11 @@ class SwaptionProgram:
         d_annuity = np.sign(fixed_pv)[:, None] * fixed_gradient
 
         strike, expiry, tenor, vol, groups = self._option_inputs(market, forward)
-        unit = self._unit_greeks(forward, strike, expiry, vol)
-        curve_gradient = unit.value[:, None] * d_annuity + annuity[:, None] * unit.delta[:, None] * d_forward
-        vega = annuity * unit.vega
+        unit = self._unit_greeks(forward, strike, expiry, vol, groups)
+        curve_gradient = self.position[:, None] * (
+            unit.value[:, None] * d_annuity + annuity[:, None] * unit.delta[:, None] * d_forward
+        )
+        vega = self.position * annuity * unit.vega
         vol_gradient = {}
         for name, cube, mask in groups:
             gradient = np.zeros((len(self.swaptions), cube.params.size))
@@ -238,16 +238,14 @@ class SwaptionProgram:
 measure(SwaptionProgram, "zero_ladder")(pillar_measure)
 
 
+@register_with(pricer_registry, Swaption, overwrite=True)
 class SwaptionPricer:
     # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
     # the fused hot path.  risk() uses the Numba adjoint either way.
     default_backend = Backend.Numpy
 
     def compile(self, swaptions: list[Swaption], *, backend: Backend | None = None) -> SwaptionProgram:
-        selected = self.default_backend if backend is None else Backend(backend)
-        if selected not in (Backend.Numpy, Backend.Numba):
-            raise NotImplementedError(f"backend {selected.name} is not implemented by SwaptionPricer")
-        return SwaptionProgram(swaptions, selected)
+        return SwaptionProgram(swaptions, select_backend(backend, self.default_backend))
 
     def price(self, swaptions: list[Swaption], market, *, backend: Backend | None = None):
         return self.compile(swaptions, backend=backend).price(market)

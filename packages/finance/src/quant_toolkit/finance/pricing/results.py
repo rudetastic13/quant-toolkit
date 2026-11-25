@@ -47,6 +47,30 @@ def read_measure(result: Any, fields: Mapping[str, str], name: str) -> Any:
     return value
 
 
+def measures_dict(result: Any, fields: Mapping[str, str], names: Any = None) -> dict[str, Any]:
+    """Measures of ``result`` by request name.
+
+    Parameters
+    ----------
+    result : object
+        A product result.
+    fields : mapping of str to str
+        As for :func:`read_measure`.
+    names : iterable of str or None
+        ``None`` is everything the result holds (its fields and its on-demand extras).
+
+    Returns
+    -------
+    dict of str to object
+        In the order asked; a measure the product does not answer maps to ``None``.
+    """
+    if names is None:
+        names = [*fields, *(k for k in getattr(result, "extras", {}) if k not in fields)]
+    elif isinstance(names, str):
+        names = [names]
+    return {name: read_measure(result, fields, name) for name in names}
+
+
 @dataclass
 class CashflowReport:
     """Per-flow detail for inspection/reporting (all arrays aligned, length F)."""
@@ -75,6 +99,10 @@ class PricingResult:
     def get(self, measure: str):
         """Measure by request name; ``None`` if a leg product does not answer it or it was not requested."""
         return read_measure(self, self.fields, measure)
+
+    def as_dict(self, measures=None) -> dict[str, Any]:
+        """``{request name: value}``; see :func:`measures_dict`."""
+        return measures_dict(self, self.fields, measures)
 
     @property
     def value(self) -> FloatArray:

@@ -11,7 +11,7 @@ import numpy as np
 
 from quant_toolkit.finance.dates import Date
 from quant_toolkit.finance.instruments import resolution
-from quant_toolkit.finance.pricing.pricers import SwapPricer
+from quant_toolkit.finance.instruments.priceable import compile_instruments
 from quant_toolkit.finance.pricing.risk import RiskEngine, RiskTemplate
 
 from quant_toolkit.xl.core import handles
@@ -31,7 +31,7 @@ class Book:
     swaps : tuple of Swap
         The positions, in the order given; every per-position result is in this order.
     program : PricingProgram
-        The swaps compiled once by ``SwapPricer``; repriced against any market.
+        The swaps compiled once by their registered pricer; repriced against any market.
     """
 
     swaps: tuple
@@ -86,7 +86,7 @@ def compile_book(values) -> Book:
     Book
     """
     swaps = swaps_of(values)
-    return Book(tuple(swaps), SwapPricer().compile(swaps))
+    return Book(tuple(swaps), compile_instruments(swaps))
 
 
 def book_of(values) -> Book:

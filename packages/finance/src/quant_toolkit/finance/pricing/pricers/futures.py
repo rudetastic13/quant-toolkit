@@ -6,7 +6,10 @@ from typing import Any, ClassVar, Sequence
 
 import numpy as np
 
+from quant_toolkit.common.registry import register_with
+from quant_toolkit.finance.instruments.priceable import pricer_registry
 from quant_toolkit.finance.instruments.resolution.futures import SofrFuture
+from quant_toolkit.finance.pricing.engines import select_backend
 from quant_toolkit.finance.instruments.resolution.resolver import curve_name, funding_curve_name
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
 from quant_toolkit.finance.pricing.pricers.legs import leg_spec
@@ -18,7 +21,7 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     pillar_measure,
     resolve_requests,
 )
-from quant_toolkit.finance.pricing.results import read_measure
+from quant_toolkit.finance.pricing.results import measures_dict, read_measure
 from quant_toolkit.finance.pricing.kernels import compile_portfolio
 from quant_toolkit.finance.pricing.types import Backend
 
@@ -46,6 +49,10 @@ class FuturesPricingResult:
     def get(self, measure: str):
         """Measure by request name; ``None`` if a future does not answer it."""
         return read_measure(self, self.fields, measure)
+
+    def as_dict(self, measures=None) -> dict[str, Any]:
+        """``{request name: value}``; see :func:`measures_dict`."""
+        return measures_dict(self, self.fields, measures)
 
     @property
     def value(self) -> np.ndarray:
@@ -147,16 +154,14 @@ class FuturesProgram:
 measure(FuturesProgram, "zero_ladder")(pillar_measure)
 
 
+@register_with(pricer_registry, SofrFuture, overwrite=True)
 class FuturesPricer:
     # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
     # the fused hot path.  risk() uses the Numba adjoint either way.
     default_backend = Backend.Numpy
 
     def compile(self, futures: list[SofrFuture], *, backend: Backend | None = None) -> FuturesProgram:
-        selected = self.default_backend if backend is None else Backend(backend)
-        if selected not in (Backend.Numpy, Backend.Numba):
-            raise NotImplementedError(f"backend {selected.name} is not implemented by FuturesPricer")
-        return FuturesProgram(futures, selected)
+        return FuturesProgram(futures, select_backend(backend, self.default_backend))
 
     def price(
         self,

@@ -1,9 +1,11 @@
 """SOFR future and European swaption product wrappers over the Numba engine."""
+import dataclasses
+
 import numpy as np
 
 from quant_toolkit.common.testing import UnitTest
 from quant_toolkit.finance.dates import Date
-from quant_toolkit.finance.instruments.resolution import SofrFuture, Swaption, SwaptionModel, imm_date, next_quarterly_imm
+from quant_toolkit.finance.instruments.resolution import SofrFuture, Swaption, imm_date, next_quarterly_imm
 from quant_toolkit.finance.markets.context import MarketContext
 from quant_toolkit.finance.markets.curves import CurveInterpolator, YieldCurve
 from quant_toolkit.finance.markets.vols import FlatVolSurface, GridVolSurface, ModelVolCube, VolNamespace, VolUnits
@@ -15,6 +17,7 @@ from quant_toolkit.finance.pricing.calibration import (
     deposit_helper,
     futures_helper,
 )
+from quant_toolkit.finance.pricing.engines.numpy.option import black_greeks
 from quant_toolkit.finance.pricing.pricers import FuturesPricer, SwaptionPricer
 from quant_toolkit.finance.pricing.types import Backend
 
@@ -84,7 +87,7 @@ class TestSwaptions(UnitTest):
         self.as_of = Date(2026, 6, 1)
         self.market = _market(self.as_of)
 
-    def _option(self, payer=True, model=SwaptionModel.Bachelier, vol_name=None):
+    def _option(self, payer=True, vol_name=None):
         return Swaption.european(
             notional=1e6,
             strike=0.04,
@@ -92,7 +95,6 @@ class TestSwaptions(UnitTest):
             swap_tenor="5Y",
             as_of=self.as_of,
             payer=payer,
-            model=model,
             vol_name=vol_name,
         )
 
@@ -129,8 +131,8 @@ class TestSwaptions(UnitTest):
 
     def test_black_model_payer_receiver_parity(self):
         self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
-        payer = SwaptionPricer().price([self._option(True, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
-        receiver = SwaptionPricer().price([self._option(False, SwaptionModel.Black, "USD.SOFR.LN")], self.market)
+        payer = SwaptionPricer().price([self._option(True, "USD.SOFR.LN")], self.market)
+        receiver = SwaptionPricer().price([self._option(False, "USD.SOFR.LN")], self.market)
         expected = payer.annuity[0] * (payer.forward[0] - 0.04)
         self.assertAlmostEqual(payer.pv[0] - receiver.pv[0], expected, places=7)
 
@@ -143,8 +145,7 @@ class TestSwaptions(UnitTest):
         self.market.vols.rebind(CURVE, cube)
         options = [
             self._option(True),
-            Swaption.european(notional=2e6, strike=0.045, expiry="3Y", swap_tenor="7Y", as_of=self.as_of, payer=False,
-                              model=SwaptionModel.Bachelier),
+            Swaption.european(notional=2e6, strike=0.045, expiry="3Y", swap_tenor="7Y", as_of=self.as_of, payer=False),
         ]
         program = SwaptionPricer().compile(options)
         analytic = program.risk(self.market).vol_gradient[CURVE]
@@ -164,7 +165,7 @@ class TestSwaptions(UnitTest):
 
     def test_vol_gradient_is_reported_per_cube(self):
         self.market.vols.bind("USD.SOFR.LN", ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
-        options = [self._option(True), self._option(True, SwaptionModel.Black, "USD.SOFR.LN")]
+        options = [self._option(True), self._option(True, "USD.SOFR.LN")]
         risk = SwaptionPricer().compile(options).risk(self.market)
         self.assertEqual(set(risk.vol_gradient), {CURVE, "USD.SOFR.LN"})
         self.assertGreater(risk.vol_gradient[CURVE][0, 0], 0.0)
@@ -172,7 +173,61 @@ class TestSwaptions(UnitTest):
         self.assertEqual(risk.vol_gradient["USD.SOFR.LN"][0, 0], 0.0)
         self.assertGreater(risk.vol_gradient["USD.SOFR.LN"][1, 0], 0.0)
 
-    def test_vol_units_mismatch_raises(self):
-        # default vol name resolves the Normal surface; Black requires Lognormal
-        with self.assertRaisesRegex(ValueError, "Lognormal"):
-            SwaptionPricer().price([self._option(True, SwaptionModel.Black)], self.market)
+    def test_cube_units_pick_the_option_model(self):
+        # the same contract prices Bachelier off a Normal cube and Black off a Lognormal one
+        option = self._option(True)
+        normal = SwaptionPricer().price([option], self.market)
+        self.market.vols.rebind(CURVE, ModelVolCube(FlatVolSurface(0.25), VolUnits.Lognormal))
+        lognormal = SwaptionPricer().price([option], self.market)
+        unit = black_greeks(lognormal.forward, np.array([0.04]), np.array([1.0]), np.array([0.25]), is_call=True)
+        np.testing.assert_allclose(lognormal.pv, lognormal.annuity * unit.value, rtol=1e-12)
+        self.assertNotAlmostEqual(float(normal.pv[0]), float(lognormal.pv[0]), places=2)
+
+    def test_swaption_and_future_are_priceable(self):
+        option = self._option(True)
+        np.testing.assert_array_equal(
+            option(self.market, ["pv", "vega", "cashflows"]).get("pv"), SwaptionPricer().price([option], self.market).pv
+        )
+        self.assertIsNone(option(self.market, ["pv", "cashflows"]).get("cashflows"))
+        future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of, convexity=0.0002)
+        result = future(self.market, ["price", "convexity", "forward_rate", "vega"])
+        np.testing.assert_array_equal(result.get("price"), FuturesPricer().price([future], self.market).model_price)
+        np.testing.assert_allclose(result.get("rate") - result.get("forward_rate"), result.get("convexity"), atol=1e-15)
+        self.assertIsNone(result.get("vega"))
+
+    def test_direction_comes_from_the_underlying(self):
+        self.assertTrue(self._option(True).payer)
+        self.assertFalse(self._option(False).payer)
+        with self.assertRaisesRegex(ValueError, "one fixed leg"):
+            underlying = self._option(True).underlying
+            Swaption(
+                underlying=dataclasses.replace(underlying, pay_leg=underlying.receive_leg),
+                expiry=self._option(True).expiry,
+            )
+
+    def test_sold_option_negates_value_and_risk(self):
+        common = dict(notional=1e6, strike=0.04, expiry="1Y", swap_tenor="5Y", as_of=self.as_of)
+        program = SwaptionPricer().compile(
+            [Swaption.european(**common), Swaption.european(**common, position=-1.0)]
+        )
+        result = program.price(self.market)
+        self.assertGreater(result.pv[0], 0.0)
+        np.testing.assert_allclose(result.pv[1], -result.pv[0], rtol=1e-14)
+        np.testing.assert_allclose(result.greeks.vega[1], -result.greeks.vega[0], rtol=1e-14)
+        risk = program.risk(self.market)
+        np.testing.assert_allclose(risk.curve_gradient[1], -risk.curve_gradient[0], rtol=1e-14)
+        np.testing.assert_allclose(risk.vol_gradient[CURVE][1], -risk.vol_gradient[CURVE][0], rtol=1e-14)
+
+    def test_every_product_lists_its_requests(self):
+        future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of)
+        swap = self._option(True).underlying
+        self.assertLessEqual({"pv", "vega", "zero_ladder"}, set(self._option(True).requests()))
+        self.assertLessEqual({"price", "convexity", "zero_ladder"}, set(future.requests()))
+        self.assertLessEqual({"pv", "cashflows", "index_ladder"}, set(swap.requests()))
+        self.assertNotIn("vega", swap.requests())
+
+    def test_as_dict_reports_none_for_another_products_measure(self):
+        out = self._option(True)(self.market, ["pv", "vega", "pnl"]).as_dict(["pv", "vega", "pnl"])
+        self.assertEqual(list(out), ["pv", "vega", "pnl"])
+        self.assertIsNone(out["pnl"])
+        self.assertGreater(out["vega"][0], 0.0)
