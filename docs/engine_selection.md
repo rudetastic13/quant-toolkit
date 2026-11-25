@@ -225,7 +225,7 @@ recv_ln = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor
                             payer=False, model=SwaptionModel.Black, vol_name="USD.SOFR.LN")   # -> Lognormal
 
 sw_prog = SwaptionPricer().compile([payer_n, recv_ln])   # unit-coupon swap program underneath
-r = sw_prog.reprice(market)
+r = sw_prog.price(market)
 r.forward        # [0.04652, 0.04652]      forward par rate, read off leg PVs
 r.annuity        # [2.145e8, 2.145e8]      cash annuity x notional
 r.volatility     # [0.0095, 0.24]          each option resolved its own surface

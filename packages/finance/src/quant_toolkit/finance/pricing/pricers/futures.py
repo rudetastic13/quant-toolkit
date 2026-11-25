@@ -1,7 +1,8 @@
 """SOFR futures pricing through the shared compounded/averaged rate engine."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any, ClassVar, Sequence
 
 import numpy as np
 
@@ -9,17 +10,47 @@ from quant_toolkit.finance.instruments.resolution.futures import SofrFuture
 from quant_toolkit.finance.instruments.resolution.resolver import curve_name, funding_curve_name
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
 from quant_toolkit.finance.pricing.pricers.legs import leg_spec
+from quant_toolkit.finance.pricing.pricers.protocol import (
+    PillarGradient,
+    declare_measures,
+    measure,
+    on_demand,
+    pillar_measure,
+    resolve_requests,
+)
+from quant_toolkit.finance.pricing.results import read_measure
 from quant_toolkit.finance.pricing.kernels import compile_portfolio
 from quant_toolkit.finance.pricing.types import Backend
 
 
 @dataclass(frozen=True)
 class FuturesPricingResult:
-    """Model rate/price and variation-margin P&L for a futures strip."""
+    """Model rate/price and variation-margin P&L for a futures strip.
+
+    ``model_rate`` is the futures rate: ``forward_rate`` (the curve's rate over the reference
+    period) plus ``convexity`` (each contract's quoted adjustment, an input on ``SofrFuture``).
+    """
 
     model_rate: np.ndarray
     model_price: np.ndarray
     pnl: np.ndarray
+    forward_rate: np.ndarray
+    convexity: np.ndarray
+    extras: dict[str, Any] = field(default_factory=dict)   # on-demand measures, by request name
+
+    fields: ClassVar[dict[str, str]] = {
+        "rate": "model_rate", "price": "model_price", "pnl": "pnl",
+        "forward_rate": "forward_rate", "convexity": "convexity",
+    }
+
+    def get(self, measure: str):
+        """Measure by request name; ``None`` if a future does not answer it."""
+        return read_measure(self, self.fields, measure)
+
+    @property
+    def value(self) -> np.ndarray:
+        """Margined P&L per contract, 0 where there is no entry price: the number risk differentiates."""
+        return np.where(np.isnan(self.pnl), 0.0, self.pnl)
 
 
 @dataclass(frozen=True)
@@ -38,6 +69,8 @@ class FuturesProgram:
     lowered by the same ``leg_spec`` as every other leg.
     """
 
+    measures = declare_measures(FuturesPricingResult.fields)
+
     def __init__(self, futures: list[SofrFuture], backend: Backend):
         if not futures:
             raise ValueError("FuturesPricer requires at least one future")
@@ -50,9 +83,21 @@ class FuturesProgram:
                 legs.append(leg_spec(leg, sign, discount, projection, inst))
         self.program = PricingProgram(compile_portfolio(legs), backend=backend)
 
-    def reprice(self, market) -> FuturesPricingResult:
+    @property
+    def n_positions(self) -> int:
+        return len(self.futures)
+
+    def price(self, market, requests: Sequence[str] | None = None) -> FuturesPricingResult:
+        """Model rate, model price, P&L, forward rate and convexity adjustment per contract.
+
+        ``requests`` is checked against the known vocabulary; those five come from one pass and
+        are always populated.  ``zero_ladder`` (the P&L gradient as a :class:`PillarRisk`) runs
+        the Numba adjoint and is computed only when named.
+        """
+        asked = resolve_requests(requests, self.measures, FuturesPricingResult.fields)
         raw = self.program.reprice(market)
-        rate = raw.rate + np.array([future.convexity for future in self.futures])
+        convexity = np.array([future.convexity for future in self.futures], dtype=np.float64)
+        rate = raw.rate + convexity
         price = 100.0 * (1.0 - rate)
         pnl = np.full(rate.shape, np.nan, dtype=np.float64)
         for i, future in enumerate(self.futures):
@@ -63,7 +108,11 @@ class FuturesProgram:
                     * future.point_value
                     * future.contracts
                 )
-        return FuturesPricingResult(model_rate=rate, model_price=price, pnl=pnl)
+        result = FuturesPricingResult(
+            model_rate=rate, model_price=price, pnl=pnl, forward_rate=raw.rate, convexity=convexity
+        )
+        result.extras.update(on_demand(self, market, asked))
+        return result
 
     def risk(self, market, curve: str | None = None) -> FuturesRiskResult:
         """Analytic rate, price, and P&L gradients from the Numba projection adjoint.
@@ -89,6 +138,14 @@ class FuturesProgram:
             pnl_grad[i] = price_grad[i] / 0.01 * future.point_value * future.contracts
         return FuturesRiskResult(rate_grad, price_grad, pnl_grad)
 
+    def pillar_gradient(self, market) -> PillarGradient:
+        """Margined P&L gradient over every curve parameter (no discounting)."""
+        numba = self.program.prepare(market, backend=Backend.Numba)
+        return PillarGradient(numba.layout, self.risk(market).pnl_gradient, self.price(market).value)
+
+
+measure(FuturesProgram, "zero_ladder")(pillar_measure)
+
 
 class FuturesPricer:
     # Numpy is the always-available reference (numba is optional); pass Backend.Numba for
@@ -108,7 +165,7 @@ class FuturesPricer:
         *,
         backend: Backend | None = None,
     ) -> FuturesPricingResult:
-        return self.compile(futures, backend=backend).reprice(market)
+        return self.compile(futures, backend=backend).price(market)
 
 
 __all__ = ["FuturesPricer", "FuturesProgram", "FuturesPricingResult", "FuturesRiskResult"]

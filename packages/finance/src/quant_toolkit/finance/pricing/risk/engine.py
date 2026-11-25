@@ -28,7 +28,7 @@ import numpy as np
 
 from quant_toolkit.finance.pricing.engines.layout import ParamLayout
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
-from quant_toolkit.finance.pricing.pricers.swaption import SwaptionProgram
+from quant_toolkit.finance.pricing.pricers.protocol import Program
 from quant_toolkit.finance.pricing.risk.pillar import PillarRisk, pillar_risk
 from quant_toolkit.finance.pricing.risk.template import BoundRiskTemplate, QuoteRisk, RiskTemplate
 
@@ -56,7 +56,8 @@ class RiskEngine:
 
     Parameters
     ----------
-    program : PricingProgram or SwaptionProgram
+    program : Program
+        Any program whose ``measures`` include ``"pv"``.
     market : MarketContext
     template : RiskTemplate, optional
         The default template for :meth:`quote_risk`.
@@ -66,7 +67,7 @@ class RiskEngine:
     """
 
     def __init__(self, program, market, *, template: RiskTemplate | None = None, bp: float = BP, method: str = "auto"):
-        if not isinstance(program, (PricingProgram, SwaptionProgram)):
+        if not isinstance(program, Program) or "pv" not in program.measures:
             raise TypeError(
                 f"RiskEngine handles PV-measured programs, not {type(program).__name__}; "
                 "futures expose rate/price/pnl gradients via FuturesProgram.risk"
@@ -102,10 +103,6 @@ class RiskEngine:
         """Risk to the template's quotes, with the unexplained pillar risk and reconciliation lines."""
         return self.bound(template).quote_risk(self.pillar_risk(labels=labels))
 
-    def _inputs(self):
-        inner = self.program.program if isinstance(self.program, SwaptionProgram) else self.program
-        return inner.inputs
-
     def _resolve(self, method: str) -> str:
         if method not in ("auto", "adjoint", "bump"):
             raise ValueError("method must be 'auto', 'adjoint', or 'bump'")
@@ -124,7 +121,8 @@ class RiskEngine:
         """Key-rate ladder across the pillars of the block ``curve_name`` reports under, per instrument."""
         layout, block = self._block(curve_name)
         if self.method == "adjoint":
-            grid = self._adjoint_ladder(curve_name)
+            gradient = self.program.pillar_gradient(self.market)
+            grid = gradient.values[:, gradient.layout.block_slice(curve_name)] * self.bp
         else:
             grid = self._bump_ladder(block, layout.block_slice(block).stop - layout.block_slice(block).start)
         return CurveRiskReport(
@@ -150,30 +148,21 @@ class RiskEngine:
                 "gamma requires the analytic adjoint (FD of the exact gradient); bump gamma "
                 "second-differences price and cancels — see docs/engine_selection.md"
             )
-        if isinstance(self.program, SwaptionProgram):
-            raise NotImplementedError("swaption curve gamma (vol/rate cross terms) is not implemented")
+        if not isinstance(self.program, PricingProgram):
+            raise NotImplementedError(
+                f"curve gamma is implemented for leg programs only, not {type(self.program).__name__} "
+                "(option vol/rate cross terms are not implemented)"
+            )
         from quant_toolkit.finance.pricing.risk.adjoint import NumbaRisk
 
         return NumbaRisk(self.program, self.market, self.bp).gamma(curve_name, step=step)
 
     # -- plumbing -----------------------------------------------------------------------
     def _pv(self, market) -> FloatArray:
-        result = self.program.reprice(market)
-        return result.pv if isinstance(self.program, SwaptionProgram) else result.instrument_pv
-
-    def _adjoint_ladder(self, curve_name: str) -> FloatArray:
-        if isinstance(self.program, SwaptionProgram):
-            return self.program.risk(self.market, curve_name, bp=self.bp).dv01
-        from quant_toolkit.finance.pricing.risk.adjoint import NumbaRisk
-
-        return NumbaRisk(self.program, self.market, self.bp).zero_ladder(curve_name)
+        return self.program.price(market, ["pv"]).value
 
     def _bump_ladder(self, block: str, n_params: int) -> FloatArray:
-        if isinstance(self.program, SwaptionProgram):
-            n = len(self.program.swaptions)
-        else:
-            n = self._inputs().n_instruments
-        grid = np.zeros((n, n_params), dtype=np.float64)
+        grid = np.zeros((self.program.n_positions, n_params), dtype=np.float64)
         for j in range(n_params):
             shift = np.zeros(n_params)
             shift[j] = self.bp

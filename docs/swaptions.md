@@ -86,7 +86,7 @@ Compile a list of swaptions once, then reprice against any market.
 from quant_toolkit.finance.pricing.pricers import SwaptionPricer
 
 program = SwaptionPricer().compile([payer, receiver, black])
-result = program.reprice(market)
+result = program.price(market)
 ```
 
 Each field is an array with one entry per swaption.

@@ -258,7 +258,7 @@ UDF module, Use UDF Server on); the shipped file contains no machine paths.
 | `qtk-xl doctor` | prints package, xlwings, add-in and interpreter versions, trust setting, whether the add-in is in XLSTART and whether the UDF server starts. |
 | `qtk-xl uninstall` | removes the add-in and config. |
 
-Requirements the README states up front: Windows, desktop Excel, a native Windows Python 3.11+
+Requirements the README states up front: Windows, desktop Excel, a native Windows Python 3.12+
 (not WSL), a venv recommended, then `pip install quant-toolkit[excel]` and `qtk-xl install`.
 
 ### 4.3 Version rule

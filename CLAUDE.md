@@ -116,5 +116,5 @@ Coverage minimum is 80% (`fail_under = 80`). Reports are written to `pytest-repo
 - Line length: 120, double quotes, 4-space indent (enforced by ruff)
 - No `__all__` in implementation modules. Public exports are declared once, in the package `__init__.py` (the `__all__` there is the only one).
 - Docstrings follow the numpydoc convention: a one-line summary, then `Parameters` / `Returns` / `Raises` / `Notes` / `Examples` sections with `name : type` entries and array shapes spelled out.
-- Target: Python 3.11+; environment runs Python 3.14
+- Target: Python 3.12+; environment runs Python 3.14
 - Type hints are used extensively; `NDArray`, `DTypeLike`, and custom aliases (`DateType`, `FloatArray`, etc.) are defined in type modules within each package

@@ -18,13 +18,14 @@ pricing layer (pricing already imports instruments).
 """
 from __future__ import annotations
 
-from typing import Literal, Sequence, get_args
+from typing import Sequence
 
 from quant_toolkit.common.object.serializer import Serializable
 from quant_toolkit.common.registry import Registry
 
-PricingRequest = Literal["pv", "leg_pvs", "cashflows"]
-_VALID_REQUESTS = frozenset(get_args(PricingRequest))
+# A measure name.  Each program publishes the ones it answers as ``program.measures`` (leg products:
+# "pv", "leg_pvs", "cashflows") and rejects the rest.
+PricingRequest = str
 
 # resolved-instrument type name -> pricer class (SwapPricer registers "Swap", ...)
 pricer_registry: Registry = Registry(name="Pricers")
@@ -36,24 +37,20 @@ class Priceable(Serializable):
     The compiled program is cached on the instance outside its dataclass fields, so it never
     reaches a document.
 
-    ``requests`` is an optional list of :data:`PricingRequest` literals.  ``None`` means
-    the default set (``pv`` + ``leg_pvs`` + ``cashflows``).  ``pv``/``leg_pvs`` are always
-    populated (the kernel produces them in one pass); ``cashflows`` is skipped unless
-    requested, saving the per-flow report assembly in tight loops.
+    ``requests`` is an optional list of measure names, forwarded to the compiled program's
+    ``price``.  ``None`` means every measure the program answers.  Requests are lenient, so one
+    list serves a mixed book: a measure this instrument does not answer reads ``None`` from
+    ``result.get(name)``, and only a name no product answers raises ``ValueError``.  For leg products the measures are ``pv`` + ``leg_pvs`` +
+    ``cashflows``: the first two are always populated (one kernel pass), ``cashflows`` is
+    skipped unless requested, saving the per-flow report assembly in tight loops.
     """
 
     def __call__(self, market, requests: Sequence[PricingRequest] | None = None):
-        if requests is not None:
-            unknown = set(requests) - _VALID_REQUESTS
-            if unknown:
-                valid = ", ".join(sorted(_VALID_REQUESTS))
-                raise ValueError(f"unknown pricing request(s) {sorted(unknown)}; valid: {valid}")
         program = self.__dict__.get("_program")
         if program is None:
             program = self._compile()
             self.__dict__["_program"] = program
-        with_cashflows = requests is None or "cashflows" in requests
-        return program.price(market, with_cashflows=with_cashflows)
+        return program.price(market, requests)
 
     def _compile(self):
         from quant_toolkit.finance.pricing import pricers  # noqa: F401 — registers the bundled pricers

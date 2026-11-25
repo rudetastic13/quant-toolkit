@@ -94,7 +94,7 @@ class TestPillarRiskAdapters(UnitTest):
         self.assertTrue(np.isfinite(risk.values).all())
         np.testing.assert_array_equal(risk.values[0], 0.0)  # expired: no risk
         self.assertGreater(np.abs(risk.values[1]).sum(), 0.0)
-        pnl = program.reprice(self.market).pnl
+        pnl = program.price(self.market).pnl
         np.testing.assert_array_equal(risk.pv[:2], pnl[:2])
         self.assertEqual(risk.pv[2], 0.0)  # no entry price
 
@@ -111,7 +111,7 @@ class TestPillarRiskAdapters(UnitTest):
         program = SwaptionPricer().compile([option])
         risk = pillar_risk(program, self.market)
         np.testing.assert_array_equal(risk.block(SOFR), program.risk(self.market, SOFR).curve_gradient)
-        np.testing.assert_array_equal(risk.pv, program.reprice(self.market).pv)
+        np.testing.assert_array_equal(risk.pv, program.price(self.market).pv)
 
     def test_aligned_reorders_zero_fills_and_checks_pillars(self):
         risk = pillar_risk(SwapPricer().compile(self.book[:1]), self.market)

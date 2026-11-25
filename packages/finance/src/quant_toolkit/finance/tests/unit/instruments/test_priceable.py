@@ -49,6 +49,13 @@ class TestPriceableFunctor(UnitTest):
         self.assertIsNone(res.cashflows)
         self.assertEqual(res.instrument_pv.shape, (1,))
 
+    def test_request_for_another_product_reads_none(self):
+        res = self.swap(self.market, requests=["pv", "vega", "pnl"])
+        np.testing.assert_array_equal(res.get("pv"), res.instrument_pv)
+        self.assertIsNone(res.get("vega"))
+        self.assertIsNone(res.get("pnl"))
+        self.assertIsNone(res.get("cashflows"))  # answered by swaps, but not requested
+
     def test_unknown_request_raises(self):
         with self.assertRaises(ValueError):
             self.swap(self.market, requests=["pv", "delta_gamma_vega"])
@@ -58,3 +65,12 @@ class TestPriceableFunctor(UnitTest):
         # receiving 4% fixed: PV falls as rates rise
         self.assertGreater(pvs[0], pvs[1])
         self.assertGreater(pvs[1], pvs[2])
+
+    def test_ladders_are_on_demand_and_split_total(self):
+        self.assertEqual(self.swap(self.market).extras, {})  # default requests run no adjoint
+        res = self.swap(self.market, requests=["pv", "zero_ladder", "index_ladder", "funding_ladder"])
+        zero, index, funding = (res.get(name) for name in ("zero_ladder", "index_ladder", "funding_ladder"))
+        self.assertEqual(zero.values.shape[0], 1)
+        np.testing.assert_allclose(zero.values, index.values + funding.values, rtol=1e-12, atol=1e-9)
+        bumped = self.swap(_market(self.as_of, level=0.0401)).pv - self.swap(self.market).pv
+        self.assertAlmostEqual(zero.dv01.sum() / bumped, 1.0, delta=0.02)
