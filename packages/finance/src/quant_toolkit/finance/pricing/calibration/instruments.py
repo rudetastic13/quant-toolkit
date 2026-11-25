@@ -28,9 +28,8 @@ from quant_toolkit.finance.instruments.resolution import (
 from quant_toolkit.finance.markets.context import MarketContext
 from quant_toolkit.finance.markets.rate_generator import RateGenerator
 from quant_toolkit.finance.conventions import ConventionRegistry, default_registry
+from quant_toolkit.finance.instruments.priceable import compile_instruments
 from quant_toolkit.finance.pricing.pricers.base import PricingProgram
-from quant_toolkit.finance.pricing.pricers.swap import SwapPricer
-from quant_toolkit.finance.pricing.pricers.futures import FuturesPricer
 
 
 class QuoteKind(IntEnum):
@@ -146,7 +145,7 @@ class SwapHelper:
     _float_idx: tuple[int, ...] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._program = SwapPricer().compile([self.swap])
+        self._program = compile_instruments([self.swap])
         fixed: list[int] = []
         floating: list[int] = []
         for i, leg in enumerate(self.swap):
@@ -213,7 +212,7 @@ class FuturesHelper:
     _program: object = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
-        self._program = FuturesPricer().compile([self.future])
+        self._program = compile_instruments([self.future])
 
     @property
     def pillar_date(self) -> np.datetime64:
@@ -225,7 +224,7 @@ class FuturesHelper:
         return float(self.convexity)
 
     def implied(self, market: MarketContext) -> float:
-        # Read the unadjusted curve period rate directly; FuturesProgram.reprice adds the
+        # Read the unadjusted curve period rate directly; FuturesProgram.price adds the
         # contract's display convexity, while calibration consumes CA on the quote side.
         return float(self._program.program.reprice(market).rate[0])
 

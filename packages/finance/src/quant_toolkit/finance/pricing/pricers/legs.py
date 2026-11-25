@@ -10,11 +10,14 @@ from __future__ import annotations
 
 from typing import Protocol, Sequence, runtime_checkable
 
+from quant_toolkit.common.registry import register_with
 from quant_toolkit.finance.conventions import CurveKey
 from quant_toolkit.finance.dates.term import TermType
 from quant_toolkit.finance.instruments.common_instrument import CommonInstrument
 from quant_toolkit.finance.instruments.priceable import pricer_registry
+from quant_toolkit.finance.instruments.resolution.builders import Deposit, Fra, Swap
 from quant_toolkit.finance.instruments.resolution.resolver import curve_name, funding_curve_name
+from quant_toolkit.finance.pricing.engines import select_backend
 from quant_toolkit.finance.instruments.schedules.amortization import notional_profile
 from quant_toolkit.finance.instruments.schedules.payment_schedule import build_payment_schedule
 from quant_toolkit.finance.pricing.kernels import LegSpec, compile_portfolio
@@ -88,6 +91,9 @@ def leg_spec(
     )
 
 
+@register_with(pricer_registry, Swap, overwrite=True)
+@register_with(pricer_registry, Deposit, overwrite=True)
+@register_with(pricer_registry, Fra, overwrite=True)
 class LegPricer:
     """Compiles leg-bearing instruments to columnar inputs and prices them against a MarketContext."""
 
@@ -100,21 +106,10 @@ class LegPricer:
             projection = curve_name(instrument.currency, instrument.index_name)
             for leg, sign in instrument.legs:
                 legs.append(leg_spec(leg, sign, discount, projection_curve_name(leg, projection), index))
-        return PricingProgram(
-            inputs=compile_portfolio(legs),
-            backend=self.default_backend if backend is None else Backend(backend),
-        )
+        return PricingProgram(inputs=compile_portfolio(legs), backend=select_backend(backend, self.default_backend))
 
     def price(
         self, instruments: Sequence[LegInstrument], market, *, backend: Backend | None = None
     ) -> PricingResult:
-        selected = self.default_backend if backend is None else Backend(backend)
-        if selected not in (Backend.Numpy, Backend.Numba):
-            raise NotImplementedError(f"backend {selected.name} is not implemented by {type(self).__name__}")
-        return self.compile(instruments, backend=selected).price(market)
-
-
-# ``Priceable`` dispatch: every leg-bearing contract type prices through the same lowering.
-for _name in ("Swap", "Deposit", "Fra"):
-    pricer_registry.register(_name, LegPricer, overwrite=True)
+        return self.compile(instruments, backend=backend).price(market)
 

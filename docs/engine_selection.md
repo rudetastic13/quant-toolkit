@@ -103,7 +103,7 @@ exercise).
 ## 4. How it binds to the existing seam
 
 Nothing new structurally — this is what `program_registry` (keyed `Backend`), `kernel_registry` (keyed
-`(kernel_id, Backend)`) and the `pricer_registry` dispatch (keyed by contract class name) are for.
+`(kernel_id, Backend)`) and the `pricer_registry` dispatch (keyed by instrument class) are for.
 
 ```mermaid
 flowchart LR
@@ -164,7 +164,7 @@ cross-checking.** The engine is determined, not exclusive.
 
 The policy above, as running code. One market serves both examples: a simple 5-pillar
 LogLinearDF curve and two flat vol surfaces — one per quoting convention, because
-`VolSurface.units` is enforced against the option's model at lookup. (Outputs are from a
+the cube's units pick the option model. (Outputs are from a
 `2026-06-01` run.)
 
 ```python
@@ -213,16 +213,16 @@ program.price(market).instrument_pv   # [-1,152,667.50, 1,273,777.68]
 hot.price(market).instrument_pv       # identical to ~1e-7 absolute (1e-13 relative)
 ```
 
-### 7.2 Swaptions — same wiring, model picks the kernel *and* the surface
+### 7.2 Swaptions — same wiring, the cube's units pick the kernel
 
 ```python
-from quant_toolkit.finance.instruments.resolution import Swaption, SwaptionModel
+from quant_toolkit.finance.instruments.resolution import Swaption
 from quant_toolkit.finance.pricing.pricers import SwaptionPricer
 
 payer_n = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor="5Y", as_of=as_of,
-                            payer=True,  model=SwaptionModel.Bachelier)                       # -> USD.SOFR.1D (Normal)
+                            payer=True)                                # -> USD.SOFR.1D (Normal: Bachelier)
 recv_ln = Swaption.european(notional=50e6, strike=0.040, expiry="1Y", swap_tenor="5Y", as_of=as_of,
-                            payer=False, model=SwaptionModel.Black, vol_name="USD.SOFR.LN")   # -> Lognormal
+                            payer=False, vol_name="USD.SOFR.LN")       # -> Lognormal: Black
 
 sw_prog = SwaptionPricer().compile([payer_n, recv_ln])   # unit-coupon swap program underneath
 r = sw_prog.price(market)
@@ -236,9 +236,8 @@ r.greeks.delta   # [ 1.617e8, -4.866e7 ]
 r.greeks.vega    # [ 6.761e7,  3.007e6 ]
 r.greeks.gamma   # [ 7.117e9,  5.789e9 ]
 
-# Wrong pairing fails loudly — Black model reading the Normal surface:
-Swaption.european(..., model=SwaptionModel.Black)   # ValueError: requires a Lognormal vol
-                                                    # surface; 'USD.SOFR.1D' is quoted Normal
+# The model is not on the contract: the same swaption pointed at the other cube prices under
+# the other model (kernel looked up as (OPTION_KERNEL[cube.units], backend) in kernel_registry).
 ```
 
 ### 7.3 The `RiskEngine` — §4's dispatch as one front door

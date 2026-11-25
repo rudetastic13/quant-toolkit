@@ -5,7 +5,7 @@ import pytest
 
 from quant_toolkit.common.testing import UnitTest
 from quant_toolkit.finance.dates import Date
-from quant_toolkit.finance.instruments.resolution import SofrFuture, Swap, Swaption, SwaptionModel
+from quant_toolkit.finance.instruments.resolution import SofrFuture, Swap, Swaption
 from quant_toolkit.finance.markets.context import MarketContext
 from quant_toolkit.finance.markets.curves import YieldCurve, bp
 from quant_toolkit.finance.markets.vols import FlatVolSurface, ModelVolCube, VolNamespace, VolUnits
@@ -106,7 +106,6 @@ class TestPillarRiskAdapters(UnitTest):
             swap_tenor="5Y",
             as_of=self.as_of,
             payer=True,
-            model=SwaptionModel.Bachelier,
         )
         program = SwaptionPricer().compile([option])
         risk = pillar_risk(program, self.market)

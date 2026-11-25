@@ -23,6 +23,7 @@ from quant_toolkit.finance.pricing.engines.registry import (
     kernel_registry,
     program_class,
     program_registry,
+    select_backend,
 )
 from quant_toolkit.finance.pricing.types import Backend
 
@@ -44,4 +45,4 @@ else:
 
     program_registry.register(Backend.Numba, NumbaProgram, overwrite=True)
 
-__all__ = ["program_registry", "kernel_registry", "kernel", "has_kernel", "has_program", "program_class"]
+__all__ = ["program_registry", "kernel_registry", "kernel", "has_kernel", "has_program", "program_class", "select_backend"]

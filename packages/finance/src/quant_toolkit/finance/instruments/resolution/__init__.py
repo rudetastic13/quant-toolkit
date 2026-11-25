@@ -11,7 +11,7 @@ from quant_toolkit.finance.instruments.resolution.builders import (
     Swap,
 )
 from quant_toolkit.finance.instruments.resolution.futures import SofrFuture, imm_date, next_quarterly_imm
-from quant_toolkit.finance.instruments.resolution.swaption import Swaption, SwaptionModel
+from quant_toolkit.finance.instruments.resolution.swaption import Swaption
 
 __all__ = [
     "curve_name",
@@ -25,5 +25,4 @@ __all__ = [
     "imm_date",
     "next_quarterly_imm",
     "Swaption",
-    "SwaptionModel",
 ]

@@ -71,7 +71,7 @@ def template_jacobian(
         rows (``"USD.SOFR.1D 2028-06-01"`` by default).
     """
     from quant_toolkit.finance.pricing.engines.numba.program import NumbaProgram
-    from quant_toolkit.finance.pricing.pricers import FuturesPricer, SwapPricer
+    from quant_toolkit.finance.instruments.priceable import compile_instruments
 
     if Backend(backend) != Backend.Numba:
         raise NotImplementedError(
@@ -91,11 +91,11 @@ def template_jacobian(
     swap_numba = futures_program = None
     names: list[str] = [h.curve for h in helpers]
     if swaps:
-        inputs = SwapPricer().compile([h.swap for _, h in swaps]).inputs
+        inputs = compile_instruments([h.swap for _, h in swaps]).inputs
         swap_numba = NumbaProgram(inputs, market)
         names += list(inputs.curve_names)
     if futures:
-        futures_program = FuturesPricer().compile([h.future for _, h in futures])
+        futures_program = compile_instruments([h.future for _, h in futures])
         names += list(futures_program.program.inputs.curve_names)
     if curves is not None:
         names += list(curves)
