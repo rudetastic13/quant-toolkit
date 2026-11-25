@@ -22,6 +22,24 @@ _MARKER_RE = re.compile(rf"^[ \t]*{re.escape(MARKER)}[ \t]*(?P<value>\[[^\]]*\])
 
 
 def _section(text: str) -> tuple[int, int]:
+    """Where the body of the ``[xlOil_Python]`` table sits in the ini text.
+
+    Parameters
+    ----------
+    text : str
+        The whole ini.
+
+    Returns
+    -------
+    start, end : int
+        Offsets of the table body: from just after its header to the next table header, or
+        to the end of the text.
+
+    Raises
+    ------
+    ValueError
+        If the table is missing.
+    """
     m = _SECTION_RE.search(text)
     if m is None:
         raise ValueError(f"no [{SECTION}] table in the ini; is this an xlOil.ini?")
@@ -30,31 +48,103 @@ def _section(text: str) -> tuple[int, int]:
 
 
 def _parse_list(value: str) -> list[str]:
+    """A TOML list literal as a Python list.
+
+    Parameters
+    ----------
+    value : str
+        For example ``'["a.b", "c.d"]'``; may span several lines.
+
+    Returns
+    -------
+    list of str
+    """
     return list(tomllib.loads(f"v = {value}")["v"])
 
 
 def _render_list(items: list[str]) -> str:
+    """A list of names as a one-line TOML list literal.
+
+    Parameters
+    ----------
+    items : list of str
+
+    Returns
+    -------
+    str
+        For example ``'["a.b", "c.d"]'``.
+    """
     return "[" + ", ".join(f'"{s}"' for s in items) + "]"
 
 
 def load_modules(text: str) -> list[str]:
-    """The ``[xlOil_Python] LoadModules`` list (empty if the key is absent)."""
+    """The modules xlOil is currently told to load.
+
+    Parameters
+    ----------
+    text : str
+        The whole ini.
+
+    Returns
+    -------
+    list of str
+        ``[xlOil_Python] LoadModules``; empty if the key is absent.
+    """
     return list(tomllib.loads(text).get(SECTION, {}).get("LoadModules", []))
 
 
 def tagged_modules(text: str) -> list[str]:
-    """Modules our marker says we added (empty if never tagged)."""
+    """The modules a previous run of the installer added.
+
+    Parameters
+    ----------
+    text : str
+        The whole ini.
+
+    Returns
+    -------
+    list of str
+        The list recorded in the marker comment above ``LoadModules``; empty if the ini was
+        never tagged.
+
+    Raises
+    ------
+    ValueError
+        If the ini has no ``[xlOil_Python]`` table.
+    """
     start, end = _section(text)
     m = _MARKER_RE.search(text[start:end])
     return _parse_list(m["value"]) if m else []
 
 
 def tag(text: str, modules: list[str]) -> str:
-    """Return ``text`` with our managed set in ``LoadModules`` replaced by ``modules``.
+    """The ini with our managed set in ``LoadModules`` replaced by ``modules``.
 
-    Idempotent. Modules a previous run tagged but ``modules`` no longer names are dropped (so
-    a renamed module doesn't linger and fail to import). A module the user listed themselves
-    is never claimed by the marker, so ``untag`` leaves it alone.
+    Parameters
+    ----------
+    text : str
+        The whole ini.
+    modules : list of str
+        The modules the add-in should load; duplicates are dropped, order kept.
+
+    Returns
+    -------
+    str
+        The new ini text. Only the ``LoadModules`` line and the marker comment above it
+        change; every other line, comments included, is preserved.
+
+    Raises
+    ------
+    ValueError
+        If the ini has no ``[xlOil_Python]`` table.
+    tomllib.TOMLDecodeError
+        If the result would not parse; nothing is returned in that case.
+
+    Notes
+    -----
+    Idempotent. Modules a previous run tagged but ``modules`` no longer names are dropped,
+    so a renamed module doesn't linger and fail to import. A module the user listed
+    themselves is never claimed by the marker, so :func:`untag` leaves it alone.
     """
     prior = tagged_modules(text)
     start, end = _section(text)
@@ -79,7 +169,24 @@ def tag(text: str, modules: list[str]) -> str:
 
 
 def untag(text: str) -> str:
-    """Return ``text`` with our marker and the modules it records removed from ``LoadModules``."""
+    """The ini with our marker and the modules it records removed from ``LoadModules``.
+
+    Parameters
+    ----------
+    text : str
+        The whole ini.
+
+    Returns
+    -------
+    str
+        The new ini text; ``text`` unchanged if it was never tagged. Entries the user added
+        by hand stay.
+
+    Raises
+    ------
+    tomllib.TOMLDecodeError
+        If the result would not parse.
+    """
     ours = tagged_modules(text)
     if not ours:
         return text

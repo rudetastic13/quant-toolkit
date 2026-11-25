@@ -67,3 +67,16 @@ def roll_spot(as_of: Date, spot_lag: Term, calendar: str) -> Date:
     else:
         eff = add_term(as_of.to_numpy(), spot_lag, BDC.Following, calendar)
     return Date.from_numpy(eff)
+
+
+def resolve_effective(effective: Date | Term | None, as_of: Date | None, spot_lag: Term, calendar: str) -> Date:
+    """The effective date from what the trader gave: a ``Date`` as is, a ``Term`` offset from
+    ``as_of`` (``Term.from_str("2BD")``), or ``None`` for the convention's spot date.
+
+    A term is rolled Following on ``calendar``.  ``as_of`` is only read when ``effective`` is
+    not a ``Date`` and defaults to today.
+    """
+    if isinstance(effective, Date):
+        return effective
+    start = as_of if as_of is not None else Date.today()
+    return roll_spot(start, spot_lag if effective is None else effective, calendar)

@@ -18,10 +18,11 @@ from dataclasses import dataclass
 
 from quant_toolkit.common.object import serializable
 from quant_toolkit.finance.dates import BDC, Date, DayCountMethod, Frequency, Term, add_term
+from quant_toolkit.finance.dates.enums.fixing_type import FixingType
 from quant_toolkit.finance.instruments.common_instrument import CommonInstrument
 from quant_toolkit.finance.instruments.enums import CouponType, PrincipalExchange
 from quant_toolkit.finance.instruments.priceable import Priceable
-from quant_toolkit.finance.instruments.resolution.resolver import STDCSA, curve_name, roll_spot
+from quant_toolkit.finance.instruments.resolution.resolver import STDCSA, curve_name, resolve_effective, roll_spot
 from quant_toolkit.finance.conventions import ConventionRegistry, default_registry
 
 
@@ -75,7 +76,9 @@ class Swap(Priceable):
         notional: float,
         rate_index: str,
         fixed_rate: float,
-        as_of: Date,
+        effective: Date | Term | None = None,
+        maturity: Date | Term | None = None,
+        as_of: Date | None = None,
         tenor: str = "10Y",
         currency: str = "USD",
         funding_id: str = STDCSA,
@@ -86,6 +89,10 @@ class Swap(Priceable):
         float_day_count: DayCountMethod | None = None,
         payment_delay: Term | None = None,
         # float-leg shaping — routed to the float leg only
+        reset_frequency: Frequency | None = None,
+        fixing_calendar: str | None = None,
+        fixing_type: FixingType | None = None,
+        float_coupon_type: CouponType | None = None,
         spread: float = 0.0,
         cap: float | None = None,
         floor: float | None = None,
@@ -101,14 +108,24 @@ class Swap(Priceable):
         conventions come from that family's bundle and any keyword above overrides its
         convention.  For a leg structure the conventions can't express, construct the legs
         directly and call ``Swap(...)``.
+
+        Dating: ``effective`` is a ``Date``, a ``Term`` offset from ``as_of`` (``Term.from_str("2BD")``,
+        rolled Following on the spot calendar), or ``None`` for the convention's spot date.
+        ``maturity`` is a ``Date``, a ``Term`` offset from the effective date, or ``None`` for
+        ``tenor``.  ``as_of`` is only read when ``effective`` is not a ``Date`` and defaults to today.
         """
         key = curve_name(currency, rate_index)
         conv = registry.get(key)
         idx, swp = registry.index(key), conv.swap
         fixed_conv, float_conv = swp.fixed_leg, swp.float_leg
 
-        effective = roll_spot(as_of, swp.spot_lag, swp.spot_calendar)
-        maturity = effective + Term.from_str(tenor)
+        effective = resolve_effective(effective, as_of, swp.spot_lag, swp.spot_calendar)
+        if maturity is None:
+            maturity = Term.from_str(tenor)
+        if not isinstance(maturity, Date):
+            maturity = effective + maturity
+        if maturity <= effective:
+            raise ValueError(f"maturity {maturity} is not after effective {effective}")
 
         receive_fixed = notional >= 0
         notl = abs(float(notional))
@@ -131,11 +148,11 @@ class Swap(Priceable):
             roll_convention=float_conv.roll_convention,
             pay_calendar=float_conv.pay_calendar,
             payment_delay=_use(payment_delay, float_conv.payment_delay),
-            reset_frequency=conv.float_leg_reset_frequency(idx),
-            fixing_type=idx.family.fixing_type,
-            coupon_type=float_conv.coupon_type,
+            reset_frequency=_use(reset_frequency, conv.float_leg_reset_frequency(idx)),
+            fixing_type=_use(fixing_type, idx.family.fixing_type),
+            coupon_type=_use(float_coupon_type, float_conv.coupon_type),
             rate_index=key,
-            rate_calendar=idx.family.fixing_calendar,
+            rate_calendar=_use(fixing_calendar, idx.family.fixing_calendar),
             spread=spread, cap=cap, floor=floor, index_floor=index_floor,
             rate_lookback=_use(rate_lookback, float_conv.rate_lookback),
             rate_lockout=_use(rate_lockout, float_conv.rate_lockout),
@@ -199,8 +216,10 @@ class Deposit(Priceable):
         cls,
         *,
         rate: float,
-        tenor: str,
-        as_of: Date,
+        tenor: str | None = None,
+        as_of: Date | None = None,
+        effective: Date | Term | None = None,
+        maturity: Date | Term | None = None,
         rate_index: str = "USD.SOFR.1D",
         currency: str = "USD",
         funding_id: str = STDCSA,
@@ -208,14 +227,24 @@ class Deposit(Priceable):
         day_count: DayCountMethod | None = None,
         registry: ConventionRegistry = default_registry,
     ) -> Deposit:
-        """Build a spot-starting cash deposit from minimal trader input."""
+        """Build a cash deposit from minimal trader input (spot-starting unless ``effective`` says otherwise).
+
+        ``effective`` is a ``Date``, a ``Term`` from ``as_of`` or ``None`` for spot; ``maturity`` is a
+        ``Date``, a ``Term`` from the effective date (rolled on the deposit convention) or ``None``
+        for ``tenor``.
+        """
         key = curve_name(currency, rate_index)
         conv = registry.get(key)
         dep = conv.deposit
-        effective = roll_spot(as_of, dep.spot_lag, dep.calendar)
-        maturity = Date.from_numpy(
-            add_term(effective.to_numpy(), Term.from_str(tenor), dep.business_day_convention, dep.calendar)
-        )
+        effective = resolve_effective(effective, as_of, dep.spot_lag, dep.calendar)
+        if maturity is None:
+            if tenor is None:
+                raise ValueError("a deposit needs a maturity or a tenor")
+            maturity = Term.from_str(tenor)
+        if not isinstance(maturity, Date):
+            maturity = Date.from_numpy(
+                add_term(effective.to_numpy(), maturity, dep.business_day_convention, dep.calendar)
+            )
         return cls(
             effective=effective, maturity=maturity, rate=float(rate),
             day_count_method=_use(day_count, conv.deposit_day_count), currency=currency,
@@ -268,9 +297,11 @@ class Fra(Priceable):
         cls,
         *,
         rate: float,
-        start: str,
-        end: str,
-        as_of: Date,
+        start: str | None = None,
+        end: str | None = None,
+        as_of: Date | None = None,
+        effective: Date | Term | None = None,
+        maturity: Date | Term | None = None,
         rate_index: str = "USD.SOFR.1D",
         currency: str = "USD",
         funding_id: str = STDCSA,
@@ -278,15 +309,28 @@ class Fra(Priceable):
         day_count: DayCountMethod | None = None,
         registry: ConventionRegistry = default_registry,
     ) -> Fra:
-        """Build a forward rate agreement, e.g. a 3x6 is ``start='3M', end='6M'``."""
+        """Build a forward rate agreement, e.g. a 3x6 is ``start='3M', end='6M'`` (both from spot).
+
+        Alternatively date it directly: ``effective`` is a ``Date`` or a ``Term`` from ``as_of``,
+        ``maturity`` a ``Date`` or a ``Term`` from the effective date; terms roll on the FRA convention.
+        """
         key = curve_name(currency, rate_index)
         conv = registry.get(key)
         registry.index(key)  # the family must publish the tenor
         fra = conv.fra
-        spot = roll_spot(as_of, fra.spot_lag, fra.calendar)
         bdc, cal = fra.business_day_convention, fra.calendar
-        effective = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(start), bdc, cal))
-        maturity = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(end), bdc, cal))
+        if effective is None or maturity is None:
+            if (effective is None and start is None) or (maturity is None and end is None):
+                raise ValueError("an FRA needs effective/maturity, or start/end terms from spot")
+            spot = roll_spot(as_of if as_of is not None else Date.today(), fra.spot_lag, fra.calendar)
+        if effective is None:
+            effective = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(start), bdc, cal))
+        else:
+            effective = resolve_effective(effective, as_of, fra.spot_lag, cal)
+        if maturity is None:
+            maturity = Date.from_numpy(add_term(spot.to_numpy(), Term.from_str(end), bdc, cal))
+        elif not isinstance(maturity, Date):
+            maturity = Date.from_numpy(add_term(effective.to_numpy(), maturity, bdc, cal))
         return cls(
             effective=effective, maturity=maturity, coupon_rate=float(rate),
             day_count_method=_use(day_count, conv.fra_day_count),

@@ -17,8 +17,10 @@ dependencies = [
 ]
 
 [project.scripts]
-# prototype: xloil install + tag our modules into %APPDATA%\xlOil\xlOil.ini
+# prototype: point %APPDATA%\xlOil\xlOil.ini at this env and tag our modules into it
 quant_toolkit_xl_installer = "quant_toolkit.xl_installer.cli:main"
+# load the add-in into Excel for one session, then open workbooks
+quant_toolkit_xl = "quant_toolkit.xl_installer.launch:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
