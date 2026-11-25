@@ -57,7 +57,7 @@ class ExpandableArrayBuffer(ArrayBuffer):
 
     def __post_init__(self):
         """Initialize the buffer based on the specified strategy"""
-        super().__post_init__()
+        super(ExpandableArrayBuffer, self).__post_init__()
         if not (0 < self.expansion_factor <= 1):
             raise ValueError(f"Expansion factor must be between 0 and 1, got {self.expansion_factor}")
 
