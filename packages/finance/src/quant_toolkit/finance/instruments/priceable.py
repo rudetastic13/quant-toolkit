@@ -101,7 +101,8 @@ class Priceable(Serializable):
 
     Keyword ``settings`` steer measures that need a choice: ``swap(market, ["dv01"],
     curve="USD.STDCSA")`` reports DV01 against that curve instead of the swap's own projection
-    curve.  An unrecognised setting is a ``TypeError``.
+    curve; ``template=risk_template`` reports the risk measures against the template's quotes
+    instead of zero pillars.  An unrecognised setting is a ``TypeError``.
     """
 
     def __call__(self, market, requests: Sequence[PricingRequest] | None = None, **settings):

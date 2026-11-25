@@ -91,6 +91,8 @@ class PricingProgram:
             ``curve`` : the curve ``dv01`` reports against.  Default: each instrument's own
             projection curve (its discount curve if it projects off nothing; ``nan`` if its
             legs project off several).
+            ``template`` : a ``RiskTemplate`` (bound or not).  The ladders come back as
+            ``QuoteRisk`` and ``dv01`` as +1bp on the template's quotes on the curve.
 
         Raises
         ------
@@ -143,7 +145,8 @@ def _ladder(program: PricingProgram, market, context: MeasureContext, attribute:
     from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
 
     result = _adjoint(program, market, context)
-    return PillarRisk.from_layout(result.layout, getattr(result, attribute), result.primal.instrument_pv)
+    pillar = PillarRisk.from_layout(result.layout, getattr(result, attribute), result.primal.instrument_pv)
+    return context.ladder(market, pillar)
 
 
 @measure(PricingProgram, "dv01")
@@ -151,7 +154,7 @@ def _dv01(program, market, context):
     """PV change for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
     result = _adjoint(program, market, context)
     gradient = PillarGradient(result.layout, result.instrument_total_gradient, result.primal.instrument_pv)
-    return dv01_from(gradient, program.inputs, context)
+    return dv01_from(gradient, program.inputs, market, context)
 
 
 @measure(PricingProgram, "zero_ladder")

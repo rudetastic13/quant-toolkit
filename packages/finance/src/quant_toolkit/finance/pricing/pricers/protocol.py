@@ -23,7 +23,10 @@ What a program pins down
   ``requests`` names the measures wanted; ``None`` is the base set (the result's own fields).
   On-demand measures (risk ladders, registered in ``measure_registry``) cost an adjoint pass and are
   computed only when named.  Keyword ``settings`` steer the measures that need a choice
-  (``curve="USD.STDCSA"`` for ``dv01``); an unknown setting is a ``TypeError``.  Requests are lenient so one
+  (``curve="USD.STDCSA"`` for ``dv01``); an unknown setting is a ``TypeError``.  ``template=`` (a
+  ``RiskTemplate``, bound or not) re-expresses the risk measures as risk to the template's quotes:
+  the ladders come back as ``QuoteRisk`` (unexplained pillar risk included) and ``dv01`` as the sum
+  over the template's quotes on the curve.  Measures that are not risk are unchanged.  Requests are lenient so one
   list can be sent to a mixed book: a measure this product does not answer is skipped and reads back
   as ``None`` from ``result.get(name)``.  Only a name no product answers raises (a typo).
 - ``pillar_gradient(market) -> PillarGradient``: ``d value / d z`` over every curve parameter, from
@@ -86,7 +89,7 @@ def known_measures() -> frozenset[str]:
 
 
 # Settings a ``price`` call may pass through to its measures.
-KNOWN_SETTINGS = frozenset({"curve"})
+KNOWN_SETTINGS = frozenset({"curve", "template"})
 
 
 @dataclass
@@ -103,6 +106,27 @@ class MeasureContext:
 
     cache: dict
     settings: dict
+
+    def bound_template(self, market: Any) -> Any:
+        """``settings["template"]`` bound to ``market`` (once per call), or ``None`` without one.
+
+        A ``RiskTemplate`` is bound here; a ``BoundRiskTemplate`` is used as is when it matches
+        ``market`` and rebound from its template when the market's curves have moved.
+        """
+        template = self.settings.get("template")
+        if template is None:
+            return None
+        if "bound_template" not in self.cache:
+            bound = template if hasattr(template, "quote_risk") else template.bind(market)
+            if not bound.matches(market):
+                bound = bound.template.bind(market)
+            self.cache["bound_template"] = bound
+        return self.cache["bound_template"]
+
+    def ladder(self, market: Any, pillar: Any) -> Any:
+        """``pillar`` (a ``PillarRisk``) as is, or as ``QuoteRisk`` when a template is set."""
+        bound = self.bound_template(market)
+        return pillar if bound is None else bound.quote_risk(pillar)
 
 
 # (program class, measure name) -> fn(program, market, context) for measures computed only on request.
@@ -178,8 +202,13 @@ def position_curves(inputs: Any) -> list[str | None]:
     return out
 
 
-def dv01_from(gradient: PillarGradient, inputs: Any, context: MeasureContext, bp: float = 1e-4) -> np.ndarray:
-    """Parallel DV01 per position: value change for +``bp`` on every zero pillar of one curve.
+def dv01_from(
+    gradient: PillarGradient, inputs: Any, market: Any, context: MeasureContext, bp: float = 1e-4
+) -> np.ndarray:
+    """Parallel DV01 per position: value change for +``bp`` on one curve.
+
+    Without a template that is +``bp`` on every zero pillar of the curve.  With
+    ``settings["template"]`` it is +``bp`` on every template quote on the curve.
 
     Parameters
     ----------
@@ -187,6 +216,8 @@ def dv01_from(gradient: PillarGradient, inputs: Any, context: MeasureContext, bp
         The program's first-order curve risk.
     inputs : KernelInputs
         The compiled legs, for each position's default curve (:func:`position_curves`).
+    market : MarketContext
+        What a template is bound to.
     context : MeasureContext
         ``settings["curve"]`` names the curve for every position; without it each position
         reports against its own default.
@@ -195,27 +226,44 @@ def dv01_from(gradient: PillarGradient, inputs: Any, context: MeasureContext, bp
     Returns
     -------
     ndarray of float64, shape (n_positions,)
-        The matching block of the zero ladder, summed and scaled.  ``nan`` for a position with
-        no unambiguous default curve.
+        The matching block of the zero ladder (or the matching quotes of the quote ladder),
+        summed and scaled.  ``nan`` for a position with no unambiguous default curve, and, under
+        a template, for one whose curve has no template quote.
 
     Raises
     ------
     KeyError
-        If ``settings["curve"]`` is not a curve the program reads.
+        If ``settings["curve"]`` is not a curve the program reads, or has no template quote.
     """
     n = gradient.values.shape[0]
     chosen = context.settings.get("curve")
     curves = [chosen] * n if chosen is not None else position_curves(inputs)
+    bound = context.bound_template(market)
+    quote_risk = None
+    if bound is not None:
+        from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
+
+        quote_risk = bound.quote_risk(PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value)).values
+        quote_curves = [instrument.curve for instrument in bound.template.instruments]
     out = np.full(n, np.nan)
     for name in {c for c in curves if c is not None}:
         rows = np.array([c == name for c in curves])
         try:
+            block_name = gradient.layout.block_of(name)
             block = gradient.layout.block_slice(name)
         except KeyError:
             if chosen is not None:
                 raise
             continue
-        out[rows] = gradient.values[rows, block].sum(axis=1) * bp
+        if quote_risk is None:
+            out[rows] = gradient.values[rows, block].sum(axis=1) * bp
+            continue
+        columns = [k for k, curve in enumerate(quote_curves) if curve in (name, block_name)]
+        if not columns:
+            if chosen is not None:
+                raise KeyError(f"the template has no quote on '{name}'")
+            continue
+        out[rows] = quote_risk[np.ix_(rows, columns)].sum(axis=1) * bp
     return out
 
 
@@ -224,7 +272,7 @@ def pillar_measure(program: Any, market: Any, context: MeasureContext) -> Any:
     from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
 
     gradient = program.pillar_gradient(market)
-    return PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value)
+    return context.ladder(market, PillarRisk.from_layout(gradient.layout, gradient.values, gradient.value))
 
 
 def resolve_requests(

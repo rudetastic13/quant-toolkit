@@ -141,3 +141,33 @@ class TestDv01(UnitTest):
         np.testing.assert_allclose(option(self.market, ["dv01"]).get("dv01"), self._bumped(option, "pv"), rtol=1e-5)
         future = SofrFuture.from_contract_month(contract="SR3", month="U26", as_of=self.as_of, entry_price=96.0)
         np.testing.assert_allclose(future(self.market, ["dv01"]).get("dv01"), self._bumped(future, "pnl"), rtol=1e-5)
+
+    def test_template_re_expresses_risk_and_leaves_the_rest_alone(self):
+        from quant_toolkit.finance.pricing.calibration import Quote, swap_helper
+        from quant_toolkit.finance.pricing.risk import RiskEngine
+        from quant_toolkit.finance.pricing.risk.template import QuoteRisk, RiskTemplate
+
+        helpers = [swap_helper(rate=0.0, tenor=t, as_of=self.as_of) for t in ("1Y", "3Y", "7Y", "12Y")]
+        for h in helpers:
+            h.quote = Quote(float(h.implied(self.market)), h.quote.kind)
+        template = RiskTemplate.identity(helpers, name="par 1Y-12Y")
+
+        plain = self.swap(self.market, ["pv", "pv01", "dv01", "zero_ladder"])
+        viewed = self.swap(self.market, ["pv", "pv01", "dv01", "zero_ladder"], template=template)
+        self.assertEqual(viewed.pv, plain.pv)                                  # a template changes no PV
+        np.testing.assert_array_equal(viewed.get("pv01"), plain.get("pv01"))
+
+        ladder = viewed.get("zero_ladder")
+        self.assertIsInstance(ladder, QuoteRisk)
+        expected = RiskEngine(self.swap._compiled_program(), self.market, template=template).quote_risk()
+        np.testing.assert_allclose(ladder.values, expected.values, rtol=1e-12)
+        np.testing.assert_allclose(ladder.unexplained, expected.unexplained, atol=1e-9)
+
+        self.assertEqual(viewed.get("dv01").shape, (1,))                       # a number per position
+        np.testing.assert_allclose(viewed.get("dv01"), ladder.dv01.sum(axis=1), rtol=1e-12)
+        self.assertLess(viewed.get("dv01")[0], 0.0)
+        # a bound template is accepted too, and gives the same answer
+        bound = template.bind(self.market)
+        np.testing.assert_allclose(
+            self.swap(self.market, ["dv01"], template=bound).get("dv01"), viewed.get("dv01"), rtol=1e-12
+        )
