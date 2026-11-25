@@ -16,6 +16,7 @@ from quant_toolkit.finance.pricing.pricers.legs import leg_spec
 from quant_toolkit.finance.pricing.pricers.protocol import (
     PillarGradient,
     declare_measures,
+    dv01_from,
     measure,
     on_demand,
     pillar_measure,
@@ -94,7 +95,7 @@ class FuturesProgram:
     def n_positions(self) -> int:
         return len(self.futures)
 
-    def price(self, market, requests: Sequence[str] | None = None) -> FuturesPricingResult:
+    def price(self, market, requests: Sequence[str] | None = None, **settings) -> FuturesPricingResult:
         """Model rate, model price, P&L, forward rate and convexity adjustment per contract.
 
         ``requests`` is checked against the known vocabulary; those five come from one pass and
@@ -118,7 +119,7 @@ class FuturesProgram:
         result = FuturesPricingResult(
             model_rate=rate, model_price=price, pnl=pnl, forward_rate=raw.rate, convexity=convexity
         )
-        result.extras.update(on_demand(self, market, asked))
+        result.extras.update(on_demand(self, market, asked, settings=settings))
         return result
 
     def risk(self, market, curve: str | None = None) -> FuturesRiskResult:
@@ -152,6 +153,12 @@ class FuturesProgram:
 
 
 measure(FuturesProgram, "zero_ladder")(pillar_measure)
+
+
+@measure(FuturesProgram, "dv01")
+def _dv01(program, market, context):
+    """Change in margined P&L for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
+    return dv01_from(program.pillar_gradient(market), program.program.inputs, context)
 
 
 @register_with(pricer_registry, SofrFuture, overwrite=True)

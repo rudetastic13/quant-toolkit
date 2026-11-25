@@ -22,7 +22,8 @@ What a program pins down
   purpose, but each exposes ``value``, the one number per position that risk differentiates.
   ``requests`` names the measures wanted; ``None`` is the base set (the result's own fields).
   On-demand measures (risk ladders, registered in ``measure_registry``) cost an adjoint pass and are
-  computed only when named.  Requests are lenient so one
+  computed only when named.  Keyword ``settings`` steer the measures that need a choice
+  (``curve="USD.STDCSA"`` for ``dv01``); an unknown setting is a ``TypeError``.  Requests are lenient so one
   list can be sent to a mixed book: a measure this product does not answer is skipped and reads back
   as ``None`` from ``result.get(name)``.  Only a name no product answers raises (a typo).
 - ``pillar_gradient(market) -> PillarGradient``: ``d value / d z`` over every curve parameter, from
@@ -84,15 +85,34 @@ def known_measures() -> frozenset[str]:
     return frozenset(_known_measures)
 
 
-# (program class, measure name) -> fn(program, market, cache) for measures computed only on request.
-# ``cache`` is a dict private to one ``price`` call, so measures sharing an adjoint pass run it once.
-measure_registry: Registry[Callable[[Any, Any, dict], Any]] = Registry("PricingMeasures")
+# Settings a ``price`` call may pass through to its measures.
+KNOWN_SETTINGS = frozenset({"curve"})
+
+
+@dataclass
+class MeasureContext:
+    """What one ``price`` call hands each on-demand measure.
+
+    Parameters
+    ----------
+    cache : dict
+        Private to the call, so measures sharing an adjoint pass run it once.
+    settings : dict
+        The caller's keyword settings (``curve`` ...); a measure reads the ones it understands.
+    """
+
+    cache: dict
+    settings: dict
+
+
+# (program class, measure name) -> fn(program, market, context) for measures computed only on request.
+measure_registry: Registry[Callable[[Any, Any, MeasureContext], Any]] = Registry("PricingMeasures")
 
 
 def measure(program_cls: type, name: str) -> Callable:
     """Register an on-demand measure for ``program_cls`` and add ``name`` to its ``measures``."""
 
-    def decorator(fn: Callable[[Any, Any, dict], Any]) -> Callable[[Any, Any, dict], Any]:
+    def decorator(fn: Callable[[Any, Any, MeasureContext], Any]) -> Callable[[Any, Any, MeasureContext], Any]:
         measure_registry.register((program_cls, name), fn)
         program_cls.measures = program_cls.measures | declare_measures([name])
         return fn
@@ -100,21 +120,106 @@ def measure(program_cls: type, name: str) -> Callable:
     return decorator
 
 
-def on_demand(program: Any, market: Any, asked: Iterable[str], cache: dict | None = None) -> dict[str, Any]:
+def on_demand(
+    program: Any, market: Any, asked: Iterable[str], cache: dict | None = None, settings: dict | None = None
+) -> dict[str, Any]:
     """Evaluate the registered on-demand measures among ``asked``, keyed by request name.
 
-    ``cache`` seeds the per-call cache with what the pricing pass already produced.
+    Parameters
+    ----------
+    program, market
+    asked : iterable of str
+    cache : dict, optional
+        Seeds the per-call cache with what the pricing pass already produced.
+    settings : dict, optional
+        The caller's keyword settings.
+
+    Raises
+    ------
+    TypeError
+        If a setting is not one of ``KNOWN_SETTINGS``.
     """
-    cache = {} if cache is None else cache
+    settings = dict(settings or {})
+    unknown = settings.keys() - KNOWN_SETTINGS
+    if unknown:
+        raise TypeError(f"unknown pricing setting(s) {sorted(unknown)}; known: {', '.join(sorted(KNOWN_SETTINGS))}")
+    context = MeasureContext({} if cache is None else cache, settings)
     out: dict[str, Any] = {}
     for name in sorted(asked):
         fn = measure_registry.get((type(program), name))
         if fn is not None:
-            out[name] = fn(program, market, cache)
+            out[name] = fn(program, market, context)
     return out
 
 
-def pillar_measure(program: Any, market: Any, cache: dict) -> Any:
+def position_curves(inputs: Any) -> list[str | None]:
+    """The curve each instrument's ``dv01`` reports against by default.
+
+    Parameters
+    ----------
+    inputs : KernelInputs
+
+    Returns
+    -------
+    list of (str or None), length n_instruments
+        The instrument's projection curve; its discount curve when it projects off nothing (a
+        fixed-only deposit); ``None`` when its legs project off several curves (a basis swap),
+        where only an explicit ``curve=`` is unambiguous.
+    """
+    leg_of_flow = np.repeat(np.arange(inputs.n_legs), np.diff(np.append(inputs.leg_offsets, inputs.n_flows)))
+    instrument = inputs.leg_instrument[leg_of_flow]
+    out: list[str | None] = []
+    for i in range(inputs.n_instruments):
+        mine = instrument == i
+        projection = np.unique(inputs.proj_curve[mine])
+        projection = projection[projection >= 0]
+        ids = projection if projection.size else np.unique(inputs.discount_curve[mine])
+        out.append(inputs.curve_names[int(ids[0])] if ids.size == 1 else None)
+    return out
+
+
+def dv01_from(gradient: PillarGradient, inputs: Any, context: MeasureContext, bp: float = 1e-4) -> np.ndarray:
+    """Parallel DV01 per position: value change for +``bp`` on every zero pillar of one curve.
+
+    Parameters
+    ----------
+    gradient : PillarGradient
+        The program's first-order curve risk.
+    inputs : KernelInputs
+        The compiled legs, for each position's default curve (:func:`position_curves`).
+    context : MeasureContext
+        ``settings["curve"]`` names the curve for every position; without it each position
+        reports against its own default.
+    bp : float
+
+    Returns
+    -------
+    ndarray of float64, shape (n_positions,)
+        The matching block of the zero ladder, summed and scaled.  ``nan`` for a position with
+        no unambiguous default curve.
+
+    Raises
+    ------
+    KeyError
+        If ``settings["curve"]`` is not a curve the program reads.
+    """
+    n = gradient.values.shape[0]
+    chosen = context.settings.get("curve")
+    curves = [chosen] * n if chosen is not None else position_curves(inputs)
+    out = np.full(n, np.nan)
+    for name in {c for c in curves if c is not None}:
+        rows = np.array([c == name for c in curves])
+        try:
+            block = gradient.layout.block_slice(name)
+        except KeyError:
+            if chosen is not None:
+                raise
+            continue
+        out[rows] = gradient.values[rows, block].sum(axis=1) * bp
+    return out
+
+
+def pillar_measure(program: Any, market: Any, context: MeasureContext) -> Any:
     """``zero_ladder`` for any program: its ``pillar_gradient`` as a labelled :class:`PillarRisk`."""
     from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
 
@@ -166,7 +271,7 @@ class Program(Protocol):
     @property
     def n_positions(self) -> int: ...
 
-    def price(self, market: Any, requests: Sequence[str] | None = None) -> Any: ...
+    def price(self, market: Any, requests: Sequence[str] | None = None, **settings: Any) -> Any: ...
 
     def pillar_gradient(self, market: Any) -> PillarGradient: ...
 

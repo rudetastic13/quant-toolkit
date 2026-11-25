@@ -20,8 +20,10 @@ import numpy as np
 from quant_toolkit.finance.pricing.engines import program_class
 from quant_toolkit.finance.pricing.kernels.inputs import KernelInputs
 from quant_toolkit.finance.pricing.pricers.protocol import (
+    MeasureContext,
     PillarGradient,
     declare_measures,
+    dv01_from,
     measure,
     on_demand,
     resolve_requests,
@@ -68,6 +70,7 @@ class PricingProgram:
         requests: Sequence[str] | None = None,
         *,
         backend: Backend | None = None,
+        **settings,
     ) -> PricingResult:
         """PV per instrument and per leg, with the cashflow table when asked for.
 
@@ -80,14 +83,21 @@ class PricingProgram:
             requested.  ``zero_ladder``, ``index_ladder`` and ``funding_ladder`` (a
             :class:`PillarRisk` each: total, projection-only, discounting-only) run the Numba
             adjoint and are computed only when named.  ``pv01``, ``annuity`` and ``par_coupon``
-            (one number per instrument, from its fixed coupon flows) are also on request.  A measure only another product answers
+            (one number per instrument, from its fixed coupon flows) are also on request, as
+            is ``dv01`` (PV change for +1bp on every zero pillar of one curve).  A measure only another product answers
             (``"vega"``) is skipped and reads ``None`` from ``result.get``.
         backend : Backend, optional
+        **settings
+            ``curve`` : the curve ``dv01`` reports against.  Default: each instrument's own
+            projection curve (its discount curve if it projects off nothing; ``nan`` if its
+            legs project off several).
 
         Raises
         ------
         ValueError
             If a request is a name no program answers.
+        TypeError
+            If a setting is not recognised.
         """
         asked = resolve_requests(requests, self.measures, PricingResult.fields)
         kr = self.reprice(market, backend=backend)
@@ -111,7 +121,7 @@ class PricingProgram:
             )
         return PricingResult(
             instrument_pv=kr.instrument_pv, leg_pv=kr.leg_pv, cashflows=cashflows,
-            extras=on_demand(self, market, asked, {"kernel": kr}),
+            extras=on_demand(self, market, asked, {"kernel": kr}, settings),
         )
 
     def pillar_gradient(self, market) -> PillarGradient:
@@ -121,39 +131,48 @@ class PricingProgram:
         return PillarGradient(numba.layout, result.instrument_total_gradient, result.primal.instrument_pv)
 
 
-def _adjoint(program: PricingProgram, market, cache: dict):
+def _adjoint(program: PricingProgram, market, context: MeasureContext):
     """The Numba adjoint result, run once per ``price`` call."""
+    cache = context.cache
     if "adjoint" not in cache:
         cache["adjoint"] = program.prepare(market, backend=Backend.Numba).value_and_grad(market)
     return cache["adjoint"]
 
 
-def _ladder(program: PricingProgram, market, cache: dict, attribute: str):
+def _ladder(program: PricingProgram, market, context: MeasureContext, attribute: str):
     from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
 
-    result = _adjoint(program, market, cache)
+    result = _adjoint(program, market, context)
     return PillarRisk.from_layout(result.layout, getattr(result, attribute), result.primal.instrument_pv)
 
 
+@measure(PricingProgram, "dv01")
+def _dv01(program, market, context):
+    """PV change for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
+    result = _adjoint(program, market, context)
+    gradient = PillarGradient(result.layout, result.instrument_total_gradient, result.primal.instrument_pv)
+    return dv01_from(gradient, program.inputs, context)
+
+
 @measure(PricingProgram, "zero_ladder")
-def _zero_ladder(program, market, cache):
+def _zero_ladder(program, market, context):
     """Total ``d PV / d z`` per instrument (projection + discounting)."""
-    return _ladder(program, market, cache, "instrument_total_gradient")
+    return _ladder(program, market, context, "instrument_total_gradient")
 
 
 @measure(PricingProgram, "index_ladder")
-def _index_ladder(program, market, cache):
+def _index_ladder(program, market, context):
     """``d PV / d z`` through projection only."""
-    return _ladder(program, market, cache, "instrument_index_gradient")
+    return _ladder(program, market, context, "instrument_index_gradient")
 
 
 @measure(PricingProgram, "funding_ladder")
-def _funding_ladder(program, market, cache):
+def _funding_ladder(program, market, context):
     """``d PV / d z`` through discounting only."""
-    return _ladder(program, market, cache, "instrument_funding_gradient")
+    return _ladder(program, market, context, "instrument_funding_gradient")
 
 
-def _fixed_coupons(program: PricingProgram, market, cache: dict):
+def _fixed_coupons(program: PricingProgram, market, context: MeasureContext):
     """Signed annuity and PV of the fixed coupon flows, per instrument.
 
     Returns
@@ -165,6 +184,7 @@ def _fixed_coupons(program: PricingProgram, market, cache: dict):
         PV of those same flows at their contract coupons.
     pv : ndarray of float64, shape (n_instruments,)
     """
+    cache = context.cache
     if "fixed_coupons" not in cache:
         ki = program.inputs
         kr = cache["kernel"] if "kernel" in cache else program.reprice(market)
@@ -183,21 +203,21 @@ def _fixed_coupons(program: PricingProgram, market, cache: dict):
 
 
 @measure(PricingProgram, "pv01")
-def _pv01(program, market, cache):
+def _pv01(program, market, context):
     """PV change for +1bp on the fixed coupon, signed; 0 for an instrument with no fixed coupon."""
-    return _fixed_coupons(program, market, cache)[0] * 1e-4
+    return _fixed_coupons(program, market, context)[0] * 1e-4
 
 
 @measure(PricingProgram, "annuity")
-def _annuity(program, market, cache):
+def _annuity(program, market, context):
     """PV of 1.0 of fixed coupon, unsigned; 0 for an instrument with no fixed coupon."""
-    return np.abs(_fixed_coupons(program, market, cache)[0])
+    return np.abs(_fixed_coupons(program, market, context)[0])
 
 
 @measure(PricingProgram, "par_coupon")
-def _par_coupon(program, market, cache):
+def _par_coupon(program, market, context):
     """The flat fixed coupon that makes PV zero; ``nan`` where there is no fixed coupon to solve for."""
-    annuity, coupon_pv, pv = _fixed_coupons(program, market, cache)
+    annuity, coupon_pv, pv = _fixed_coupons(program, market, context)
     out = np.full(annuity.shape, np.nan)
     np.divide(-(pv - coupon_pv), annuity, out=out, where=annuity != 0.0)
     return out
