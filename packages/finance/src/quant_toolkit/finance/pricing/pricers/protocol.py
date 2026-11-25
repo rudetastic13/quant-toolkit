@@ -26,7 +26,9 @@ What a program pins down
   (``curve="USD.STDCSA"`` for ``dv01``); an unknown setting is a ``TypeError``.  ``template=`` (a
   ``RiskTemplate``, bound or not) re-expresses the risk measures as risk to the template's quotes:
   the ladders come back as ``QuoteRisk`` (unexplained pillar risk included) and ``dv01`` as the sum
-  over the template's quotes on the curve.  Measures that are not risk are unchanged.  Requests are lenient so one
+  over the template's quotes on the curve.  Measures that are not risk are unchanged.
+  ``gamma_1bp`` / ``gamma_ladder`` (parallel curve gamma, by differencing the exact gradient) are
+  zero-pillar measures; ``gamma_step=`` sets the bump.  Requests are lenient so one
   list can be sent to a mixed book: a measure this product does not answer is skipped and reads back
   as ``None`` from ``result.get(name)``.  Only a name no product answers raises (a typo).
 - ``pillar_gradient(market) -> PillarGradient``: ``d value / d z`` over every curve parameter, from
@@ -89,7 +91,7 @@ def known_measures() -> frozenset[str]:
 
 
 # Settings a ``price`` call may pass through to its measures.
-KNOWN_SETTINGS = frozenset({"curve", "template"})
+KNOWN_SETTINGS = frozenset({"curve", "template", "gamma_step"})
 
 
 @dataclass
@@ -265,6 +267,96 @@ def dv01_from(
             continue
         out[rows] = quote_risk[np.ix_(rows, columns)].sum(axis=1) * bp
     return out
+
+
+def parallel_gamma(program: Any, inputs: Any, market: Any, context: MeasureContext, bp: float = 1e-4):
+    """How each position's zero ladder changes for a +``bp`` parallel move of its curve.
+
+    A central difference of the exact gradient (``program.pillar_gradient``) under a parallel
+    bump of the curve's zero pillars: two adjoint passes per distinct curve, and no second
+    difference of price.  This is ``H @ 1_c`` (Strata's semi-parallel gamma), computed once per
+    ``price`` call and shared by ``gamma_1bp`` and ``gamma_ladder``.
+
+    Parameters
+    ----------
+    program : Program
+    inputs : KernelInputs
+        The compiled legs, for each position's default curve (:func:`position_curves`).
+    market : MarketContext
+    context : MeasureContext
+        ``settings["curve"]`` names the curve for every position; ``settings["gamma_step"]`` is
+        the bump in zero-rate units (default ``1e-5``, a tenth of a basis point).
+    bp : float
+
+    Returns
+    -------
+    base : PillarGradient
+        The gradient at ``market`` (its layout is the columns of ``ladder``).
+    ladder : ndarray of float64, shape (n_positions, n_params)
+        Change in the per-``bp`` zero ladder for a +``bp`` parallel move of the position's curve;
+        a ``nan`` row for a position with no unambiguous default curve.
+    blocks : list of (slice or None), length n_positions
+        The columns of each position's own curve.
+
+    Raises
+    ------
+    NotImplementedError
+        With ``settings["template"]``: gamma is reported in zero-pillar space only.
+    KeyError
+        If ``settings["curve"]`` is not a curve the program reads.
+    ValueError
+        If ``gamma_step`` is not positive.
+    """
+    if "parallel_gamma" in context.cache:
+        return context.cache["parallel_gamma"]
+    if context.settings.get("template") is not None:
+        raise NotImplementedError("gamma_1bp / gamma_ladder are zero-pillar measures; request them without template=")
+    step = float(context.settings.get("gamma_step", 1e-5))
+    if step <= 0.0:
+        raise ValueError("gamma_step must be positive")
+    base = program.pillar_gradient(market)
+    n = base.values.shape[0]
+    chosen = context.settings.get("curve")
+    curves = [chosen] * n if chosen is not None else position_curves(inputs)
+    ladder = np.full(base.values.shape, np.nan)
+    blocks: list[slice | None] = [None] * n
+    for name in {c for c in curves if c is not None}:
+        try:
+            block = base.layout.block_of(name)
+        except KeyError:
+            if chosen is not None:
+                raise
+            continue
+        up = program.pillar_gradient(market.bump(block, step)).values
+        down = program.pillar_gradient(market.bump(block, -step)).values
+        columns = base.layout.block_slice(block)
+        for i in np.flatnonzero([c == name for c in curves]):
+            ladder[i] = (up[i] - down[i]) / (2.0 * step) * bp * bp
+            blocks[i] = columns
+    context.cache["parallel_gamma"] = base, ladder, blocks
+    return context.cache["parallel_gamma"]
+
+
+def gamma_1bp_from(program: Any, inputs: Any, market: Any, context: MeasureContext) -> np.ndarray:
+    """Change in ``dv01`` for a +1bp parallel move of the same curve, per position.
+
+    After a parallel move of ``m`` bp, ``dv01`` is about ``dv01 + gamma_1bp * m`` and the value
+    change is about ``dv01 * m + 0.5 * gamma_1bp * m**2``.  See :func:`parallel_gamma`.
+    """
+    _, ladder, blocks = parallel_gamma(program, inputs, market, context)
+    return np.array([np.nan if block is None else ladder[i, block].sum() for i, block in enumerate(blocks)])
+
+
+def gamma_ladder_from(program: Any, inputs: Any, market: Any, context: MeasureContext) -> Any:
+    """Change in each pillar's 01 for a +1bp parallel move of the position's curve, as a ``PillarRisk``.
+
+    ``values`` are already per bp per bp, so read ``values`` (not ``dv01``).  The block of the
+    position's own curve sums to ``gamma_1bp``.  See :func:`parallel_gamma`.
+    """
+    from quant_toolkit.finance.pricing.risk.pillar import PillarRisk
+
+    base, ladder, _ = parallel_gamma(program, inputs, market, context)
+    return PillarRisk.from_layout(base.layout, ladder, base.value)
 
 
 def pillar_measure(program: Any, market: Any, context: MeasureContext) -> Any:

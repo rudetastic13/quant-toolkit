@@ -17,6 +17,8 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     PillarGradient,
     declare_measures,
     dv01_from,
+    gamma_1bp_from,
+    gamma_ladder_from,
     measure,
     on_demand,
     pillar_measure,
@@ -159,6 +161,18 @@ measure(FuturesProgram, "zero_ladder")(pillar_measure)
 def _dv01(program, market, context):
     """Change in margined P&L for +1bp on every zero pillar of one curve; see :func:`dv01_from`."""
     return dv01_from(program.pillar_gradient(market), program.program.inputs, market, context)
+
+
+@measure(FuturesProgram, "gamma_1bp")
+def _gamma_1bp(program, market, context):
+    """Change in ``dv01`` for a +1bp parallel move of the same curve; see :func:`gamma_1bp_from`."""
+    return gamma_1bp_from(program, program.program.inputs, market, context)
+
+
+@measure(FuturesProgram, "gamma_ladder")
+def _gamma_ladder(program, market, context):
+    """Per-pillar change in 01 for that move; see :func:`gamma_ladder_from`."""
+    return gamma_ladder_from(program, program.program.inputs, market, context)
 
 
 @register_with(pricer_registry, SofrFuture, overwrite=True)

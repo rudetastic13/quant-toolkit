@@ -24,6 +24,8 @@ from quant_toolkit.finance.pricing.pricers.protocol import (
     PillarGradient,
     declare_measures,
     dv01_from,
+    gamma_1bp_from,
+    gamma_ladder_from,
     measure,
     on_demand,
     resolve_requests,
@@ -84,13 +86,17 @@ class PricingProgram:
             :class:`PillarRisk` each: total, projection-only, discounting-only) run the Numba
             adjoint and are computed only when named.  ``pv01``, ``annuity`` and ``par_coupon``
             (one number per instrument, from its fixed coupon flows) are also on request, as
-            is ``dv01`` (PV change for +1bp on every zero pillar of one curve).  A measure only another product answers
+            is ``dv01`` (PV change for +1bp on every zero pillar of one curve), with
+            ``gamma_1bp`` (the change in that ``dv01`` for a +1bp parallel move) and
+            ``gamma_ladder`` (the same per pillar, a :class:`PillarRisk`).  A measure only another product answers
             (``"vega"``) is skipped and reads ``None`` from ``result.get``.
         backend : Backend, optional
         **settings
             ``curve`` : the curve ``dv01`` reports against.  Default: each instrument's own
             projection curve (its discount curve if it projects off nothing; ``nan`` if its
             legs project off several).
+            ``gamma_step`` : the bump behind ``gamma_1bp`` / ``gamma_ladder``, zero-rate units
+            (default ``1e-5``).
             ``template`` : a ``RiskTemplate`` (bound or not).  The ladders come back as
             ``QuoteRisk`` and ``dv01`` as +1bp on the template's quotes on the curve.
 
@@ -203,6 +209,18 @@ def _fixed_coupons(program: PricingProgram, market, context: MeasureContext):
         coupon_pv = np.bincount(instrument[coupon], kr.flow_pv[coupon], minlength=n)
         cache["fixed_coupons"] = annuity, coupon_pv, kr.instrument_pv
     return cache["fixed_coupons"]
+
+
+@measure(PricingProgram, "gamma_1bp")
+def _gamma_1bp(program, market, context):
+    """Change in ``dv01`` for a +1bp parallel move of the same curve; see :func:`gamma_1bp_from`."""
+    return gamma_1bp_from(program, program.inputs, market, context)
+
+
+@measure(PricingProgram, "gamma_ladder")
+def _gamma_ladder(program, market, context):
+    """Per-pillar change in 01 for that move; see :func:`gamma_ladder_from`."""
+    return gamma_ladder_from(program, program.inputs, market, context)
 
 
 @measure(PricingProgram, "pv01")

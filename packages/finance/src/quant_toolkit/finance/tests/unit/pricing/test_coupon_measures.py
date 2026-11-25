@@ -171,3 +171,50 @@ class TestDv01(UnitTest):
         np.testing.assert_allclose(
             self.swap(self.market, ["dv01"], template=bound).get("dv01"), viewed.get("dv01"), rtol=1e-12
         )
+
+
+class TestParallelGamma(UnitTest):
+
+    def setUp(self):
+        self.as_of = Date(2026, 6, 1)
+        self.market = _market(self.as_of)
+        self.swap = Swap.fixed_float_swap(
+            notional=10e6, rate_index="USD.SOFR.1D", fixed_rate=0.04, tenor="5Y", as_of=self.as_of
+        )
+        self.option = Swaption.european(notional=10e6, strike=0.046, expiry="1Y", swap_tenor="5Y", as_of=self.as_of)
+
+    def test_gamma_1bp_is_the_change_in_dv01_per_bp(self):
+        for instrument in (self.swap, self.option):
+            with self.subTest(type(instrument).__name__):
+                result = instrument(self.market, ["dv01", "gamma_1bp", "gamma_ladder"])
+                up = instrument(self.market.bump(CURVE, BP), ["dv01"]).get("dv01")
+                down = instrument(self.market.bump(CURVE, -BP), ["dv01"]).get("dv01")
+                np.testing.assert_allclose(result.get("gamma_1bp"), (up - down) / 2.0, rtol=1e-3)
+                np.testing.assert_allclose(
+                    result.get("gamma_ladder").block(CURVE).sum(axis=1), result.get("gamma_1bp"), rtol=1e-12
+                )
+
+    def test_second_order_explain_of_a_parallel_move(self):
+        m = 25.0   # bp
+        result = self.option(self.market, ["pv", "dv01", "gamma_1bp"])
+        actual = self.option(self.market.bump(CURVE, m * BP), ["pv"]).get("pv") - result.get("pv")
+        first = result.get("dv01") * m
+        second = first + 0.5 * result.get("gamma_1bp") * m * m
+        self.assertLess(abs(second[0] - actual[0]), 0.2 * abs(first[0] - actual[0]))   # gamma closes most of the gap
+
+    def test_reconciles_with_the_engine_cross_gamma(self):
+        from quant_toolkit.finance.pricing.risk import RiskEngine
+
+        matrix = RiskEngine(self.swap._compiled_program(), self.market).gamma(CURVE)   # 0.5 * H * bp**2, one swap
+        np.testing.assert_allclose(self.swap(self.market, ["gamma_1bp"]).get("gamma_1bp")[0], 2.0 * matrix.sum(), rtol=1e-5)
+
+    def test_swaption_curve_gamma_is_not_its_forward_gamma(self):
+        result = self.option(self.market, ["gamma", "gamma_1bp"])
+        self.assertGreater(result.get("gamma_1bp")[0], 0.0)         # long option: long curve gamma
+        self.assertNotAlmostEqual(result.get("gamma")[0], result.get("gamma_1bp")[0])
+
+    def test_template_and_bad_step_are_refused(self):
+        with self.assertRaises(NotImplementedError):
+            self.swap(self.market, ["gamma_1bp"], template=object())
+        with self.assertRaisesRegex(ValueError, "gamma_step"):
+            self.swap(self.market, ["gamma_1bp"], gamma_step=0.0)
